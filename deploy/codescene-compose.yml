@@ -1,0 +1,78 @@
+version: "3.8"
+
+# ============================================================
+# CodeScene On-Premises Docker Compose
+# Kavach-AgenticSOC Code Intelligence System
+#
+# CodeScene is a behavioral hotspot analysis tool that identifies
+# technical debt trends and complexity hotspots using Git history.
+#
+# Usage:
+#   1. Obtain a CodeScene license key for OSS projects
+#   2. Set environment variables in .env file
+#   3. docker compose -f deploy/codescene-compose.yml up -d
+#   4. Access: http://localhost:3003
+# ============================================================
+
+services:
+  codescene:
+    image: empear/codescene:latest
+    container_name: codescene
+    restart: unless-stopped
+    ports:
+      - "3003:3003"
+    environment:
+      # License
+      - CODESCENE_LICENSE_KEY=${CODESCENE_LICENSE_KEY}
+      # Database
+      - CODESCENE_DB_TYPE=postgres
+      - CODESCENE_DB_HOST=codescene-db
+      - CODESCENE_DB_PORT=5432
+      - CODESCENE_DB_NAME=codescene
+      - CODESCENE_DB_USER=codescene
+      - CODESCENE_DB_PASSWORD=${CODESCENE_DB_PASSWORD}
+      # Application
+      - CODESCENE_HOST=0.0.0.0
+      - CODESCENE_PORT=3003
+      - CODESCENE_SECRET_KEY=${CODESCENE_SECRET_KEY}
+      # GitHub integration (for repo access)
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+    volumes:
+      - codescene-data:/data/codescene
+      - codescene-repos:/repos
+    depends_on:
+      - codescene-db
+    networks:
+      - codescene-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  codescene-db:
+    image: postgres:15-alpine
+    container_name: codescene-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=codescene
+      - POSTGRES_USER=codescene
+      - POSTGRES_PASSWORD=${CODESCENE_DB_PASSWORD}
+    volumes:
+      - codescene-postgres:/var/lib/postgresql/data
+    networks:
+      - codescene-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codescene"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  codescene-data:
+  codescene-repos:
+  codescene-postgres:
+
+networks:
+  codescene-network:
+    driver: bridge

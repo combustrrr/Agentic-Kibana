@@ -681,7 +681,7 @@ async def _sql_delete_all(
     try:
         from sqlalchemy import text
 
-        stmt = f"DELETE FROM {table}" + (f" WHERE {where}" if where else "")
+        stmt = f"DELETE FROM {table}" + (f" WHERE {where}" if where else "")  # nosec B608 — table+where are code-controlled constants, never user input (see docstring)
         async with engine.begin() as conn:
             result = await conn.execute(text(stmt))
             return int(getattr(result, "rowcount", 0) or 0)

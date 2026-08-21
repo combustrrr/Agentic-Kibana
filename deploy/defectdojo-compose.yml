@@ -1,0 +1,118 @@
+version: "3.8"
+
+# ============================================================
+# DefectDojo — Open-Source Vulnerability Management Platform
+# Kavach-AgenticSOC Code Intelligence System
+#
+# DefectDojo is the OWASP-sponsored, free, open-source vulnerability
+# management platform that aggregates findings from 500+ security tools.
+#
+# Usage:
+#   1. Set environment variables in .env file
+#   2. docker compose -f deploy/defectdojo-compose.yml up -d
+#   3. Open http://localhost:8080
+#   4. Default login: admin / admin (change immediately!)
+#   5. Create a Product for the Kavach-AgenticSOC project
+# ============================================================
+
+services:
+  defectdojo-django:
+    image: defectdojo/defectdojo-django:latest
+    container_name: defectdojo
+    depends_on:
+      - defectdojo-postgres
+      - defectdojo-redis
+    ports:
+      - "8080:8080"
+    environment:
+      - DD_DATABASE_URL=postgresql://defectdojo:${DEFECTDOJO_DB_PASSWORD:-defectdojo}@defectdojo-postgres:5432/defectdojo
+      - DD_CELERY_BROKER_URL=redis://defectdojo-redis:6379/0
+      - DD_SECRET_KEY=${DEFECTDOJO_SECRET_KEY:-unsafe-change-in-production}
+      - DD_ALLOWED_HOSTS=localhost,127.0.0.1,${DEFECTDOJO_HOST:-defectdojo}
+      - DD_ADMIN_USER=admin
+      - DD_ADMIN_MAIL=${DEFECTDOJO_ADMIN_EMAIL:-admin@kavach.local}
+      - DD_ADMIN_PASSWORD=${DEFECTDOJO_ADMIN_PASSWORD:-change-me-immediately}
+      - DD_INITIALIZE=true
+      - DD_TRACK_NOTIFICATIONS=False
+      - DD_SOCIAL_AUTH_GOOGLE_OAUTH2_ENABLED=False
+    volumes:
+      - defectdojo-media:/app/media
+    restart: unless-stopped
+    networks:
+      - defectdojo-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v2/users/"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  defectdojo-celery-worker:
+    image: defectdojo/defectdojo-django:latest
+    container_name: defectdojo-celery-worker
+    depends_on:
+      - defectdojo-postgres
+      - defectdojo-redis
+    command: celery -A dojo worker -l INFO
+    environment:
+      - DD_DATABASE_URL=postgresql://defectdojo:${DEFECTDOJO_DB_PASSWORD:-defectdojo}@defectdojo-postgres:5432/defectdojo
+      - DD_CELERY_BROKER_URL=redis://defectdojo-redis:6379/0
+      - DD_SECRET_KEY=${DEFECTDOJO_SECRET_KEY:-unsafe-change-in-production}
+    volumes:
+      - defectdojo-media:/app/media
+    restart: unless-stopped
+    networks:
+      - defectdojo-network
+
+  defectdojo-celery-beat:
+    image: defectdojo/defectdojo-django:latest
+    container_name: defectdojo-celery-beat
+    depends_on:
+      - defectdojo-postgres
+      - defectdojo-redis
+    command: celery -A dojo beat -l INFO
+    environment:
+      - DD_DATABASE_URL=postgresql://defectdojo:${DEFECTDOJO_DB_PASSWORD:-defectdojo}@defectdojo-postgres:5432/defectdojo
+      - DD_CELERY_BROKER_URL=redis://defectdojo-redis:6379/0
+      - DD_SECRET_KEY=${DEFECTDOJO_SECRET_KEY:-unsafe-change-in-production}
+    restart: unless-stopped
+    networks:
+      - defectdojo-network
+
+  defectdojo-postgres:
+    image: postgres:15-alpine
+    container_name: defectdojo-postgres
+    environment:
+      - POSTGRES_DB=defectdojo
+      - POSTGRES_USER=defectdojo
+      - POSTGRES_PASSWORD=${DEFECTDOJO_DB_PASSWORD:-defectdojo}
+    volumes:
+      - defectdojo-postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - defectdojo-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U defectdojo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  defectdojo-redis:
+    image: redis:7-alpine
+    container_name: defectdojo-redis
+    restart: unless-stopped
+    networks:
+      - defectdojo-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  defectdojo-media:
+  defectdojo-postgres:
+
+networks:
+  defectdojo-network:
+    driver: bridge

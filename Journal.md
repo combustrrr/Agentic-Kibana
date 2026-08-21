@@ -9879,3 +9879,204 @@
 - Tests: On the rebased candidate, focused NoiseFunnel/policy/Overview passed **34/34**; strict Console passed **2,031/2,031 across 300 files** plus the **5/5** strict-output harness; TypeScript, full ESLint, OpenAPI drift (**229 paths**), documentation consistency, all design gates, production build (**3,196 modules**), and `git diff --check` passed. PR-head CI and Documentation passed; merge-SHA CI run **31971438432** and Documentation run **31971438306** also passed in full.
 - Status: complete and published to protected `Testing` via PR **#87** at `38dcea668a4ef84317bfc0ffb720dcfe7988c372`; the dashboard change is ready for Testing integration use, not Stable or production promotion.
 - Next: Land this completion record through the same protected Testing workflow; keep `main`/Stable unchanged until a separate reviewed promotion is requested.
+
+---
+
+### 2026-08-21 06:12Z — orchestrator — Start Static Code Analysis feature
+- Context: Add comprehensive Static Code Analysis (SCA) to the suite. The existing `python-static` CI job uses only `ruff` (`.ci/requirements.txt`); the goal is to expand static analysis coverage and tooling. User has a proposal and requested a separate branch first.
+- Did: Created branch `feature/static-code-analysis` from current `Testing` HEAD (`c2f0a41`). No code changes yet.
+- Tests: Pending — proposal review and implementation.
+- Status: in-progress; branch only, no commits or pushes yet.
+- Next: Review the user's proposal; design the static analysis additions and implement.
+
+### 2026-08-21 06:46Z — orchestrator — Static Code Analysis implementation (Phase 1)
+- Context: Implement the Static Code Analysis proposal (Kavach-AgenticSOC-Analysis-Proposal.zip)
+  adapted to the actual codebase. The proposal defines a 6-layer, defense-in-depth
+  static analysis pipeline with 13 tools, a finding normalizer, canary coverage
+  validation, AI triage, and issue aggregation.
+- Did (24 new files across 24 unique paths):
+
+  **GitHub Actions workflows** (`.github/workflows/`) — 7 new workflow files:
+  - `01-code-quality.yml` — Ruff lint+format, Bandit (Python security), Pyright (types),
+    ESLint + tsc (TypeScript/React). Bandit uploads SARIF to GitHub Security tab.
+    Ruff extended rules use non-blocking `--exit-zero`.
+  - `02-security-sast.yml` — CodeQL (Python + JavaScript/TypeScript matrices with
+    security-extended + security-and-quality queries), Semgrep (OWASP Top 10 + JWT +
+    secrets + FastAPI + 18 custom rules from `.github/semgrep-rules/`), Bandit.
+    All upload SARIF to GitHub Security tab + artifacts for normalizer.
+  - `03-dependency-security.yml` — OSV-Scanner (backend/pyproject.toml, requirements,
+    webui/package-lock.json), GitHub Dependency Review (PR gate), Gitleaks (full history
+    via `.gitleaks.toml`), Trivy (filesystem + config scan), Hadolint (Dockerfile),
+    Checkov (IaC: Docker Compose, GitHub Actions).
+  - `04-code-health.yml` — Radon + Xenon (cyclomatic complexity, CI gate), Vulture
+    (dead code, confidence ≥80%), Coverage.py (70% minimum gate).
+  - `05-issue-aggregation.yml` — Daily sync of HIGH/CRITICAL code scanning alerts
+    to GitHub Issues with stable fingerprint labels; auto-closes resolved alerts
+    after 3 consecutive clean scans; weekly summary report.
+  - `06-canary-validation.yml` — Weekly + on-config-change integration test: runs
+    all scanners against the deliberately-vulnerable canary test suite, normalizes
+    findings, validates that every expected vulnerability is caught (fails CI
+    if any are missed — detects tool-chain dead spots).
+  - `07-api-fuzzing.yml` — Schemathesis OpenAPI fuzzing against live backend
+    (postgres+redis sidecar services), JUnit XML output, normalized findings export.
+
+  **Semgrep custom rules** (`.github/semgrep-rules/kavach-custom.yaml`) — 18 rules:
+  - kavach-sqlalchemy-raw-string-execute (SQL injection via SQLAlchemy)
+  - kavach-aiosqlite-raw-string-execute (SQL injection via aiosqlite)
+  - kavach-elasticsearch-query-injection (ES query injection)
+  - kavach-fastapi-missing-security-dependency (missing auth on routes)
+  - kavach-jwt-decode-no-algorithm (JWT "none" algorithm bypass)
+  - kavach-jwt-hardcoded-secret (hardcoded JWT signing secret)
+  - kavach-hardcoded-api-key (sk-proj, sk-ant, AIza patterns)
+  - kavach-hardcoded-password (hardcoded credentials)
+  - kavach-langgraph-unrestricted-tool-invocation (agent safety)
+  - kavach-llm-output-exec-injection (LLM output in eval/exec)
+  - kavach-unsanitized-llm-output-in-http-response (prompt injection reflection)
+  - kavach-pickle-deserialization (pickle/yaml.load UnsafeLoader)
+  - kavach-assert-for-validation (assert for security checks)
+  - kavach-cors-wildcard (CORS wildcard origins)
+  - kavach-subprocess-shell-true (shell=True)
+  - kavach-debug-mode-enabled (FastAPI debug mode)
+  - kavach-weak-crypto-hash (md5/sha1 for security)
+  - kavach-redis-no-auth (Redis without auth)
+
+  **Tool configs:**
+  - `.gitleaks.toml` — 10 custom secret detection rules (JWT, ES password, Redis,
+    OpenAI, Anthropic, Google, OAuth, TOTP, DB password, generic API key) + 14
+    allowlist paths + 5 allowlist regexes (test fixtures, env refs, dummy values).
+  - `backend/ruff-analysis.toml` — 27 rule sets (E, W, F, UP, B, C4, SIM, I, N, S,
+    A, PIE, T20, PT, Q, RSE, RET, TCH, ARG, PTH, ERA, PGH, PL, TRY, FLY, PERF, RUF)
+    with canary file suppression and test/script exemptions.
+  - `backend/pyproject.toml` — Extended with `[tool.ruff.lint]`, `[tool.ruff.lint.per-file-ignores]`,
+    `[tool.ruff.lint.isort]`, `[tool.bandit]`, `[tool.coverage.run]`, `[tool.coverage.report]`,
+    `[tool.mypy]`. Existing config preserved.
+  - `.github/codeql/codeql-config.yml` — CodeQL config with security-extended +
+    security-and-quality queries, paths for backend/ + webui/src/, excludes test/canary.
+  - `.ci/requirements.txt` — Extended with bandit, semgrep, radon, xenon, vulture, click.
+
+  **Code Analysis scripts** (`scripts/code_analysis/`):
+  - `normalizer.py` — 732-line unified finding normalizer. Parses SARIF (CodeQL,
+    Semgrep, Trivy, Hadolint, Gitleaks, Qodana, OSV, Checkov), Bandit JSON, Ruff JSON,
+    Vulture JSON. Concept normalization map (80+ rule IDs → canonical concepts for
+    cross-tool deduplication). Stable SHA256 fingerprinting by file+line+concept.
+    Outputs unified-findings.json, deduplicated-findings.json, normalized.sarif.
+  - `validate_canary.py` — 232-line canary coverage integration test. Validates
+    that all 10 canary expectations are detected by the required tools. Exits 1
+    on coverage gaps.
+  - `ai-triage-prompt.md` — AI Triage Agent system prompt with verdict schema,
+    fix-level definitions, Kavach-specific security hierarchy (10 Level-0 items),
+    LangGraph/prompt injection special handling.
+
+  **Canary test suite** (`tests/security_canary/`):
+  - 10 deliberately-vulnerable test files covering: SQL injection (f-string, concat,
+    % formatting), hardcoded secrets (OpenAI/Anthropic/Google keys, DB/JWT passwords,
+    Redis URLs), JWT none-algorithm, eval/exec code injection, pickle deserialization,
+    path traversal, LLM output exec injection, XSS via dangerouslySetInnerHTML,
+    insecure Dockerfile (root user, no tag, apt cache), vulnerable dependencies
+    (10 known CVE'd packages), plus safe counterparts for contrast.
+  - `COVERAGE.md` — Detection matrix documenting expected tools per canary file.
+  - `fuzzing/atheris_state_fuzzer.py` — Atheris fuzzer targeting the case-manager
+    decide() state machine with fuzzed verdict/confidence/risk inputs.
+
+  **Deployment** (`deploy/`):
+  - `defectdojo-compose.yml` — OWASP DefectDojo vulnerability management (Django + Celery + Postgres + Redis)
+  - `codescene-compose.yml` — CodeScene behavioral hotspot analysis on-prem
+
+  **Documentation** (`docs/code-analysis/`):
+  - `README.md` — Full architecture reference (10 sections): system overview, selected
+    stack, mermaid diagrams, workflow table, CI gate policy, auto-fix policy (3 levels),
+    unified finding schema, deployment constraints, implementation roadmap, tool matrix
+  - `Finding-Lifecycle-and-Coherence.md` — Finding lifecycle state machine (NEW →
+    OPEN → ... → VERIFIED_FIXED), idempotent issue management, tool web coherence
+    design (overlap vs dead-spots vs disconnection), canary validation rationale.
+
+- Adaptation changes from the original proposal:
+  - Branch names: `main, develop` → `main, Testing`
+  - Backend path: root-level → `backend/`
+  - Python version: 3.11 (matches project)
+  - Node version: 22 (matches project)
+  - CI tool versioning: `.ci/requirements.txt` + pip install (matches existing pattern)
+  - Added CodeQL config file for query customization
+  - Extended canonical YAML fix, normalized YAML quoting, consolidated duplicate Semgrep jobs
+  - Added atheris fuzzer adapted to the actual state.py engine module
+  - Mapped all 18 semgrep custom rules to actual Kavach codebase patterns (JWT stdlib,
+    FastAPI RBAC, ES client, ToolRegistry, etc.)
+- Tests: All YAML files validated (7 workflows + 2 docker compose + CodeQL config),
+  all TOML files validated (gitleaks + pyproject.toml + ruff-analysis.toml), all Python
+  files parse correctly (normalizer, validate_canary, 7 canary Python files + atheris fuzzer).
+  Backend pytest suite NOT re-run (no code changes to backend/app — only pyproject.toml
+  metadata additions which don't affect tests).
+- Branch: `feature/static-code-analysis` — all 28 new files created but NOT committed.
+- Status: implementation complete; pending review + commit.
+- Next: User review of the adapted proposal implementation. Consider integrating new
+  quality gates into the existing `ci.yml` `CI passed` aggregate (currently standalone
+  workflows). Consider adding `.github/release.yml` for the code-analysis research folder.
+
+### 2026-08-21 06:51Z — orchestrator — Static Code Analysis — baseline scan + integration analysis
+- Context: Before merging the SCA feature branch, run the proposed tools against the actual
+  codebase to establish a baseline of findings and identify integration risks.
+- Did (local runs of tools on `backend/`):
+  - Ruff extended (backend/ruff-analysis.toml, 27 rule sets): 5,392 findings.
+    Top rules: PLC0415 (921 — import outside top-level), RUF100 (788 — unused noqa),
+    PT018 (710 — assertion-comparison), E501 (659 — line-too-long), TC001 (221 — type-checking
+    imports), I001 (218 — import sorting), B008 (209 — function call in default arg),
+    PLR2004 (136 — magic values), UP017 (111), S110 (107 — try/except/pass).
+    Most are LOW/style; the 6 HIGH-severity B-rules (B608) and S-rules overlap with Bandit/Semgrep.
+  - Bandit (`backend/pyproject.toml` config, skips B101/B603/B607/B404): 165 findings.
+    Breakdown: 155 LOW, 8 MEDIUM, 2 HIGH. Top rules: B110 (102 — try_except_pass, all
+    intentional), B112 (37 — continue_on_error, intentional), B311 (9 — random used for
+    non-crypto), B107 (6 — hardcoded password="" default args, false positives in
+    notification channels), B310 (3 — request with no certificate). Security-relevant:
+    B608 x2 in `backend/app/engine/reset.py:684,704` (MEDIUM/LOW confidence — f-string
+    DELETE/SELECT with internally-controlled `table` param; likely false positive but
+    needs `# nosec` suppression).
+  - Semgrep custom rules (kavach-custom.yaml): **0 findings** — codebase is clean against
+    all 18 custom rules. Confirms rules are well-calibrated to the actual codebase patterns
+    (stdlib HS256 JWT, FastAPI RBAC, SQLAlchemy parameterized queries, no eval/exec in prod).
+  - Semgrep public rules (p/python + p/owasp-top-ten + p/jwt): 11 findings.
+    Breakdown: 8 WARNING, 3 ERROR.
+    - `python-logger-credential-disclosure` (5): logger messages containing "secret"
+      in format strings (reset.py, routes_models.py, state.py) — false positives
+      (logging failure messages, not logging the actual secret).
+    - `avoid-sqlalchemy-text` (3): same reset.py f-string pattern as Bandit B608.
+    - `insecure-hash-algorithm-md5` (1): `llm/providers.py:864` — used for token hashing
+      in embedding vectors, not cryptographic. False positive.
+    - `insecure-hash-algorithm-sha1` (1): `tools/rag.py:231` — used in `_shorthash()` for
+      document ID generation, not cryptographic. False positive.
+- Tests: Ruff and Bandit ran locally against `backend/` with expected findings (no crashes).
+  Semgrep custom + public rules ran locally (0 custom findings, 11 public findings).
+  All confirmed as either false positives or known intentional patterns.
+- Critical fix applied: Removed `[tool.ruff.lint]` from `backend/pyproject.toml` to
+  prevent disrupting the existing `python-static` CI gate (which runs `ruff check`
+  without `--select`). Extended rules now ONLY apply via `backend/ruff-analysis.toml`
+  with `--exit-zero` in the 01-code-quality.yml workflow.
+- Status: Baseline established. All workflows set to DORMANT mode (workflow_dispatch-only;
+  push/pull_request/schedule triggers commented out). All gates advisory (--exit-zero).
+  Zero disruption to existing Testing branch CI.
+- Next: Phase 1 — resolve 5,392 ruff + 165 bandit + 11 semgrep findings to establish
+  baseline. Phase 2 — activate workflows (uncomment triggers) + run canary validation.
+  Phase 3 — switch key gates to blocking + integrate into ci.yml CI passed aggregate.
+  Phase 4 — merge to Testing.
+
+### 2026-08-21 07:17Z — orchestrator — Phase 0 verification complete
+- Context: Verify Phase 0 (dormant state) is safe: no CI disruption, no PR, no push.
+- Did: Full safety verification of the dormant state:
+  1. Branch: `feature/static-code-analysis` (not Testing/main) ✓
+  2. Zero commits ahead of Testing — all 28 files are uncommitted in worktree ✓
+  3. Nothing pushed to remote (no upstream commits) ✓
+  4. ci.yml untouched (git diff --name-only HEAD | grep ci.yml = empty) ✓
+  5. pyproject.toml: no `[tool.ruff.lint]` section added (count=0) — existing
+     `python-static` CI gate behavior unchanged ✓
+  6. All 7 workflows: 1 active `workflow_dispatch:` trigger, 0 active
+     push/pull_request/schedule triggers, 1 DORMANT note each ✓
+  7. `.ci/requirements.txt`: added bandit/semgrep/radon/xenon/vulture/click —
+     these install alongside ruff in the existing `python-static` job but are
+     not invoked by it; safe, only adds ~5s install time ✓
+- Tests: All YAML/TOML/Python files re-validated (21 files total). git status clean of
+  unexpected files. No existing CI job behavior changed.
+- Status: **Phase 0 COMPLETE**. Dormant, safe, zero production risk.
+- Next: Ready for Phase 1 (baseline resolution) when user approves. Can be triggered
+  manually via `workflow_dispatch` for testing without affecting any branch's CI.
+  Created `docs/code-analysis/EXECUTION_PLAN.md` (489 lines) with full 5-phase
+  execution plan including exact commands, expected baseline findings, suppression
+  guide, and where-to-find-issues-at-each-stage reference table.

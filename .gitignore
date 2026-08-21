@@ -15,6 +15,7 @@ venv/
 # Auto-bootstrapped pinned MkDocs toolchain for one-command Console builds.
 /.docs-venv/
 /.docs-venv.lock
+/.code-analysis-venv/
 .env.local
 .pytest_cache/
 .coverage

@@ -1,0 +1,19 @@
+# ============================================================
+# Canary Test Suite: Vulnerable Dependencies
+#
+# This file DELIBERATELY lists known-vulnerable packages.
+# It exists to validate that the scanner pipeline detects them.
+#
+# Expected detections: OSV-Scanner, Snyk, Dependabot
+# ============================================================
+
+flask==0.12.2          # CVE-2023-30893: Flask debug mode XSS
+requests==2.19.1        # CVE-2018-18074: Redirect bypass
+PyYAML==5.1             # CVE-2020-1747: YAML arbitrary code execution
+django==1.11.1          # CVE-2018-6188: clickjacking
+sqlalchemy==1.3.17      # CVE-2020-25610: SQL injection via ORDER BY
+celery==4.0.2           # CVE-2020-25622: message queue injection
+urllib3==1.21.1          # CVE-2019-11324: certificate validation bypass
+markupsafe==1.0         # CVE-2020-2795: sandbox escape
+jinja2==2.10             # CVE-2019-10906: sandbox escape
+werkzeug==0.14.1         # CVE-2022-29361: debugger RCE

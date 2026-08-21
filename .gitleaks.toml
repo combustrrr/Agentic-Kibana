@@ -1,0 +1,123 @@
+# ============================================================
+# Gitleaks Configuration
+# Kavach-AgenticSOC — Secrets Detection
+# ============================================================
+# Reference: https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+
+title = "Kavach-AgenticSOC Gitleaks Config"
+
+[extend]
+# Extend the default gitleaks config (broad coverage of 2000+ patterns)
+useDefault = true
+
+# ── Custom rules for Kavach-specific secrets ─────────────────────────────
+
+[[rules]]
+id = "kavach-jwt-secret"
+description = "Kavach JWT signing secret"
+regex = '''(?i)(jwt[_-]?(secret|key)|auth_jwt_secret|tlsoc_auth_jwt_secret)\s*[=:]\s*["\']?([A-Za-z0-9+/=_-]{32,})["\']?'''
+tags = ["jwt", "secret", "kavach"]
+severity = "CRITICAL"
+
+[[rules]]
+id = "kavach-es-password"
+description = "Kavach Elasticsearch / OpenSearch password"
+regex = '''(?i)(elastic[_-]?password|es[_-]?password|opensearch[_-]?password|tlsoc_es_)[=:]\s*["\']?([^\s"\']{8,})["\']?'''
+tags = ["elasticsearch", "secret", "kavach"]
+severity = "HIGH"
+
+[[rules]]
+id = "kavach-redis-url"
+description = "Redis URL with embedded password"
+regex = '''redis://(:[^@]+)?@'''
+tags = ["redis", "secret"]
+severity = "HIGH"
+
+[[rules]]
+id = "kavach-openai-key"
+description = "OpenAI API key (LLM provider)"
+regex = '''sk-[a-zA-Z0-9]{20,}'''
+tags = ["openai", "llm", "secret"]
+severity = "CRITICAL"
+
+[[rules]]
+id = "kavach-anthropic-key"
+description = "Anthropic API key"
+regex = '''sk-ant-[a-zA-Z0-9-]{32,}'''
+tags = ["anthropic", "llm", "secret"]
+severity = "CRITICAL"
+
+[[rules]]
+id = "kavach-google-api-key"
+description = "Google API key (Gemini / other Google services)"
+regex = '''AIza[0-9A-Za-z-_]{35}'''
+tags = ["google", "llm", "secret"]
+severity = "HIGH"
+
+[[rules]]
+id = "kavach-oauth-client-secret"
+description = "OAuth / OIDC client secret"
+regex = '''(?i)(oauth[_-]?client[_-]?secret|oidc[_-]?secret|tlsoc_client_secret)\s*[=:]\s*["\']?([A-Za-z0-9_-]{16,})["\']?'''
+tags = ["oauth", "oidc", "secret"]
+severity = "CRITICAL"
+
+[[rules]]
+id = "kavach-totp-secret"
+description = "TOTP/MFA base32 secret"
+regex = '''(?i)(totp[_-]?secret|mfa[_-]?secret|tlsoc_mfa_)\s*[=:]\s*["\']?([A-Z2-7]{16,})["\']?'''
+tags = ["mfa", "totp", "secret"]
+severity = "HIGH"
+
+[[rules]]
+id = "kavach-db-password"
+description = "Database password (PostgreSQL/SQLite)"
+regex = '''(?i)(postgres[_]?password|pg[_]?password|db[_]?password|database[_]?password)\s*[=:]\s*["\']?([^\s"\']{8,})["\']?'''
+tags = ["database", "postgres", "secret"]
+severity = "HIGH"
+
+[[rules]]
+id = "kavach-generic-api-key"
+description = "Generic API key pattern"
+regex = '''(?i)(api[_-]?key|api[_-]?token|access[_-]?token)\s*[=:]\s*["\']?[A-Za-z0-9+/=_-]{32,}["\']?'''
+tags = ["api-key", "secret"]
+severity = "MEDIUM"
+
+# ── Allowlists — paths/patterns that are OK to ignore ──────────────────────
+
+[allowlist]
+description = "Known false positives for Kavach"
+
+# Paths to exclude entirely
+paths = [
+    # Test fixtures — fake credentials
+    '''tests/.*''',
+    '''backend/tests/.*''',
+    # Lock files
+    '''package-lock\.json''',
+    '''poetry\.lock''',
+    '''requirements.*\.txt''',
+    # Documentation examples
+    '''docs/.*''',
+    '''README\.md''',
+    '''CHANGELOG\.md''',
+    # Template/example config files
+    '''.*\.example''',
+    '''.*\.template''',
+    '''\.env\.example''',
+    '''\.env\.example.*''',
+    # Scripts
+    '''scripts/validate_canary\.py''',
+    '''architecture/.*''',
+]
+
+# Regexes to exclude
+regexes = [
+    # Common test/dummy values
+    '''(password|secret|token|key)\s*=\s*["']?(test|fake|dummy|example|placeholder|changeme|your[-_]?secret[-_]?here|none|null)["']?''',
+    # Mock/test fixtures
+    '''(mock|stub|fixture)_?token''',
+    # Environment variable references (not actual values)
+    '''os\.environ\.get\(''',
+    '''os\.getenv\(''',
+    '''settings\.''',
+]

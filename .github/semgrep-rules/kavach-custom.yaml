@@ -1,0 +1,368 @@
+# ============================================================
+# Semgrep Custom Rules — Kavach-AgenticSOC
+# These complement the public OWASP + python rulesets
+# Focus: FastAPI patterns, LangGraph agent safety, SOC context,
+#        JWT auth, SQLAlchemy/aiosqlite, ES query injection
+# ============================================================
+
+rules:
+
+  # ── SQLAlchemy / aiosqlite — Raw SQL injection ─────────────────────────────
+
+  - id: kavach-sqlalchemy-raw-string-execute
+    message: >
+      Raw SQL string passed to SQLAlchemy execute(). Use parameterized
+      queries with bindparams() or text() with proper binding instead.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern: |
+          $SESSION.execute(f"...")
+      - pattern-either:
+        - pattern: $SESSION.execute("..." % ...)
+        - pattern: $SESSION.execute("..." + ...)
+        - pattern: $DB.execute(f"...")
+    metadata:
+      category: security
+      owasp: A03:2021
+      cwe: CWE-89
+      more-info: https://docs.kavach.dev/code-analysis/rules/sql-injection
+
+  - id: kavach-aiosqlite-raw-string-execute
+    message: >
+      Raw f-string SQL passed to aiosqlite execute(). Parameterize with
+      (?, ?) placeholders instead to prevent SQL injection.
+    severity: ERROR
+    languages: [python]
+    pattern: |
+      await $DB.execute(f"...")
+    metadata:
+      category: security
+      owasp: A03:2021
+      cwe: CWE-89
+
+  # ── Elasticsearch / OpenSearch — Query injection ───────────────────────────
+
+  - id: kavach-elasticsearch-query-injection
+    message: >
+      Elasticsearch query body appears to contain user-controlled input.
+      Validate and restrict query structure to prevent ES query injection
+      that could exfiltrate unauthorized data.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern: |
+          $CLIENT.search(body={..., "query": {... $REQUEST ...}})
+      - pattern: |
+          $CLIENT.search(body={"query": {"match": {$FIELD: $USER_INPUT}}})
+      - metavariable-regex:
+          metavariable: $USER_INPUT
+          regex: "request|user_input|param|query|input"
+    metadata:
+      category: security
+      owasp: A03:2021
+      cwe: CWE-943
+
+  # ── FastAPI — Missing auth on routes ───────────────────────────────────────
+
+  - id: kavach-fastapi-missing-security-dependency
+    message: >
+      FastAPI route has no security dependency (e.g., Depends(require_permission(...))).
+      Unauthenticated access to this route may be unintentional. Add a
+      security dependency if this endpoint handles sensitive data.
+    severity: WARNING
+    languages: [python]
+    patterns:
+      - pattern-either:
+        - pattern: |
+            @router.$METHOD("...", ...)
+            async def $FUNC():
+              ...
+        - pattern: |
+            @app.$METHOD("...", ...)
+            async def $FUNC():
+              ...
+      - pattern-not: |
+          @router.$METHOD("...", ..., dependencies=[...])
+          async def $FUNC(...):
+            ...
+      - pattern-not: |
+          @router.$METHOD("...", ...)
+          async def $FUNC(..., state: ..., _=Depends(require_permission(...))):
+            ...
+    metadata:
+      category: security
+      owasp: A01:2021
+      cwe: CWE-306
+      more-info: https://docs.kavach.dev/code-analysis/rules/missing-auth
+
+  # ── JWT — None algorithm bypass ────────────────────────────────────────────
+
+  - id: kavach-jwt-decode-no-algorithm
+    message: >
+      JWT decode does not specify allowed algorithms, enabling the "none"
+      algorithm attack where unsigned tokens are accepted. Use stdlib
+      tokens.py with HS256 enforcement, or specify algorithms=["HS256"]
+      when using PyJWT.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern-either:
+        - pattern: jwt.decode($TOKEN, $SECRET)
+        - pattern: jwt.decode($TOKEN, $SECRET, algorithms=None)
+        - pattern: 'jwt.decode($TOKEN, $SECRET, options={"verify_signature": False})'
+        - pattern: 'jwt.decode($TOKEN, $SECRET, options={"verify_signature": False}, ...)'
+    metadata:
+      category: security
+      owasp: A02:2021
+      cwe: CWE-347
+
+  - id: kavach-jwt-hardcoded-secret
+    message: >
+      JWT is signed with a hardcoded or short secret. Use a cryptographically
+      random secret of at least 256 bits from environment configuration.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern-either:
+        - pattern: jwt.encode($PAYLOAD, "...", ...)
+        - pattern: jwt.encode($PAYLOAD, "...")
+      - metavariable-regex:
+          metavariable: "$PAYLOAD"
+          regex: ".+"
+    metadata:
+      category: security
+      owasp: A02:2021
+      cwe: CWE-330
+
+  # ── Hardcoded secrets ───────────────────────────────────────────────────────
+
+  - id: kavach-hardcoded-api-key
+    message: >
+      Potential hardcoded API key or token detected. Store all credentials
+      in environment variables or the secrets management system.
+    severity: ERROR
+    languages: [python, typescript, yaml, json]
+    patterns:
+      - pattern-either:
+        - pattern: $VAR = "sk-[a-zA-Z0-9]{20,}"
+        - pattern: $VAR = "Bearer [a-zA-Z0-9._-]{20,}"
+        - pattern: $VAR = "eyJ[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+"
+        - pattern: $VAR = "sk-ant-[a-zA-Z0-9-]{32,}"
+        - pattern: $VAR = "AIza[0-9A-Za-z-_]{35}"
+    metadata:
+      category: security
+      owasp: A02:2021
+      cwe: CWE-798
+
+  - id: kavach-hardcoded-password
+    message: >
+      Potential hardcoded password or secret detected. Use environment
+      variables or the secrets management system instead.
+    severity: WARNING
+    languages: [python]
+    patterns:
+      - pattern-either:
+        - pattern: $VAR = "password"
+        - pattern: $VAR = "secret"
+        - pattern: $VAR = "...secret..."
+    metavariable-regex:
+      metavariable: "$VAR"
+      regex: "password|secret|token|key|credential"
+    metadata:
+      category: security
+      owasp: A02:2021
+      cwe: CWE-798
+
+  # ── LangGraph / AI Agent Safety ────────────────────────────────────────────
+
+  - id: kavach-langgraph-unrestricted-tool-invocation
+    message: >
+      A tool invocation is called with a potentially untrusted or LLM-generated
+      argument. Verify that tool names and arguments are validated against an
+      allowlist before invocation (see ToolRegistry in backend/app/tools/base.py).
+    severity: WARNING
+    languages: [python]
+    patterns:
+      - pattern-either:
+        - pattern: $RESULT = $TOOL($RAW_USER_INPUT)
+        - pattern: '$RESULT = tool_executor.invoke({"tool": $INPUT, ...})'
+        - pattern: $RESULT = $LLM_OUTPUT($USER_DATA)
+      - metavariable-not-regex:
+          metavariable: "$TOOL"
+          regex: "validate|allowlist|registry|approved|safe"
+    metadata:
+      category: agent-security
+      owasp: A01:2021
+      cwe: CWE-862
+
+  - id: kavach-llm-output-exec-injection
+    message: >
+      LLM output is used directly in eval(), exec(), subprocess, or os.system().
+      This enables prompt injection → arbitrary code execution. Sanitize and
+      validate all LLM output before using it in code execution contexts.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern-either:
+        - pattern: eval($LLM_RESPONSE)
+        - pattern: exec($LLM_RESPONSE)
+        - pattern: subprocess.run($LLM_RESPONSE, ...)
+        - pattern: os.system($LLM_RESPONSE)
+        - pattern: subprocess.Popen($LLM_RESPONSE, ...)
+    paths:
+      exclude:
+        - "tests/"
+        - "conftest.py"
+        - pattern: subprocess.Popen($LLM_RESPONSE, ...)
+    metavariable-regex:
+      metavariable: "$LLM_RESPONSE"
+      regex: "llm|response|output|completion|result"
+    metadata:
+      category: agent-security
+      owasp: A03:2021
+      cwe: CWE-77
+
+  - id: kavach-unsanitized-llm-output-in-http-response
+    message: >
+      LLM-generated content is returned directly in an HTTP response body
+      without sanitization. This may enable reflected prompt injection or XSS.
+      Apply output encoding/sanitization before returning to the client.
+    severity: WARNING
+    languages: [python]
+    patterns:
+      - pattern-either:
+        - pattern: 'return JSONResponse(content={"result": $LLM_OUTPUT, ...})'
+        - pattern: 'return {"message": $LLM_OUTPUT}'
+        - pattern: 'return JSONResponse(content={"reply": $LLM_GENERATED_TEXT, ...})'
+    metavariable-regex:
+      metavariable: "$LLM_OUTPUT"
+      regex: "answer|response|output|completion|reply|result"
+    metadata:
+      category: agent-security
+      owasp: A03:2021
+      cwe: CWE-116
+
+  # ── Pickle deserialization ──────────────────────────────────────────────────
+
+  - id: kavach-pickle-deserialization
+    message: >
+      pickle.loads() / pickle.load() called. Pickle deserialization of
+      untrusted data can execute arbitrary code. Use JSON or a safe
+      serialization format instead.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern: pickle.loads($DATA)
+      - pattern: pickle.load($FILE)
+      - pattern: yaml.load($DATA, Loader=yaml.UnsafeLoader)
+      - pattern: yaml.load($DATA, Loader=pickle.Unpickler)
+    metadata:
+      category: security
+      owasp: A08:2021
+      cwe: CWE-502
+
+  # ── Assert used for validation ──────────────────────────────────────────────
+
+  - id: kavach-assert-for-validation
+    message: >
+      assert is used to validate user input or enforce security constraints.
+      assert statements are stripped when Python runs with optimization (-O),
+      so they should never guard security properties. Use if/raise instead.
+    severity: WARNING
+    languages: [python]
+    patterns:
+      - pattern: assert $CONDITION, $MSG
+    paths:
+      exclude:
+        - "tests/"
+        - "backend/tests/"
+    metadata:
+      category: security
+      owasp: A05:2021
+      cwe: CWE-489
+
+  # ── CORS wildcard ───────────────────────────────────────────────────────────
+
+  - id: kavach-cors-wildcard
+    message: >
+      CORS is configured with allow_origins=["*"] or allow_credentials=True
+      with wildcard origins. This allows any origin to make cross-origin
+      requests. Restrict to known origins in production.
+    severity: WARNING
+    languages: [python]
+    pattern-either:
+      - pattern: CORSMiddleware(..., allow_origins=["*"], ...)
+      - pattern: CORSMiddleware(..., allow_origins="*", ...)
+      - pattern: CORSMiddleware(..., allow_origins=["*"], allow_credentials=True, ...)
+    metadata:
+      category: security
+      owasp: A05:2021
+      cwe: CWE-942
+
+  # ── Subprocess with shell=True ─────────────────────────────────────────────
+
+  - id: kavach-subprocess-shell-true
+    message: >
+      subprocess called with shell=True. This is vulnerable to shell
+      injection if user input is included in the command string. Use
+      shell=False with argument lists, or validate/sanitize all input.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern: subprocess.run(..., shell=True, ...)
+      - pattern: subprocess.Popen(..., shell=True, ...)
+      - pattern: os.system(...)
+    metadata:
+      category: security
+      owasp: A03:2021
+      cwe: CWE-78
+
+  # ── Debug mode enabled ─────────────────────────────────────────────────────
+
+  - id: kavach-debug-mode-enabled
+    message: >
+      FastAPI/Starlette debug mode is enabled. Debug mode exposes sensitive
+      internal state and should NEVER be enabled in production.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern-either:
+        - pattern: FastAPI(debug=True)
+        - pattern: FastAPI(debug=True, ...)
+        - pattern: app = FastAPI(debug=True)
+    metadata:
+      category: security
+      owasp: A05:2021
+      cwe: CWE-489
+
+  # ── Weak cryptographic hashing ──────────────────────────────────────────────
+
+  - id: kavach-weak-crypto-hash
+    message: >
+      Use of weak cryptographic hash function (md5, sha1) for security-
+      relevant purposes. Use hashlib.sha256 or stronger, or use hmac for
+      password hashing (bcrypt, argon2).
+    severity: WARNING
+    languages: [python]
+    patterns:
+      - pattern: hashlib.md5(...)
+      - pattern: hashlib.sha1(...)
+    metadata:
+      category: security
+      owasp: A02:2021
+      cwe: CWE-327
+
+  # ── Missing input validation on user-provided data ─────────────────────────
+
+  - id: kavach-redis-no-auth
+    message: >
+      Redis connection created without authentication. Ensure Redis requires
+      a password and is not exposed to untrusted networks in production.
+    severity: WARNING
+    languages: [python]
+    pattern: redis.Redis(host=..., port=..., password=None)
+    metadata:
+      category: security
+      owasp: A05:2021
+      cwe: CWE-319

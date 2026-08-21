@@ -1,2 +1,36 @@
+# ============================================================
+# CI Scan-Only Tool Requirements
+# Kavach-AgenticSOC — Code Intelligence System
+#
+# These tools are installed only in CI for static analysis.
+# They are NOT runtime dependencies of the application.
+# ============================================================
+
+# Existing tools (used by the original python-static CI job)
 PyYAML==6.0.2
 ruff==0.12.5
+
+# ── SAST / Security Scanning ─────────────────────────────────
+bandit==1.8.3              # Python security scanner (AST-based)
+semgrep==1.80.0            # Multi-language pattern SAST (AST-based)
+
+# ── Type Checking ────────────────────────────────────────────
+# Pyright is installed via npm in the workflow (Node.js ecosystem)
+# python-dateutil==2.9.0     # Used by normalizer.py
+
+# ── Code Quality / Health ───────────────────────────────────
+radon==6.0.1             # Cyclomatic complexity + maintainability index
+xenon==0.9.1             # CI complexity gate (builds on radon)
+vulture==2.7             # Dead code detection
+click==8.1.7             # CLI framework for normalizer.py
+
+# ── Fuzzing ─────────────────────────────────────────────────
+# atheris is installed separately in the fuzzing workflow
+# (requires specific Python version compatibility)
+
+# ── Notes ──────────────────────────────────────────────
+# - Pyright is installed via npm: `npm install -g pyright`
+# - Schemathesis is installed in the API fuzzing workflow
+# - Trivy, Hadolint, Checkov, Gitleaks, OSV-Scanner are
+#   installed via their respective GitHub Actions or binaries
+# - Snyk is enrolled via the GitHub app (no pip install needed)

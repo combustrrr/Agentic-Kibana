@@ -44,3 +44,65 @@ filterwarnings = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+# Note: Extended ruff lint rules (27 rule sets) are in the separate
+# backend/ruff-analysis.toml config file, used ONLY by the 01-code-quality.yml
+# workflow via --config flag. This keeps the existing python-static CI gate
+# (ci.yml) on ruff's default rules (E, F) without disruption.
+
+# ─────────────────────────────────────────────────────────
+# Bandit — Python security scanner
+# ─────────────────────────────────────────────────────────
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "__pycache__", "tests/security_canary"]
+skips = [
+    "B101",  # assert used — OK in non-prod code (see AGENTS.md #3)
+    "B107",  # hardcoded password="" default arg — used in notification channels as optional param
+    "B110",  # try/except/pass — intentional error-handling pattern in SOC (fail-open, route to NEEDS_HUMAN)
+    "B112",  # try/except/continue — intentional error isolation in async pipelines
+    "B310",  # request with no cert — internal Redis/httpx calls, not user-facing
+    "B311",  # random (non-cryptographic) — used for jitter/id generation, not security
+    "B404",  # import subprocess — used only in fuzz harness (tests/security_canary/)
+    "B603",  # subprocess without shell — reviewed (fuzzer harness only)
+    "B607",  # partial path in subprocess — reviewed (fuzzer harness only)
+]
+confidence = ["HIGH", "MEDIUM"]
+
+# ─────────────────────────────────────────────────────────
+# Coverage.py — test coverage configuration
+# ─────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["app"]
+branch = true
+omit = [
+    "tests/*",
+    "migrations/*",
+    ".venv/*",
+    "*/conftest.py",
+    "*/__main__.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 70
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "@(abc\\.)?abstractmethod",
+]
+
+# ─────────────────────────────────────────────────────────
+# mypy — Python type checker (alternative: pyright via pip)
+# ─────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+# LangGraph and dynamic typing produce many false positives; keep strict off
+strict = false
+

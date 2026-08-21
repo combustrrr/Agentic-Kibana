@@ -1,0 +1,237 @@
+# ============================================================
+# Layer 6: Issue Aggregation & Auto-Issue Creation
+# Kavach-AgenticSOC Code Intelligence System
+#
+# This workflow:
+#   1. Reads all open HIGH/CRITICAL code scanning alerts (CodeQL, Semgrep, etc.)
+#   2. Auto-creates GitHub Issues with labels for any that don't have one yet
+#   3. Closes GitHub Issues when their corresponding alert is resolved
+#   4. Posts a daily summary comment on open security issues
+#
+# Requirements:
+#   - GitHub Advanced Security enabled (free for public repos)
+#   - Permissions: security-events:read, issues:write
+# ============================================================
+
+name: Issue Aggregation & Auto-Tracking
+
+on:
+  workflow_dispatch:
+  # DORMANT: Activate after Phase 2 testing (see docs/code-analysis/README.md)
+  # To activate, uncomment the schedule below:
+  # schedule:
+  #   - cron: "0 6 * * *"    # Daily at 06:00 UTC — sync all open alerts to issues
+
+permissions:
+  security-events: read
+  issues: write
+  contents: read
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Sync code scanning alerts → GitHub Issues
+  # Creates issues for new HIGH/CRITICAL alerts
+  # Closes issues for resolved alerts
+  # ─────────────────────────────────────────────
+  sync-security-alerts:
+    name:  Sync Security Alerts → GitHub Issues
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Sync code scanning alerts to issues
+        uses: actions/github-script@1c0c1c1c3c8e6e4d2a1b0f9e8d7c6b5a49382736 # v7
+        with:
+          script: |
+            const severityEmoji = {
+              critical: '🟥',
+              high: '🟧',
+              medium: '🟨',
+              low: '🟦',
+              note: '⬜'
+            };
+
+            const categoryLabel = (toolName) => {
+              const tool = (toolName || '').toLowerCase();
+              if (tool.includes('codeql')) return 'tool:codeql';
+              if (tool.includes('semgrep')) return 'tool:semgrep';
+              if (tool.includes('bandit')) return 'tool:bandit';
+              if (tool.includes('trivy')) return 'tool:trivy';
+              if (tool.includes('gitleaks')) return 'tool:gitleaks';
+              if (tool.includes('snyk')) return 'tool:snyk';
+              return 'tool:other';
+            };
+
+            // ── Fetch all open HIGH/CRITICAL alerts ──────────────
+            let allAlerts = [];
+            try {
+              const response = await github.rest.codeScanning.listAlertsForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                per_page: 100
+              });
+              allAlerts = response.data.filter(a =>
+                ['critical', 'high'].includes((a.rule?.severity || '').toLowerCase())
+              );
+            } catch (e) {
+              console.log(`Could not fetch alerts: ${e.message}`);
+              return;
+            }
+
+            console.log(`Found ${allAlerts.length} open HIGH/CRITICAL alerts`);
+
+            // ── Fetch existing issues with 'security' label ──────
+            const existingIssues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'security',
+              state: 'open',
+              per_page: 100
+            });
+
+            const alertIdToIssue = new Map();
+            for (const issue of existingIssues.data) {
+              const match = issue.body?.match(/\*\*Alert ID:\*\* #(\d+)/);
+              if (match) alertIdToIssue.set(parseInt(match[1]), issue);
+            }
+
+            // ── Create issues for new alerts ─────────────────────
+            for (const alert of allAlerts) {
+              if (alertIdToIssue.has(alert.number)) {
+                console.log(`Issue already exists for alert #${alert.number}`);
+                continue;
+              }
+
+              const emoji = severityEmoji[(alert.rule?.severity || '').toLowerCase()] || '⚠️';
+              const loc = alert.most_recent_instance?.location;
+              const title = `${emoji} [${(alert.rule?.severity || '').toUpperCase()}] ${alert.rule?.description}`;
+
+              const body = [
+                `## Security Finding`,
+                ``,
+                `**Alert ID:** #${alert.number}`,
+                `**Tool:** ${alert.tool?.name}`,
+                `**Rule:** \`${alert.rule?.id}\``,
+                `**Severity:** ${(alert.rule?.severity || '').toUpperCase()}`,
+                `**Status:** Open`,
+                ``,
+                `### Location`,
+                `**File:** \`${loc?.path || 'unknown'}\``,
+                `**Line:** ${loc?.start_line || 'unknown'}`,
+                ``,
+                `### Description`,
+                `> ${alert.rule?.description}`,
+                ``,
+                alert.rule?.full_description
+                  ? `### Details\n${alert.rule.full_description}`
+                  : '',
+                ``,
+                `### Links`,
+                `- [View Alert on GitHub](${alert.html_url})`,
+                `- [View Code Location](${alert.most_recent_instance?.html_url || ''})`,
+                ``,
+                `---`,
+                `*Auto-created by Code Intelligence System · ${new Date().toISOString().split('T')[0]}*`
+              ].filter(Boolean).join('\n');
+
+              const labels = [
+                'security',
+                `severity:${(alert.rule?.severity || 'low').toLowerCase()}`,
+                categoryLabel(alert.tool?.name || ''),
+                'auto-detected'
+              ];
+
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels
+              });
+
+              console.log(`Created issue for alert #${alert.number}: ${title}`);
+            }
+
+            // ── Close issues for resolved alerts ─────────────────
+            const openAlertIds = new Set(allAlerts.map(a => a.number));
+
+            for (const [alertId, issue] of alertIdToIssue) {
+              if (!openAlertIds.has(alertId)) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  body: '🔒 The corresponding code scanning alert has been resolved. Closing this issue automatically.'
+                });
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  state: 'closed',
+                  state_reason: 'completed'
+                });
+                console.log(`Closed issue #${issue.number} (alert resolved)`);
+              }
+            }
+
+  # ─────────────────────────────────────────────
+  # Weekly summary report as a GitHub Issue
+  # Shows all open findings by category + severity
+  # ─────────────────────────────────────────────
+  weekly-summary:
+    name:  Weekly Security Summary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event.schedule == '0 6 * * 1' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Generate and post weekly summary
+        uses: actions/github-script@1c0c1c1c3c8e6e4d2a1b0f9e8d7c6b5a49382736 # v7
+        with:
+          script: |
+            const today = new Date().toISOString().split('T')[0];
+
+            const countIssues = async (label) => {
+              const r = await github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                labels: label,
+                state: 'open',
+                per_page: 1
+              });
+              return r.headers['x-total-count'] || r.data.length;
+            };
+
+            const critical = await countIssues('severity:critical');
+            const high     = await countIssues('severity:high');
+            const medium   = await countIssues('severity:medium');
+            const security = await countIssues('security');
+
+            const body = [
+              `## 📊 Code Intelligence Weekly Summary — ${today}`,
+              ``,
+              `| Severity | Open Issues |`,
+              `|----------|------------|`,
+              `| Critical | ${critical} |`,
+              `| High | ${high} |`,
+              `| Medium | ${medium} |`,
+              ``,
+              `**Total security issues:** ${security}`,
+              ``,
+              `### Quick Links`,
+              `- [Security Tab](https://github.com/${context.repo.owner}/${context.repo.repo}/security/code-scanning)`,
+              `- [Open Security Issues](https://github.com/${context.repo.owner}/${context.repo.repo}/issues?q=is%3Aopen+label%3Asecurity)`,
+              `- [Dependabot Alerts](https://github.com/${context.repo.owner}/${context.repo.repo}/security/dependabot)`,
+              ``,
+              `---`,
+              `*Generated automatically by Code Intelligence System*`
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `📊 Code Intelligence Weekly Summary — ${today}`,
+              body,
+              labels: ['report', 'weekly-summary']
+            });

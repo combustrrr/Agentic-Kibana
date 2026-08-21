@@ -1,0 +1,243 @@
+# ============================================================
+# Layer 3: Dependency, Supply Chain & Secrets — Workflow
+# Kavach-AgenticSOC Code Intelligence System
+# Tools: OSV-Scanner, Trivy, Gitleaks, Hadolint, Checkov,
+#        GitHub Secret Scanning (native), GitHub Dependency Review
+# ============================================================
+
+name: Dependency & Supply Chain Security
+
+on:
+  workflow_dispatch:
+  # pull_request:
+    # branches: [main, Testing]
+  # push:
+    # branches: [main, Testing]
+  # schedule:
+    # - cron: "0 3 * * *"    # daily dependency check 03:00 UTC
+
+  # DORMANT: Activate after Phase 2 testing (see docs/code-analysis/README.md)
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  # ─────────────────────────────────────────────
+  # OSV-Scanner — dependency CVE scanning
+  # Python (requirements.txt/pyproject.toml)
+  # npm (package-lock.json)
+  # Offline: YES (downloads vuln DB on run)
+  # ─────────────────────────────────────────────
+  osv-scanner:
+    name:  OSV-Scanner (Dependency CVEs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a3a30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Run OSV-Scanner
+        uses: google/osv-scanner-action@2ce5f6e8a9c86e9e4b478d7464b60e6a93158285 # v1
+        with:
+          scan-args: |-
+            --lockfile=backend/requirements.txt
+            --lockfile=backend/requirements-dev.txt
+            --lockfile=webui/package-lock.json
+            --format=sarif
+            --output=osv-results.sarif
+
+      - name: Upload SARIF to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@ed10c74de5fe2c7114560e6a45427e8ab3cf7499 # v3
+        with:
+          sarif_file: osv-results.sarif
+          category: "osv-scanner"
+
+      - name: Upload artifact (for normalizer)
+        if: always()
+        uses: actions/upload-artifact@4.5.0
+        with:
+          name: osv-results
+          path: osv-results.sarif
+
+  # ─────────────────────────────────────────────
+  # GitHub Dependency Review (PR only)
+  # Blocks PRs that introduce known-vulnerable deps
+  # ─────────────────────────────────────────────
+  dependency-review:
+    name:  Dependency Review (PR Gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a3a30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: GitHub Dependency Review Action
+        uses: actions/dependency-review-action@02c3ffc5b3b3b6e6c3e8e63e6e9d4b6a8c3a5b7e # v4
+        with:
+          fail-on-severity: high
+          deny-licenses: GPL-2.0, AGPL-3.0
+
+  # ─────────────────────────────────────────────
+  # Gitleaks — secrets / credentials scanning
+  # Scans: full git history + current files
+  # Offline: YES (Go binary)
+  # ─────────────────────────────────────────────
+  gitleaks:
+    name:  Gitleaks (Secrets Detection)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout (full history for historical scan)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a3a30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@5b193c7b7e4f5d4e3c2b1a0f9e8d7c6b5a493827 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_EXIT_CODE: 1
+
+      - name: Upload Gitleaks results
+        if: always()
+        uses: actions/upload-artifact@4.5.0
+        with:
+          name: gitleaks-results
+          path: results.sarif
+
+  # ─────────────────────────────────────────────
+  # Trivy — Docker image + filesystem scanning
+  # Covers: CVEs in dependencies, IaC misconfigs
+  # Offline: YES (downloads vuln DB, can be cached)
+  # ─────────────────────────────────────────────
+  trivy:
+    name:  Trivy (Filesystem & Container Security)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a3a30af803 # v6
+
+      - name: Run Trivy (filesystem scan)
+        uses: aquasecurity/trivy-action@67e0e7a4a9c3e8d7b6c5a4b3c2d1e0f9a8b7c6d5 # master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-fs.sarif"
+          severity: "CRITICAL,HIGH"
+          exit-code: "1"
+
+      - name: Run Trivy (config scan)
+        uses: aquasecurity/trivy-action@67e0e7a4a9c3e8d7b6c5a4b3c2d1e0f9a8b7c6d5 # master
+        with:
+          scan-type: "config"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-config.sarif"
+          severity: "CRITICAL,HIGH"
+
+      - name: Upload SARIF — filesystem
+        uses: github/codeql-action/upload-sarif@ed10c74de5fe2c7114560e6a45427e8ab3cf7499 # v3
+        if: always()
+        with:
+          sarif_file: trivy-fs.sarif
+          category: "trivy-fs"
+
+      - name: Upload SARIF — config
+        uses: github/codeql-action/upload-sarif@ed10c74de5fe2c7114560e6a45427e8ab3cf7499 # v3
+        if: always()
+        with:
+          sarif_file: trivy-config.sarif
+          category: "trivy-config"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@4.5.0
+        with:
+          name: trivy-results
+          path: |
+            trivy-fs.sarif
+            trivy-config.sarif
+
+  # ─────────────────────────────────────────────
+  # Hadolint — Dockerfile best practices linting
+  # ─────────────────────────────────────────────
+  hadolint:
+    name:  Hadolint (Dockerfile Lint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a3a30af803 # v6
+
+      - name: Run Hadolint on all Dockerfiles
+        uses: hadolint/hadolint-action@3.1.0
+        with:
+          dockerfile: backend/Dockerfile
+          format: sarif
+          output-file: hadolint.sarif
+          no-fail: false
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@ed10c74de5fe2c7114560e6a45427e8ab3cf7499 # v3
+        with:
+          sarif_file: hadolint.sarif
+          category: "hadolint"
+
+  # ─────────────────────────────────────────────
+  # Checkov — IaC security scanning
+  # Covers: Docker Compose, GitHub Actions, Kubernetes
+  # ─────────────────────────────────────────────
+  checkov:
+    name:  Checkov (IaC Security)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a3a30af803 # v6
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+
+      - name: Install Checkov
+        run: pip install checkov
+
+      - name: Run Checkov
+        run: |
+          checkov \
+            --directory . \
+            --framework dockerfile,github_actions \
+            --output sarif \
+            --output-file-path checkov.sarif \
+            --soft-fail || true
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@ed10c74de5fe2c7114560e6a45427e8ab3cf7499 # v3
+        with:
+          sarif_file: checkov.sarif
+          category: "checkov"
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@4.5.0
+        with:
+          name: checkov-results
+          path: checkov.sarif

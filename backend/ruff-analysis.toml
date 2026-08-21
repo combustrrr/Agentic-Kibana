@@ -1,0 +1,109 @@
+# ============================================================
+# Extended Ruff Configuration — Code Analysis Mode
+# Kavach-AgenticSOC — Static Code Analysis
+#
+# This file extends the existing [tool.ruff] in backend/pyproject.toml
+# with security and quality rules for the Code Intelligence pipeline.
+# Used by the 01-code-quality.yml workflow via --config flag.
+# ============================================================
+
+target-version = "py311"
+line-length = 100
+
+src = ["backend/app", "backend/tests", "scripts"]
+
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    "node_modules",
+    "htmlcov",
+    "dist",
+    "build",
+    ".eggs",
+]
+
+[lint]
+select = [
+    # ── Core ──────────────────────────────────────────────
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes (undefined names, unused imports)
+    "UP",     # pyupgrade (modernize syntax to Python 3.11)
+    "B",      # flake8-bugbear (common bugs + bad practices)
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+    "I",      # isort (import ordering)
+    "N",      # pep8-naming
+    # ── Security-adjacent ─────────────────────────────────
+    "S",      # flake8-bandit (security rules)
+    # ── Code quality ──────────────────────────────────────
+    "A",      # flake8-builtins (shadowing builtins)
+    "PIE",    # flake8-pie
+    "T20",    # flake8-print (detect leftover print() statements)
+    "PT",     # flake8-pytest-style
+    "Q",      # flake8-quotes
+    "RSE",    # flake8-raise
+    "RET",    # flake8-return
+    "TCH",    # flake8-type-checking
+    "ARG",    # flake8-unused-arguments
+    "PTH",    # flake8-use-pathlib
+    "ERA",    # eradicate (commented-out code)
+    "PGH",    # pygrep-hooks
+    "PL",     # Pylint (selected rules)
+    "TRY",    # tryceratops (exception handling)
+    "FLY",    # flynt (f-string conversions)
+    "PERF",   # perflint
+    "RUF",   # Ruff-specific rules
+]
+
+ignore = [
+    "S101",    # assert in tests — expected
+    "S603",    # subprocess — reviewed case-by-case
+    "S607",    # partial path in subprocess — reviewed case-by-case
+    "PLR0913", # too many arguments — acceptable for complex APIs
+    "PLR0912", # too many branches — acceptable for complex logic
+    "PLR0915", # too many statements — acceptable for complex logic
+    "TRY003",  # long messages in raise — known false positive
+    "EM101",   # string literals in exceptions
+    "EM102",   # f-strings in exceptions
+    "T201",    # print() — allowed in scripts
+]
+
+[lint.per-file-ignores]
+"backend/tests/**/*.py" = [
+    "S",      # security checks not needed in test files
+    "ARG",    # unused args common in test fixtures
+    "PLR2004",# magic values OK in tests
+    "S101",   # assert OK in tests
+]
+"scripts/**" = [
+    "T20",    # print() allowed in scripts
+    "S603",   # subprocess in scripts
+    "S607",   # partial path in scripts
+]
+"tests/security_canary/python/*.py" = [
+    "S",      # canary files INTENTIONALLY vulnerable
+    "B",      # bugbear in canary files
+    "E",      # style in canary files
+    "ALL",    # all rules suppressed in deliberately vulnerable canary code
+]
+
+[lint.isort]
+known-first-party = ["app", "config", "constants", "models", "utils"]
+known-third-party = ["fastapi", "pydantic", "sqlalchemy", "redis", "elasticsearch", "langgraph"]
+force-sort-within-sections = true
+split-on-trailing-comma = true
+
+[lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Header"]
+
+# ── Flake8-bandit (S-rules) ─────────────────────────────────
+# Confidence thresholds are handled via the severity filters in
+# select/ignore. S101 (assert) is suppressed; B603/B607 are reviewed.
+[lint.flake8-bandit]
+# Confidence thresholds are handled via the severity filters in
+# select/ignore. S101 (assert) is suppressed; B603/B607 are reviewed.

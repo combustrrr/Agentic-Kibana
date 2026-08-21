@@ -1,0 +1,110 @@
+# ============================================================
+# Workflow 7: API Fuzzing & Property-Based Testing
+# Kavach-AgenticSOC Code Intelligence System
+#
+# Runs: Weekly (Saturday) + on PRs modifying FastAPI endpoints
+# Tool: Schemathesis (OpenAPI schema fuzzer)
+# Goal: Achieve zero-fault tolerance by crashing the API
+# ============================================================
+
+name: API Fuzzing & Reliability
+
+on:
+  workflow_dispatch:
+  # DORMANT: Activate after Phase 2 testing (see docs/code-analysis/README.md)
+  # To activate, uncomment the triggers below:
+  # schedule:
+  #   - cron: "0 4 * * 6"    # Saturday 04:00 UTC
+  # pull_request:
+  #   paths:
+  #     - "backend/app/api/**"
+  #     - "backend/app/models.py"
+  #     - "backend/app/state.py"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  schemathesis-fuzz:
+    name:  Schemathesis API Fuzzer
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: kavach_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a3a30af803 # v6
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install dependencies & Schemathesis
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install -r backend/requirements-dev.txt
+          pip install schemathesis httpx
+
+      - name: Start FastAPI Backend in Background
+        run: |
+          cd backend
+          TLSOC_AUTH_ENABLED=false uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          sleep 15
+          curl -f http://localhost:8000/openapi.json > schema.json || exit 1
+
+      - name: Run API Fuzzing (Schemathesis)
+        run: |
+          cd backend
+          # Limit to 10 minutes to prevent infinite CI hang
+          timeout 600 schemathesis run schema.json \
+            --base-url http://localhost:8000 \
+            --checks all \
+            --max-response-time 5000 \
+            --hypothesis-max-examples 100 \
+            --junit-xml=../fuzzing-results.xml \
+            --report=../schemathesis-report.html || echo "Fuzzing completed with findings"
+
+      - name: Upload Fuzzing Report
+        if: always()
+        uses: actions/upload-artifact@4.5.0
+        with:
+          name: schemathesis-report
+          path: |
+            fuzzing-results.xml
+            schemathesis-report.html
+            backend/schema.json
+
+      - name: Parse Results for Aggregation
+        if: always()
+        run: |
+          # Normalize any 500 crashes into our canonical finding format
+          python scripts/code_analysis/normalizer.py \
+            --input-dir . \
+            --output-dir fuzzing-normalized \
+            --verbose || true
+
+      - name: Upload Normalized Findings
+        if: always()
+        uses: actions/upload-artifact@4.5.0
+        with:
+          name: fuzzing-findings
+          path: fuzzing-normalized/
