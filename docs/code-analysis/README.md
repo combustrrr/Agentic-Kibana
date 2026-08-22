@@ -51,6 +51,10 @@ AI triage → safe remediation**.
 
 ## 2. Selected Stack
 
+> **Implementation status:** This is the proposal shortlist, not a claim that every
+> entry is operational. The authoritative verified/partial/not-implemented inventory
+> and current phase evidence are in [`EXECUTION_PLAN.md`](EXECUTION_PLAN.md).
+
 ### Core Toolchain
 
 ```
