@@ -210,14 +210,13 @@ rules:
         - pattern: subprocess.run($LLM_RESPONSE, ...)
         - pattern: os.system($LLM_RESPONSE)
         - pattern: subprocess.Popen($LLM_RESPONSE, ...)
+      - metavariable-regex:
+          metavariable: "$LLM_RESPONSE"
+          regex: "(?i).*(?:llm|response|output|completion|result).*"
     paths:
       exclude:
         - "tests/"
         - "conftest.py"
-        - pattern: subprocess.Popen($LLM_RESPONSE, ...)
-    metavariable-regex:
-      metavariable: "$LLM_RESPONSE"
-      regex: "llm|response|output|completion|result"
     metadata:
       category: agent-security
       owasp: A03:2021
