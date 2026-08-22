@@ -36,12 +36,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a3a30af803 # v6
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
       - name: Run OSV-Scanner
-        uses: google/osv-scanner-action@2ce5f6e8a9c86e9e4b478d7464b60e6a93158285 # v1
+        uses: google/osv-scanner-action@6e4298ebc4db23e847df9b2e2de2939d6f066c67 # v2.5.1
         with:
           scan-args: |-
             --lockfile=backend/requirements.txt
@@ -52,14 +52,14 @@ jobs:
 
       - name: Upload SARIF to GitHub Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@ed10c74de5fe2c7114560e6a45427e8ab3cf7499 # v3
+        uses: github/codeql-action/upload-sarif@6d786de4d6f3531a740e445b53a42b622bbbace8 # v3
         with:
           sarif_file: osv-results.sarif
           category: "osv-scanner"
 
       - name: Upload artifact (for normalizer)
         if: always()
-        uses: actions/upload-artifact@4.5.0
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: osv-results
           path: osv-results.sarif
@@ -76,12 +76,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a3a30af803 # v6
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
       - name: GitHub Dependency Review Action
-        uses: actions/dependency-review-action@02c3ffc5b3b3b6e6c3e8e63e6e9d4b6a8c3a5b7e # v4
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
         with:
           fail-on-severity: high
           deny-licenses: GPL-2.0, AGPL-3.0
@@ -98,19 +98,19 @@ jobs:
 
     steps:
       - name: Checkout (full history for historical scan)
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a3a30af803 # v6
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
       - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@5b193c7b7e4f5d4e3c2b1a0f9e8d7c6b5a493827 # v2
+        uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_EXIT_CODE: 1
 
       - name: Upload Gitleaks results
         if: always()
-        uses: actions/upload-artifact@4.5.0
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: gitleaks-results
           path: results.sarif
@@ -127,10 +127,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a3a30af803 # v6
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Run Trivy (filesystem scan)
-        uses: aquasecurity/trivy-action@67e0e7a4a9c3e8d7b6c5a4b3c2d1e0f9a8b7c6d5 # master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: "fs"
           scan-ref: "."
@@ -140,7 +140,7 @@ jobs:
           exit-code: "1"
 
       - name: Run Trivy (config scan)
-        uses: aquasecurity/trivy-action@67e0e7a4a9c3e8d7b6c5a4b3c2d1e0f9a8b7c6d5 # master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: "config"
           scan-ref: "."
@@ -149,14 +149,14 @@ jobs:
           severity: "CRITICAL,HIGH"
 
       - name: Upload SARIF — filesystem
-        uses: github/codeql-action/upload-sarif@ed10c74de5fe2c7114560e6a45427e8ab3cf7499 # v3
+        uses: github/codeql-action/upload-sarif@6d786de4d6f3531a740e445b53a42b622bbbace8 # v3
         if: always()
         with:
           sarif_file: trivy-fs.sarif
           category: "trivy-fs"
 
       - name: Upload SARIF — config
-        uses: github/codeql-action/upload-sarif@ed10c74de5fe2c7114560e6a45427e8ab3cf7499 # v3
+        uses: github/codeql-action/upload-sarif@6d786de4d6f3531a740e445b53a42b622bbbace8 # v3
         if: always()
         with:
           sarif_file: trivy-config.sarif
@@ -164,7 +164,7 @@ jobs:
 
       - name: Upload artifacts
         if: always()
-        uses: actions/upload-artifact@4.5.0
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: trivy-results
           path: |
@@ -181,10 +181,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a3a30af803 # v6
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Run Hadolint on all Dockerfiles
-        uses: hadolint/hadolint-action@3.1.0
+        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
         with:
           dockerfile: backend/Dockerfile
           format: sarif
@@ -193,7 +193,7 @@ jobs:
 
       - name: Upload SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@ed10c74de5fe2c7114560e6a45427e8ab3cf7499 # v3
+        uses: github/codeql-action/upload-sarif@6d786de4d6f3531a740e445b53a42b622bbbace8 # v3
         with:
           sarif_file: hadolint.sarif
           category: "hadolint"
@@ -209,10 +209,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a3a30af803 # v6
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
 
@@ -230,14 +230,14 @@ jobs:
 
       - name: Upload SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@ed10c74de5fe2c7114560e6a45427e8ab3cf7499 # v3
+        uses: github/codeql-action/upload-sarif@6d786de4d6f3531a740e445b53a42b622bbbace8 # v3
         with:
           sarif_file: checkov.sarif
           category: "checkov"
 
       - name: Upload artifact
         if: always()
-        uses: actions/upload-artifact@4.5.0
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: checkov-results
           path: checkov.sarif
