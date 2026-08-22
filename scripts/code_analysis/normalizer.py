@@ -29,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -38,8 +39,6 @@ import click
 
 try:
     from rich.console import Console
-    from rich.table import Table
-
     console = Console()
 except ImportError:
     console = None
@@ -529,6 +528,95 @@ class VultureParser:
 
         return findings
 
+    def parse_text(self, vulture_path: Path) -> list[Finding]:
+        """Parse Vulture's default ``file:line: message (confidence%)`` output."""
+        findings: list[Finding] = []
+        pattern = re.compile(r"^(.*?):(\d+):\s*(.*?)\s*\((\d+)% confidence\)\s*$")
+        for raw_line in vulture_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            match = pattern.match(raw_line)
+            if not match:
+                continue
+            file_name, line, message, confidence = match.groups()
+            findings.append(Finding(
+                source_tool="Vulture", category="DEAD_CODE", severity="LOW",
+                confidence="HIGH" if int(confidence) >= 90 else "MEDIUM",
+                file=file_name, start_line=int(line), end_line=int(line),
+                rule_id="dead-code", rule_name="Potential dead code", message=message,
+                tags=["dead_code"],
+            ))
+        return findings
+
+
+class SemgrepParser:
+    """Parses Semgrep JSON output."""
+
+    def parse(self, path: Path) -> list[Finding]:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        findings = []
+        for result in data.get("results", []):
+            extra = result.get("extra", {})
+            metadata = extra.get("metadata", {}) or {}
+            raw_cwe = metadata.get("cwe", [])
+            raw_owasp = metadata.get("owasp", [])
+            cwe = [str(raw_cwe)] if isinstance(raw_cwe, str) else [str(v) for v in raw_cwe]
+            owasp = [str(raw_owasp)] if isinstance(raw_owasp, str) else [str(v) for v in raw_owasp]
+            severity = normalize_severity(str(extra.get("severity", "WARNING")))
+            rule_id = str(result.get("check_id", ""))
+            tags = ["security", *cwe, *owasp]
+            findings.append(Finding(
+                source_tool="Semgrep", category=normalize_category("Semgrep", rule_id, tags),
+                severity=severity, confidence=str(metadata.get("confidence", "MEDIUM")).upper(),
+                file=result.get("path", ""), start_line=result.get("start", {}).get("line", 0),
+                end_line=result.get("end", {}).get("line", 0), start_col=result.get("start", {}).get("col", 0),
+                end_col=result.get("end", {}).get("col", 0), rule_id=rule_id, rule_name=rule_id,
+                message=extra.get("message", ""), cwe=cwe, owasp=owasp, tags=tags,
+                suggested_fix=extra.get("fix", ""), auto_fixable=bool(extra.get("fix")),
+                fix_level=1 if extra.get("fix") else 0,
+            ))
+        return findings
+
+
+class PyrightParser:
+    """Parses Pyright ``--outputjson`` diagnostics."""
+
+    def parse(self, path: Path) -> list[Finding]:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        findings = []
+        for result in data.get("generalDiagnostics", []):
+            span = result.get("range", {})
+            start, end = span.get("start", {}), span.get("end", {})
+            severity = {"error": "HIGH", "warning": "MEDIUM", "information": "LOW"}.get(
+                str(result.get("severity", "warning")).lower(), "MEDIUM")
+            findings.append(Finding(
+                source_tool="Pyright", category="QUALITY", severity=severity, confidence="HIGH",
+                file=result.get("file", ""), start_line=int(start.get("line", 0)) + 1,
+                end_line=int(end.get("line", 0)) + 1, start_col=int(start.get("character", 0)) + 1,
+                end_col=int(end.get("character", 0)) + 1, rule_id=result.get("rule") or "type-check",
+                rule_name=result.get("rule") or "Type checking", message=result.get("message", ""),
+                tags=["quality", "type-checking"],
+            ))
+        return findings
+
+
+class EslintParser:
+    """Parses ESLint JSON output."""
+
+    def parse(self, path: Path) -> list[Finding]:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        findings = []
+        for report in data:
+            for result in report.get("messages", []):
+                severity = "HIGH" if result.get("severity") == 2 else "MEDIUM"
+                fix = result.get("fix")
+                findings.append(Finding(
+                    source_tool="ESLint", category="QUALITY", severity=severity, confidence="HIGH",
+                    file=report.get("filePath", ""), start_line=result.get("line", 0),
+                    end_line=result.get("endLine") or result.get("line", 0), start_col=result.get("column", 0),
+                    end_col=result.get("endColumn", 0), rule_id=result.get("ruleId") or "eslint",
+                    rule_name=result.get("ruleId") or "ESLint", message=result.get("message", ""),
+                    auto_fixable=bool(fix), fix_level=1 if fix else 0, tags=["quality"],
+                ))
+        return findings
 
 # ─────────────────────────────────────────────────────────────
 # Deduplication
@@ -690,6 +778,9 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
     bandit_parser = BanditParser()
     ruff_parser = RuffParser()
     vulture_parser = VultureParser()
+    semgrep_parser = SemgrepParser()
+    pyright_parser = PyrightParser()
+    eslint_parser = EslintParser()
     deduplicator = FindingDeduplicator()
     exporter = SarifExporter()
 
@@ -731,10 +822,50 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
         except Exception as e:
             print(f"[WARN] Failed to parse {ruff_file}: {e}", file=sys.stderr)
 
+    for semgrep_file in (p for p in json_files if "semgrep" in p.name.lower()):
+        try:
+            findings = semgrep_parser.parse(semgrep_file)
+            all_findings.extend(findings)
+            parsed_files.add(semgrep_file)
+            if verbose:
+                print(f"[Semgrep] {semgrep_file.name}: {len(findings)} findings")
+        except Exception as e:
+            print(f"[WARN] Failed to parse {semgrep_file}: {e}", file=sys.stderr)
+
+    for pyright_file in (p for p in json_files if "pyright" in p.name.lower()):
+        try:
+            findings = pyright_parser.parse(pyright_file)
+            all_findings.extend(findings)
+            parsed_files.add(pyright_file)
+            if verbose:
+                print(f"[Pyright] {pyright_file.name}: {len(findings)} findings")
+        except Exception as e:
+            print(f"[WARN] Failed to parse {pyright_file}: {e}", file=sys.stderr)
+
+    for eslint_file in (p for p in json_files if "eslint" in p.name.lower()):
+        try:
+            findings = eslint_parser.parse(eslint_file)
+            all_findings.extend(findings)
+            parsed_files.add(eslint_file)
+            if verbose:
+                print(f"[ESLint] {eslint_file.name}: {len(findings)} findings")
+        except Exception as e:
+            print(f"[WARN] Failed to parse {eslint_file}: {e}", file=sys.stderr)
+
     # ── Parse Vulture JSON ───────────────────────────────────
     for vulture_file in (p for p in json_files if "vulture" in p.name.lower()):
         try:
             findings = vulture_parser.parse(vulture_file)
+            all_findings.extend(findings)
+            parsed_files.add(vulture_file)
+            if verbose:
+                print(f"[Vulture] {vulture_file.name}: {len(findings)} findings")
+        except Exception as e:
+            print(f"[WARN] Failed to parse {vulture_file}: {e}", file=sys.stderr)
+
+    for vulture_file in (p for p in input_path.rglob("*.txt") if "vulture" in p.name.lower()):
+        try:
+            findings = vulture_parser.parse_text(vulture_file)
             all_findings.extend(findings)
             parsed_files.add(vulture_file)
             if verbose:
@@ -770,7 +901,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
     print(f"\n Output written to: {output_dir}/")
     print(f"   unified-findings.json       ({len(all_findings)} total)")
     print(f"   deduplicated-findings.json  ({len(canonical)} unique)")
-    print(f"   normalized.sarif            (for GitHub Security tab)")
+    print("   normalized.sarif            (for GitHub Security tab)")
 
 
 if __name__ == "__main__":

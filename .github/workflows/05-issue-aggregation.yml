@@ -34,8 +34,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install normalizer dependency
-        run: python -m pip install "click==8.2.1"
+      - name: Install pinned service dependencies
+        run: python -m pip install "click==8.2.1" "ruff==0.12.5"
 
       - name: Download latest completed scanner artifacts for this branch
         env:
@@ -57,6 +57,19 @@ jobs:
 
       - name: Normalize and deduplicate by repository file, line, and concept
         run: python scripts/code_analysis/normalizer.py --input-dir scan-artifacts --output-dir normalized --verbose
+
+      - name: Build searchable all-findings dashboard and coverage manifest
+        run: >-
+          python scripts/code_analysis/dashboard.py
+          --findings normalized/deduplicated-findings.json
+          --artifacts scan-artifacts
+          --output-dir dashboard
+
+      - name: Generate review-only deterministic autofix patch
+        run: >-
+          python scripts/code_analysis/safe_autofix.py
+          --findings normalized/deduplicated-findings.json
+          --output-dir autofix
 
       - name: Read existing advisory issues
         env:
@@ -83,6 +96,8 @@ jobs:
           name: advisory-finding-aggregation-${{ github.run_id }}
           path: |
             normalized/
+            dashboard/
+            autofix/
             issue-sync-plan.json
           if-no-files-found: warn
           retention-days: 30

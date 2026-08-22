@@ -237,11 +237,21 @@ from overlapping tools share one fingerprint when their repository-relative file
 line, and canonical concept match.
 
 The workflow defaults to `apply_issues: false`. In that mode it only uploads
-`issue-sync-plan.json` and the normalized artifacts. An operator must deliberately
+`issue-sync-plan.json`, the normalized artifacts, and `dashboard/index.html`. The
+dashboard is a dependency-free searchable view of every unique finding, with filters
+for severity, tool, category, file/rule/message search, retained corroborating evidence,
+diagnosis guidance, scanner-artifact coverage, runtime coverage when available, and
+review-only autofix eligibility. An operator must deliberately
 select `apply_issues: true` to create issues. Only HIGH/CRITICAL findings are eligible,
 new issues are capped (25 by default), and each issue carries both an `fp:<id>` label
 and an embedded fingerprint marker for idempotency. This phase never closes issues;
 the three-clean-scan plus targeted-rescan closure policy remains future work.
+
+The same artifact contains `dashboard/coverage-manifest.json` and
+`autofix/ruff-safe-fixes.patch`. The latter is generated with Ruff's safe-fix diff mode:
+it is a proposal for review and does not edit, commit, push, or open a pull request.
+Download the aggregation artifact from its GitHub Actions run and open
+`dashboard/index.html` locally to inspect the complete finding set in one place.
 
 ## 8. Deployment & On-Prem Constraints
 

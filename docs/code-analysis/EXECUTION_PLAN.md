@@ -60,6 +60,12 @@ recursively, deduplicates by repository file + line + canonical concept, and emi
 advisory issue plan. Issue writes are off by default and bounded when explicitly
 enabled; automatic closure and merge blocking are disabled.
 
+Its run artifact is the Phase 1 diagnosis surface: `dashboard/index.html` shows every
+deduplicated finding while preserving other-tool evidence; `coverage-manifest.json`
+distinguishes observed scanner artifacts from missing coverage; and the `autofix/`
+directory contains a deterministic review-only Ruff patch plus its manifest. No fix is
+applied automatically during this phase.
+
 ### Goal
 Run each workflow manually and preserve scanner-native findings in GitHub Actions and
 code-scanning artifacts. Remediation and suppression are a separate, explicitly approved

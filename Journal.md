@@ -10201,3 +10201,24 @@
 - Publication: Service commit `d83ae07` was pushed only to fork branches
   `feature/static-code-analysis` and `claude/main`. Upstream, `Testing`, production,
   automatic triggers, merge gates, and branch protection remain untouched.
+
+### 2026-08-22 — orchestrator — Unified diagnosis dashboard phase started
+- Context: Operator clarified the acceptance target: configure the diagnostic tool
+  web, retain cross-tool evidence while removing duplicates, prove scanner/detection
+  coverage, visualize every finding in one place, and support bounded autofix.
+- Scope: Extend the advisory fork-only service with a searchable static dashboard,
+  coverage/coherence manifest, diagnosis metadata, and review-only autofix proposals.
+  No automatic source edits, issue flood, merge gates, upstream changes, or deployment.
+
+### 2026-08-22 — orchestrator — Unified diagnosis surface implemented locally
+- Coverage repair: Added ingestion for Semgrep JSON, Pyright JSON, ESLint JSON, and
+  Vulture text output, and added the previously missing Hadolint artifact upload. This
+  closes gaps where a scanner could run but its findings were absent from aggregation.
+- Visualization: Added a dependency-free searchable HTML dashboard containing every
+  unique finding, cross-tool evidence, severity/tool/category filters, diagnosis text,
+  autofix eligibility, scanner-artifact coverage, and runtime line coverage when its
+  report exists. The dashboard and machine-readable coverage manifest are run artifacts.
+- Autofix boundary: Added a Ruff safe-fix patch generator using review-only diff mode;
+  it writes a patch and manifest but never edits source, commits, pushes, or opens a PR.
+- Local verification: Six focused unit tests and Ruff checks pass, Python modules compile,
+  both modified workflow YAML files parse, and `git diff --check` reports no errors.
