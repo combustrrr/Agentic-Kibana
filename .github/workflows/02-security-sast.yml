@@ -116,7 +116,6 @@ jobs:
             --output=semgrep-results.json \
             --severity=ERROR \
             --severity=WARNING \
-            --exit-zero \
             backend/ webui/src/ || true
 
       - name: Normalize Semgrep JSON to SARIF
