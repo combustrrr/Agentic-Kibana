@@ -188,9 +188,9 @@ rules:
         - pattern: $RESULT = $TOOL($RAW_USER_INPUT)
         - pattern: '$RESULT = tool_executor.invoke({"tool": $INPUT, ...})'
         - pattern: $RESULT = $LLM_OUTPUT($USER_DATA)
-      - metavariable-not-regex:
+      - metavariable-regex:
           metavariable: "$TOOL"
-          regex: "validate|allowlist|registry|approved|safe"
+          regex: "(?i)^(?!.*(?:validate|allowlist|registry|approved|safe)).*$"
     metadata:
       category: agent-security
       owasp: A01:2021
