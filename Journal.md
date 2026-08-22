@@ -10312,3 +10312,10 @@
 - Documentation: Added `ACKNOWLEDGED_GAPS.md` with evidence and concrete implementation
   actions. Updated every execution phase and the full shortlist inventory. Phase 3 is
   not started and requires explicit operator approval; all triggers remain manual-only.
+
+### 2026-08-22 — orchestrator — Monitoring-only scope confirmed
+- Operator decision: the current objective is to establish dependable static-analysis
+  monitoring that detects, normalizes, deduplicates, measures, and visualizes findings.
+- Application finding remediation, automatic fixes, blocking merge gates, and production
+  activation are out of scope for now. Scanner-infrastructure changes may be made only
+  to improve monitoring coverage and evidence quality; findings themselves stay advisory.
