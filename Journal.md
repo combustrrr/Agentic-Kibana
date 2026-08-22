@@ -10346,3 +10346,17 @@
   with one stable entry point. Preserve deduplication and full finding visibility without
   creating application Issues, applying fixes, or colliding with the product documentation
   deployment, upstream repository, live site, or production environment.
+
+### 2026-08-22 — orchestrator — Separate findings surface accepted
+- Research decision: GitHub code scanning truncates displayed results above its per-run
+  soft limit, Actions artifacts are downloads rather than sites, and this public fork's
+  Pages contract belongs to release documentation. Publishing the consolidated security
+  inventory on public Pages was rejected. DefectDojo remains the later private-host option.
+- Implemented: one idempotent neutral `Code Analysis Dashboard` check per monitored commit,
+  bounded severity/tool/file/concept rollups, explicit authenticated artifact link, and a
+  50/100/250-row paginated full HTML dashboard. The workflow now has `checks: write` and no
+  Issue permission or Issue-plan output.
+- Acceptance: fork PR #2 and run `32578162932` produced 8,535 findings, 14/14 channels,
+  and 81.16% coverage. Dashboard-only rebuild `32580941289` reused prior scanner artifacts,
+  updated the same check (`97043497690`) instead of duplicating it, and exposed the link.
+  No findings were fixed; no upstream, production, Pages, or application deployment changed.
