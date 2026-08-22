@@ -143,6 +143,9 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/backend
         run: |
           cd backend
+          # Prevent stale/parallel coverage shards with incompatible branch settings
+          # from poisoning aggregation on a fresh diagnostic run.
+          python -m coverage erase
           pytest \
             --cov=app \
             --cov-report=xml:coverage.xml \

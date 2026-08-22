@@ -10235,3 +10235,16 @@
 - Follow-up repairs: Corrected Pyright JSON redirection, ESLint artifact path, always-run
   coverage report materialization, and coverage accounting when parsed findings prove
   an artifact was consumed. Hadolint upload was added in the preceding service commit.
+
+### 2026-08-22 — orchestrator — Diagnostic coverage refresh reached 13/14
+- Scanner refresh: Fork runs `32573289443` (Code Quality) succeeded,
+  `32573290764` (Dependency Security) retained finding artifacts despite a finding-driven
+  failure, and `32573291902` (Code Health) retained Radon/Vulture evidence. The refreshed
+  channels now include Pyright, ESLint, Checkov, and Hadolint artifacts.
+- Aggregation: Dry-run `32573501463` succeeded with issue writes disabled and produced
+  8,762 unique findings, 13/14 observed diagnostic channels, 2,487 safe-fix candidates,
+  and a non-empty 510 KB review patch. Runtime coverage was the sole missing channel.
+- Coverage diagnosis: pytest-cov failed while combining stale statement and branch
+  coverage shards (`Can't combine statement coverage data with branch data`), leaving
+  no JSON/XML artifact. Added an explicit `coverage erase` before the diagnostic test
+  run; no application finding was fixed or suppressed.
