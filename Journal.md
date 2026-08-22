@@ -10257,3 +10257,14 @@
   parent-process `coverage run --branch --source=app -m pytest`. JSON/XML and terminal
   reports are materialized before preserving the test/threshold exit status. This is a
   truthful stable baseline; child-process coverage is explicitly not claimed.
+
+### 2026-08-22 — orchestrator — Unified diagnostic web verified complete
+- Coverage proof: Fork-only Code Health run `32574126153` retained `coverage-reports`
+  alongside Radon and Vulture artifacts. Its advisory failure reflects existing findings,
+  while the stable parent-process report measured 81.16% runtime line coverage.
+- Final aggregation: Dry-run `32574531333` succeeded with all 14/14 expected diagnostic
+  channels observed. Its searchable dashboard contains 8,762 unique findings in one
+  place with evidence-preserving dedupe, diagnosis filters, and coverage visualization.
+- Autofix proof: The artifact includes 2,487 deterministic Ruff candidates and a
+  non-empty 510,318-byte review patch. No source file, issue, PR, merge gate, branch
+  protection setting, upstream ref, or production system was changed.
