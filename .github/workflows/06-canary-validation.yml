@@ -51,6 +51,12 @@ jobs:
       - name: Install tools
         run: |
           python -m pip install --requirement .ci/requirements.txt
+          python -m pip install "checkov==3.2.468"
+
+      - name: Prepare non-ignored canary scan root
+        run: |
+          mkdir -p canary-input/canary
+          cp -R tests/security_canary/. canary-input/canary/
 
       - name: Run Semgrep on canary suite
         run: |
@@ -59,9 +65,10 @@ jobs:
             --config=p/python \
             --config=p/owasp-top-ten \
             --config=p/jwt \
+            --no-git-ignore \
             --json \
             --output=canary-results-semgrep.json \
-            tests/security_canary/ || true
+            canary-input/canary/ || true
 
       - name: Run Bandit on canary suite
         run: |
@@ -107,6 +114,15 @@ jobs:
           output-file: canary-results-hadolint.sarif
           no-fail: true
 
+      - name: Run Checkov on insecure canary Dockerfile
+        run: |
+          checkov \
+            --file tests/security_canary/Dockerfile.insecure \
+            --framework dockerfile \
+            --output sarif \
+            --output-file-path canary-results-checkov.sarif \
+            --soft-fail || true
+
       - name: Collect all canary scan outputs
         run: |
           mkdir -p canary-scan-results
@@ -116,6 +132,7 @@ jobs:
           cp canary-results-gitleaks.sarif canary-scan-results/ 2>/dev/null || true
           cp canary-results-osv.sarif canary-scan-results/ 2>/dev/null || true
           cp canary-results-hadolint.sarif canary-scan-results/ 2>/dev/null || true
+          cp canary-results-checkov.sarif canary-scan-results/ 2>/dev/null || true
 
       - name: Normalize canary findings
         run: |
