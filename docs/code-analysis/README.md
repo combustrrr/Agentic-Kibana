@@ -155,11 +155,15 @@ flowchart TD
 | Security/SAST | `02-security-sast.yml` | PR + push + weekly | CodeQL, Semgrep, Bandit |
 | Dependency Security | `03-dependency-security.yml` | PR + push + daily | OSV-Scanner, Trivy, Gitleaks, Hadolint, Checkov |
 | Code Health | `04-code-health.yml` | PR + weekly | Radon, Xenon, Vulture, Coverage.py |
-| Issue Aggregation | `05-issue-aggregation.yml` | Daily + manual | GitHub Issues sync |
+| Advisory Finding Aggregation | `05-issue-aggregation.yml` | Manual only | Latest scanner artifacts, normalization, fingerprint dedupe, optional GitHub Issues |
 | Canary Validation | `06-canary-validation.yml` | Weekly + config changes | All scanners + validate |
 | API Fuzzing | `07-api-fuzzing.yml` | Saturday weekly + PR | Schemathesis |
 
 ### CI Gate Summary
+
+> **Current fork policy (Phase 1): advisory only.** The analysis workflows are
+> manual-only, do not supply required checks, and do not change branch protection.
+> The table below is a future policy proposal, not the active repository behavior.
 
 | Condition | Action |
 |-----------|--------|
@@ -224,6 +228,20 @@ Key fields:
 - `duplicate_group`: ID of canonical finding if this is a duplicate
 - `evidence`: List of corroborating tool findings
 - `validation_status`: State machine lifecycle state
+
+### Advisory issue synchronization
+
+`05-issue-aggregation.yml` downloads the latest completed scanner artifacts for the
+selected fork branch and recursively normalizes supported SARIF/JSON files. Findings
+from overlapping tools share one fingerprint when their repository-relative file,
+line, and canonical concept match.
+
+The workflow defaults to `apply_issues: false`. In that mode it only uploads
+`issue-sync-plan.json` and the normalized artifacts. An operator must deliberately
+select `apply_issues: true` to create issues. Only HIGH/CRITICAL findings are eligible,
+new issues are capped (25 by default), and each issue carries both an `fp:<id>` label
+and an embedded fingerprint marker for idempotency. This phase never closes issues;
+the three-clean-scan plus targeted-rescan closure policy remains future work.
 
 ## 8. Deployment & On-Prem Constraints
 

@@ -10168,3 +10168,24 @@
 - Safety: Automatic workflow triggers remain dormant. Only the fork branches were
   updated; `feature/static-code-analysis` remains checked out and equal to the fork's
   default `claude/main`. Upstream and production were untouched.
+
+### 2026-08-22 — orchestrator — Advisory code-analysis service integration started
+- Context: User clarified the approved proposal target: an additive GitHub-based code
+  quality/SAST service that maps findings to file/line, deduplicates overlapping tools,
+  and surfaces advisory GitHub Issues without blocking merges or changing production.
+- Scope: Audit and complete the normalizer plus issue-aggregation layer using the
+  captured Phase 1 artifacts. Keep all automatic triggers dormant, preserve existing
+  `ci.yml`, do not merge to `Testing`, and do not deploy or contact upstream/live systems.
+
+### 2026-08-22 — orchestrator — Advisory aggregation service implemented
+- Result: Replaced the alert-number-based aggregation draft with a manual-only,
+  dry-run-first service that downloads the latest fork-branch scanner artifacts,
+  recursively normalizes supported outputs, and plans idempotent GitHub Issues using
+  repository-relative file + line + canonical-concept fingerprints.
+- Safety: Issue writes require an explicit `apply_issues=true`; only HIGH/CRITICAL
+  findings are eligible and new issues are capped at 25 by default. The service never
+  closes issues, blocks merges, changes branch protection, edits application findings,
+  or contacts the upstream/production repository.
+- Verification: Added four unit tests covering path stability, cross-tool dedupe,
+  repeat-run idempotency/no-close behavior, severity filtering, and creation caps.
+  All tests pass; the workflow YAML parses and Python sources compile.

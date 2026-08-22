@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -42,6 +43,26 @@ try:
     console = Console()
 except ImportError:
     console = None
+
+
+REPOSITORY_ROOTS = (".github", "backend", "docs", "scripts", "webui")
+
+
+def canonicalize_file(raw_path: str) -> str:
+    """Return a stable repository-relative path for cross-run fingerprints."""
+    value = str(raw_path or "").replace("\\", "/")
+    if value.startswith("file://"):
+        value = value.removeprefix("file://").lstrip("/")
+    workspace = os.environ.get("GITHUB_WORKSPACE", "").replace("\\", "/").rstrip("/")
+    if workspace and value.lower().startswith(f"{workspace.lower()}/"):
+        value = value[len(workspace) + 1:]
+    value = value.removeprefix("./")
+    if ":/" in value or value.startswith("/"):
+        candidates = [value.find(f"/{root}/") + 1 for root in REPOSITORY_ROOTS
+                      if value.find(f"/{root}/") >= 0]
+        if candidates:
+            value = value[min(candidates):]
+    return value
 
 
 # ─────────────────────────────────────────────────────────────
@@ -245,12 +266,13 @@ class Finding:
         same file+line gets the SAME fingerprint → deduplicated to ONE issue.
         """
         concept = self.rule_concept or normalize_concept(self.rule_id)
-        key = f"{self.file}:{self.start_line}:{concept}"
+        key = f"{canonicalize_file(self.file)}:{self.start_line}:{concept}"
         return hashlib.sha256(key.encode()).hexdigest()[:16]
 
     def __post_init__(self) -> None:
         import datetime
         now = datetime.datetime.utcnow().isoformat()
+        self.file = canonicalize_file(self.file)
         if not self.rule_concept:
             self.rule_concept = normalize_concept(self.rule_id)
         if not self.id:
@@ -263,7 +285,7 @@ class Finding:
     def dedup_key(self) -> str:
         """Deduplication key across tools: file + line + concept."""
         concept = self.rule_concept or normalize_concept(self.rule_id)
-        return f"{self.file}:{self.start_line}:{concept}"
+        return f"{canonicalize_file(self.file)}:{self.start_line}:{concept}"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -674,47 +696,54 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
     all_findings: list[Finding] = []
 
     # ── Parse SARIF files ────────────────────────────────────
-    for sarif_file in input_path.glob("*.sarif"):
+    parsed_files: set[Path] = set()
+    for sarif_file in input_path.rglob("*.sarif"):
         try:
             tool_hint = sarif_file.stem.split("-")[0]
             findings = sarif_parser.parse(sarif_file, tool_hint=tool_hint)
             all_findings.extend(findings)
+            parsed_files.add(sarif_file)
             if verbose:
                 print(f"[SARIF] {sarif_file.name}: {len(findings)} findings")
         except Exception as e:
             print(f"[WARN] Failed to parse {sarif_file}: {e}", file=sys.stderr)
 
     # ── Parse Bandit JSON ────────────────────────────────────
-    for bandit_file in input_path.glob("bandit*.json"):
+    json_files = sorted(input_path.rglob("*.json"))
+    for bandit_file in (p for p in json_files if "bandit" in p.name.lower()):
         try:
             findings = bandit_parser.parse(bandit_file)
             all_findings.extend(findings)
+            parsed_files.add(bandit_file)
             if verbose:
                 print(f"[Bandit] {bandit_file.name}: {len(findings)} findings")
         except Exception as e:
             print(f"[WARN] Failed to parse {bandit_file}: {e}", file=sys.stderr)
 
     # ── Parse Ruff JSON ──────────────────────────────────────
-    for ruff_file in input_path.glob("ruff*.json"):
+    for ruff_file in (p for p in json_files if "ruff" in p.name.lower()):
         try:
             findings = ruff_parser.parse(ruff_file)
             all_findings.extend(findings)
+            parsed_files.add(ruff_file)
             if verbose:
                 print(f"[Ruff] {ruff_file.name}: {len(findings)} findings")
         except Exception as e:
             print(f"[WARN] Failed to parse {ruff_file}: {e}", file=sys.stderr)
 
     # ── Parse Vulture JSON ───────────────────────────────────
-    for vulture_file in input_path.glob("vulture*.json"):
+    for vulture_file in (p for p in json_files if "vulture" in p.name.lower()):
         try:
             findings = vulture_parser.parse(vulture_file)
             all_findings.extend(findings)
+            parsed_files.add(vulture_file)
             if verbose:
                 print(f"[Vulture] {vulture_file.name}: {len(findings)} findings")
         except Exception as e:
             print(f"[WARN] Failed to parse {vulture_file}: {e}", file=sys.stderr)
 
-    print(f"\n Total raw findings: {len(all_findings)}")
+    print(f"\n Parsed input files: {len(parsed_files)}")
+    print(f" Total raw findings: {len(all_findings)}")
 
     # ── Deduplicate ──────────────────────────────────────────
     deduplicated = deduplicator.deduplicate(all_findings)

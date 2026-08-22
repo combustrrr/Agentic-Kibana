@@ -1,6 +1,6 @@
 # Static Code Analysis — Execution & Issue Reporting Plan
 
-> **Status**: Phase 1 findings baseline captured; remediation deferred by operator direction
+> **Status**: Phase 1 findings baseline captured; advisory aggregation service implemented for dry-run validation
 > **Branch**: `feature/static-code-analysis`
 > **Target**: Integration into `Testing` after all phases pass
 
@@ -53,6 +53,12 @@
 deferred finding fixes, suppressions, and false-positive classification. See
 [`PHASE1_BASELINE.md`](PHASE1_BASELINE.md) for the verified run links, artifact inventory,
 raw counts, and known reporting caveats.
+
+The Phase 1 service layer is also present in `05-issue-aggregation.yml`: it collects
+the latest completed artifacts for the selected fork branch, normalizes them
+recursively, deduplicates by repository file + line + canonical concept, and emits an
+advisory issue plan. Issue writes are off by default and bounded when explicitly
+enabled; automatic closure and merge blocking are disabled.
 
 ### Goal
 Run each workflow manually and preserve scanner-native findings in GitHub Actions and

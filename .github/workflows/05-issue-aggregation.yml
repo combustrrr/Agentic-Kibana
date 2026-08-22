@@ -1,237 +1,107 @@
-# ============================================================
-# Layer 6: Issue Aggregation & Auto-Issue Creation
-# Kavach-AgenticSOC Code Intelligence System
-#
-# This workflow:
-#   1. Reads all open HIGH/CRITICAL code scanning alerts (CodeQL, Semgrep, etc.)
-#   2. Auto-creates GitHub Issues with labels for any that don't have one yet
-#   3. Closes GitHub Issues when their corresponding alert is resolved
-#   4. Posts a daily summary comment on open security issues
-#
-# Requirements:
-#   - GitHub Advanced Security enabled (free for public repos)
-#   - Permissions: security-events:read, issues:write
-# ============================================================
-
-name: Issue Aggregation & Auto-Tracking
+name: Advisory Finding Aggregation
 
 on:
   workflow_dispatch:
-  # DORMANT: Activate after Phase 2 testing (see docs/code-analysis/README.md)
-  # To activate, uncomment the schedule below:
-  # schedule:
-  #   - cron: "0 6 * * *"    # Daily at 06:00 UTC — sync all open alerts to issues
+    inputs:
+      apply_issues:
+        description: "Explicitly create advisory GitHub Issues (dry-run when false)"
+        required: true
+        default: false
+        type: boolean
+      max_new_issues:
+        description: "Safety cap for new HIGH/CRITICAL issues"
+        required: true
+        default: "25"
+        type: string
+  # DORMANT: no schedule, push, pull_request, or workflow_run trigger in Phase 1.
 
 permissions:
-  security-events: read
-  issues: write
+  actions: read
   contents: read
+  issues: write
 
 jobs:
-  # ─────────────────────────────────────────────
-  # Sync code scanning alerts → GitHub Issues
-  # Creates issues for new HIGH/CRITICAL alerts
-  # Closes issues for resolved alerts
-  # ─────────────────────────────────────────────
-  sync-security-alerts:
-    name:  Sync Security Alerts → GitHub Issues
+  aggregate:
+    name: Normalize, deduplicate, and plan advisory issues
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
+    timeout-minutes: 20
     steps:
-      - name: Sync code scanning alerts to issues
-        uses: actions/github-script@1c0c1c1c3c8e6e4d2a1b0f9e8d7c6b5a49382736 # v7
+      - name: Checkout this fork branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          script: |
-            const severityEmoji = {
-              critical: '🟥',
-              high: '🟧',
-              medium: '🟨',
-              low: '🟦',
-              note: '⬜'
-            };
+          python-version: "3.11"
 
-            const categoryLabel = (toolName) => {
-              const tool = (toolName || '').toLowerCase();
-              if (tool.includes('codeql')) return 'tool:codeql';
-              if (tool.includes('semgrep')) return 'tool:semgrep';
-              if (tool.includes('bandit')) return 'tool:bandit';
-              if (tool.includes('trivy')) return 'tool:trivy';
-              if (tool.includes('gitleaks')) return 'tool:gitleaks';
-              if (tool.includes('snyk')) return 'tool:snyk';
-              return 'tool:other';
-            };
+      - name: Install normalizer dependency
+        run: python -m pip install "click==8.2.1"
 
-            // ── Fetch all open HIGH/CRITICAL alerts ──────────────
-            let allAlerts = [];
-            try {
-              const response = await github.rest.codeScanning.listAlertsForRepo({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                state: 'open',
-                per_page: 100
-              });
-              allAlerts = response.data.filter(a =>
-                ['critical', 'high'].includes((a.rule?.severity || '').toLowerCase())
-              );
-            } catch (e) {
-              console.log(`Could not fetch alerts: ${e.message}`);
-              return;
-            }
+      - name: Download latest completed scanner artifacts for this branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCAN_BRANCH: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p scan-artifacts
+          for workflow in 01-code-quality.yml 02-security-sast.yml 03-dependency-security.yml 04-code-health.yml; do
+            run_id="$(gh run list --workflow "$workflow" --branch "$SCAN_BRANCH" --status completed --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+            if [[ -z "$run_id" ]]; then
+              echo "::warning::No completed run found for $workflow on $SCAN_BRANCH"
+              continue
+            fi
+            mkdir -p "scan-artifacts/$workflow"
+            gh run download "$run_id" --dir "scan-artifacts/$workflow" || echo "::warning::No downloadable artifacts for $workflow run $run_id"
+          done
 
-            console.log(`Found ${allAlerts.length} open HIGH/CRITICAL alerts`);
+      - name: Normalize and deduplicate by repository file, line, and concept
+        run: python scripts/code_analysis/normalizer.py --input-dir scan-artifacts --output-dir normalized --verbose
 
-            // ── Fetch existing issues with 'security' label ──────
-            const existingIssues = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              labels: 'security',
-              state: 'open',
-              per_page: 100
-            });
+      - name: Read existing advisory issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh api --paginate --slurp "/repos/${GITHUB_REPOSITORY}/issues?state=all&labels=code-analysis&per_page=100" | jq 'flatten | map(select(.pull_request | not))' > existing-issues.json
 
-            const alertIdToIssue = new Map();
-            for (const issue of existingIssues.data) {
-              const match = issue.body?.match(/\*\*Alert ID:\*\* #(\d+)/);
-              if (match) alertIdToIssue.set(parseInt(match[1]), issue);
-            }
+      - name: Plan issue synchronization (dry-run by default)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          args=(--findings normalized/deduplicated-findings.json --existing-issues existing-issues.json --output issue-sync-plan.json --max-new "${{ inputs.max_new_issues }}")
+          if [[ "${{ inputs.apply_issues }}" == "true" ]]; then
+            args+=(--apply --repository "$GITHUB_REPOSITORY")
+          fi
+          python scripts/code_analysis/issue_sync.py "${args[@]}"
 
-            // ── Create issues for new alerts ─────────────────────
-            for (const alert of allAlerts) {
-              if (alertIdToIssue.has(alert.number)) {
-                console.log(`Issue already exists for alert #${alert.number}`);
-                continue;
-              }
-
-              const emoji = severityEmoji[(alert.rule?.severity || '').toLowerCase()] || '⚠️';
-              const loc = alert.most_recent_instance?.location;
-              const title = `${emoji} [${(alert.rule?.severity || '').toUpperCase()}] ${alert.rule?.description}`;
-
-              const body = [
-                `## Security Finding`,
-                ``,
-                `**Alert ID:** #${alert.number}`,
-                `**Tool:** ${alert.tool?.name}`,
-                `**Rule:** \`${alert.rule?.id}\``,
-                `**Severity:** ${(alert.rule?.severity || '').toUpperCase()}`,
-                `**Status:** Open`,
-                ``,
-                `### Location`,
-                `**File:** \`${loc?.path || 'unknown'}\``,
-                `**Line:** ${loc?.start_line || 'unknown'}`,
-                ``,
-                `### Description`,
-                `> ${alert.rule?.description}`,
-                ``,
-                alert.rule?.full_description
-                  ? `### Details\n${alert.rule.full_description}`
-                  : '',
-                ``,
-                `### Links`,
-                `- [View Alert on GitHub](${alert.html_url})`,
-                `- [View Code Location](${alert.most_recent_instance?.html_url || ''})`,
-                ``,
-                `---`,
-                `*Auto-created by Code Intelligence System · ${new Date().toISOString().split('T')[0]}*`
-              ].filter(Boolean).join('\n');
-
-              const labels = [
-                'security',
-                `severity:${(alert.rule?.severity || 'low').toLowerCase()}`,
-                categoryLabel(alert.tool?.name || ''),
-                'auto-detected'
-              ];
-
-              await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title,
-                body,
-                labels
-              });
-
-              console.log(`Created issue for alert #${alert.number}: ${title}`);
-            }
-
-            // ── Close issues for resolved alerts ─────────────────
-            const openAlertIds = new Set(allAlerts.map(a => a.number));
-
-            for (const [alertId, issue] of alertIdToIssue) {
-              if (!openAlertIds.has(alertId)) {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issue.number,
-                  body: '🔒 The corresponding code scanning alert has been resolved. Closing this issue automatically.'
-                });
-                await github.rest.issues.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issue.number,
-                  state: 'closed',
-                  state_reason: 'completed'
-                });
-                console.log(`Closed issue #${issue.number} (alert resolved)`);
-              }
-            }
-
-  # ─────────────────────────────────────────────
-  # Weekly summary report as a GitHub Issue
-  # Shows all open findings by category + severity
-  # ─────────────────────────────────────────────
-  weekly-summary:
-    name:  Weekly Security Summary
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    if: github.event.schedule == '0 6 * * 1' || github.event_name == 'workflow_dispatch'
-
-    steps:
-      - name: Generate and post weekly summary
-        uses: actions/github-script@1c0c1c1c3c8e6e4d2a1b0f9e8d7c6b5a49382736 # v7
+      - name: Upload complete advisory analysis
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          script: |
-            const today = new Date().toISOString().split('T')[0];
+          name: advisory-finding-aggregation-${{ github.run_id }}
+          path: |
+            normalized/
+            issue-sync-plan.json
+          if-no-files-found: warn
+          retention-days: 30
 
-            const countIssues = async (label) => {
-              const r = await github.rest.issues.listForRepo({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                labels: label,
-                state: 'open',
-                per_page: 1
-              });
-              return r.headers['x-total-count'] || r.data.length;
-            };
-
-            const critical = await countIssues('severity:critical');
-            const high     = await countIssues('severity:high');
-            const medium   = await countIssues('severity:medium');
-            const security = await countIssues('security');
-
-            const body = [
-              `## 📊 Code Intelligence Weekly Summary — ${today}`,
-              ``,
-              `| Severity | Open Issues |`,
-              `|----------|------------|`,
-              `| Critical | ${critical} |`,
-              `| High | ${high} |`,
-              `| Medium | ${medium} |`,
-              ``,
-              `**Total security issues:** ${security}`,
-              ``,
-              `### Quick Links`,
-              `- [Security Tab](https://github.com/${context.repo.owner}/${context.repo.repo}/security/code-scanning)`,
-              `- [Open Security Issues](https://github.com/${context.repo.owner}/${context.repo.repo}/issues?q=is%3Aopen+label%3Asecurity)`,
-              `- [Dependabot Alerts](https://github.com/${context.repo.owner}/${context.repo.repo}/security/dependabot)`,
-              ``,
-              `---`,
-              `*Generated automatically by Code Intelligence System*`
-            ].join('\n');
-
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `📊 Code Intelligence Weekly Summary — ${today}`,
-              body,
-              labels: ['report', 'weekly-summary']
-            });
+      - name: Publish run summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Advisory finding aggregation"
+            echo
+            echo "- Branch: \`${GITHUB_REF_NAME}\`"
+            echo "- Issue apply requested: \`${{ inputs.apply_issues }}\`"
+            echo "- Merge blocking: \`disabled\`"
+            echo "- Automatic closing: \`disabled\`"
+            if [[ -f issue-sync-plan.json ]]; then
+              echo
+              echo '```json'
+              jq 'del(.create)' issue-sync-plan.json
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
