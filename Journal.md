@@ -10326,3 +10326,15 @@
 - Safety boundary: no push/schedule triggers, issue writes, autofix generation, required
   checks, upstream changes, or production deployment. Finding presence remains advisory;
   only broken monitoring infrastructure should fail the aggregation service.
+
+### 2026-08-22 — orchestrator — Phase 3 advisory monitoring accepted
+- Fork PR #1 exercised an empty acceptance commit. All four scanner families completed
+  successfully on the corrected revision: Code Quality `32576809623`, Security/SAST
+  `32576809631`, Dependency/Supply Chain `32576809598`, and Code Health `32576809637`.
+- Automatic aggregation `32577091369` matched the exact PR commit and produced 8,536
+  deduplicated findings, 14/14 configured channels, a searchable dashboard, and 81.16%
+  runtime coverage in a 30-day artifact.
+- Monitoring repair: Semgrep SARIF publication to the optional GitHub Security surface is
+  advisory because artifact/dashboard collection remains authoritative. Issue permission
+  is read-only; automatic fix output, issue mutation, blocking, upstream, and production
+  actions remain disabled. Phase 3 is complete; application findings were not fixed.
