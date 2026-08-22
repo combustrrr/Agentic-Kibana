@@ -52,8 +52,6 @@ rules:
     languages: [python]
     patterns:
       - pattern: |
-          $CLIENT.search(body={..., "query": {... $REQUEST ...}})
-      - pattern: |
           $CLIENT.search(body={"query": {"match": {$FIELD: $USER_INPUT}}})
       - metavariable-regex:
           metavariable: $USER_INPUT
