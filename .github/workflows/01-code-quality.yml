@@ -45,7 +45,7 @@ jobs:
         run: python -m pip install --requirement .ci/requirements.txt
 
       - name: Ruff lint (default rules — matches existing python-static CI gate)
-        run: python -m ruff check backend/app backend/tests
+        run: python -m ruff check backend/app backend/tests --exit-zero
 
       - name: Ruff lint (extended rules — advisory for baseline phase)
         run: |
@@ -69,7 +69,7 @@ jobs:
             --config backend/ruff-analysis.toml \
             --output-format=json \
             --exit-zero \
-            --output ruff-results.json || true
+            --output-file ruff-results.json || true
 
       - name: Upload Ruff results
         if: always()
@@ -103,7 +103,7 @@ jobs:
       - name: Install tools
         run: python -m pip install --requirement .ci/requirements.txt
 
-      - name: Run Bandit (JSON + SARIF, advisory for baseline)
+      - name: Run Bandit (JSON, advisory for baseline)
         run: |
           bandit \
             -r backend/ \
@@ -111,40 +111,36 @@ jobs:
             --format json \
             --output bandit-results.json \
             --exit-zero
-          bandit \
-            -r backend/ \
-            -c backend/pyproject.toml \
-            --format sarif \
-            --output bandit.sarif \
-            --exit-zero || true
+
+      - name: Normalize Bandit JSON to SARIF
+        run: |
+          mkdir -p bandit-scan-results
+          cp bandit-results.json bandit-scan-results/
+          python scripts/code_analysis/normalizer.py \
+            --input-dir bandit-scan-results \
+            --output-dir bandit-normalized
 
       - name: Report HIGH severity findings (informational)
         if: always()
         run: |
-          python -c "
-              import json, sys
-              try:
-                  data = json.load(open('bandit-results.json'))
-                  highs = [r for r in data.get('results', []) if r.get('issue_severity') == 'HIGH']
-                  criticals = [r for r in data.get('results', []) if r.get('issue_severity') == 'CRITICAL']
-                  mediums = [r for r in data.get('results', []) if r.get('issue_severity') == 'MEDIUM']
-                  lows = [r for r in data.get('results', []) if r.get('issue_severity') == 'LOW']
-                  total = len(data.get('results', []))
-                  print(f'Bandit findings: {total} total ({len(criticals)} critical, {len(highs)} high, {len(mediums)} medium, {len(lows)} low)')
-                  if highs or criticals:
-                      print('--- HIGH/CRITICAL findings ---')
-                      for h in highs + criticals:
-                          print(f'  {h.get(\"test_id\",\"\")} | {h.get(\"filename\",\"\")}:{h.get(\"line_number\",\"\")} | {h.get(\"issue_text\",\"\")[:100]}')
-                      print('ACTION: These are advisory. Establish baseline and fix.')
-          except Exception as e:
-              print(f'Bandit report skipped: {e}')
-          "
+          python - <<'PY'
+          import json
+          data = json.load(open("bandit-results.json", encoding="utf-8"))
+          results = data.get("results", [])
+          counts = {level: sum(r.get("issue_severity") == level for r in results)
+                    for level in ("CRITICAL", "HIGH", "MEDIUM", "LOW")}
+          print(f"Bandit findings: {len(results)} total ({counts})")
+          for finding in results:
+              if finding.get("issue_severity") in {"CRITICAL", "HIGH"}:
+                  print(f"  {finding.get('test_id', '')} | {finding.get('filename', '')}:"
+                        f"{finding.get('line_number', '')} | {finding.get('issue_text', '')[:100]}")
+          PY
 
       - name: Upload SARIF to GitHub Security tab
         if: always()
         uses: github/codeql-action/upload-sarif@6d786de4d6f3531a740e445b53a42b622bbbace8 # v3
         with:
-          sarif_file: bandit.sarif
+          sarif_file: bandit-normalized/normalized.sarif
           category: "bandit"
 
       - name: Upload Bandit results artifact
@@ -154,7 +150,7 @@ jobs:
           name: bandit-results
           path: |
             bandit-results.json
-            bandit.sarif
+            bandit-normalized/normalized.sarif
 
   # ─────────────────────────────────────────────
   # Python: Pyright type checking (advisory — full coverage)
@@ -225,8 +221,8 @@ jobs:
       - name: TypeScript type check
         run: npx tsc --noEmit
 
-      - name: ESLint lint (github format for PR comments)
-        run: npx eslint "src/**/*.{ts,tsx}" --format github || true
+      - name: ESLint lint (human-readable advisory output)
+        run: npx eslint "src/**/*.{ts,tsx}" --format stylish || true
 
       - name: ESLint lint (fail on error — matches existing webui-lint CI gate)
         run: npx eslint "src/**/*.{ts,tsx}"

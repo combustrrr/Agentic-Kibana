@@ -10133,3 +10133,20 @@
   justified fixes or narrow suppressions, document accepted gaps, and validate the
   resulting baseline. Automatic workflow triggers remain dormant; `Testing`, the
   original upstream repository, and production remain out of scope.
+
+### 2026-08-22 — orchestrator — Phase 1 first web scan and reporting repair
+- Did: Dispatched the five manual Phase 1 workflows on the fork. The first attempt
+  proved every job was blocked by fabricated/unresolvable action pins. Replaced the
+  affected Phase 1 actions with verified immutable upstream commits and reran them.
+- Evidence: Canary scanners, normalization, artifact upload, and summary executed;
+  its expected coverage validator failed and produced `canary-validation-results`.
+  CodeQL Python and JavaScript completed. Ruff, Bandit, Gitleaks, Trivy, complexity,
+  and coverage exposed findings or thresholds, while their runs also revealed output-
+  plumbing defects (invalid Ruff/Vulture flags, unsupported Bandit SARIF, malformed
+  summary script, Semgrep dual-output misuse, OSV v2 entry point, and import context).
+- Decision: Per user direction, Phase 1 is findings collection and web visibility
+  only. No application finding was fixed or suppressed. Reporting mechanics were
+  corrected so raw JSON/SARIF/text artifacts survive advisory findings.
+- Environment: Native WSL setup was attempted with approval but Windows required an
+  elevated Administrator process; no WSL feature was changed. GitHub-hosted Linux
+  runners provide the supported Semgrep execution path instead.

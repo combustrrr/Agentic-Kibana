@@ -103,8 +103,7 @@ jobs:
         run: |
           vulture backend/ \
             --min-confidence 80 \
-            --json \
-            > vulture-results.json || true
+            > vulture-results.txt || true
           # Print human-readable summary
           vulture backend/ --min-confidence 80 || true
 
@@ -112,7 +111,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: vulture-results
-          path: vulture-results.json
+          path: vulture-results.txt
 
   # ─────────────────────────────────────────────
   # Coverage.py — test coverage + dead code evidence
@@ -140,6 +139,8 @@ jobs:
           pip install -r backend/requirements-dev.txt
 
       - name: Run pytest with coverage
+        env:
+          PYTHONPATH: ${{ github.workspace }}/backend
         run: |
           cd backend
           pytest \

@@ -101,11 +101,10 @@ jobs:
           python-version: "3.11"
 
       - name: Install Semgrep
-        run: pip install semgrep
+        run: pip install semgrep==1.80.0 click==8.1.7 python-dateutil==2.9.0.post0
 
-      - name: Run Semgrep (SARIF + JSON output)
+      - name: Run Semgrep (JSON output)
         run: |
-          # SARIF output for GitHub Security tab
           semgrep \
             --config=p/python \
             --config=p/owasp-top-ten \
@@ -113,8 +112,6 @@ jobs:
             --config=p/secrets \
             --config=p/fastapi \
             --config=.github/semgrep-rules/ \
-            --sarif \
-            --output=semgrep.sarif \
             --json \
             --output=semgrep-results.json \
             --severity=ERROR \
@@ -122,11 +119,19 @@ jobs:
             --exit-zero \
             backend/ webui/src/ || true
 
+      - name: Normalize Semgrep JSON to SARIF
+        run: |
+          mkdir -p semgrep-scan-results
+          cp semgrep-results.json semgrep-scan-results/
+          python scripts/code_analysis/normalizer.py \
+            --input-dir semgrep-scan-results \
+            --output-dir semgrep-normalized
+
       - name: Upload SARIF to GitHub Security tab
         if: always()
         uses: github/codeql-action/upload-sarif@6d786de4d6f3531a740e445b53a42b622bbbace8 # v3
         with:
-          sarif_file: semgrep.sarif
+          sarif_file: semgrep-normalized/normalized.sarif
           category: "semgrep"
 
       - name: Upload SARIF artifact (for normalizer)
@@ -134,7 +139,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: semgrep-sarif
-          path: semgrep.sarif
+          path: semgrep-normalized/normalized.sarif
 
       - name: Upload JSON results (for normalizer)
         if: always()
