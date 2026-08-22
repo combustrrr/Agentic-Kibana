@@ -2,6 +2,15 @@ name: Code Analysis Dashboard
 
 on:
   workflow_dispatch:
+    inputs:
+      scan_branch:
+        description: "Optional branch whose latest scanner artifacts should be aggregated"
+        required: false
+        type: string
+      scan_sha:
+        description: "Optional exact commit SHA for a same-commit manual rebuild"
+        required: false
+        type: string
   workflow_run:
     workflows: ["Code Health & Technical Debt"]
     types: [completed]
@@ -38,8 +47,8 @@ jobs:
       - name: Download latest completed scanner artifacts for this branch
         env:
           GH_TOKEN: ${{ github.token }}
-          SCAN_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
-          SCAN_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          SCAN_BRANCH: ${{ inputs.scan_branch || github.event.workflow_run.head_branch || github.ref_name }}
+          SCAN_SHA: ${{ inputs.scan_sha || github.event.workflow_run.head_sha || github.sha }}
           AUTOMATIC_RUN: ${{ github.event_name == 'workflow_run' }}
         shell: bash
         run: |
@@ -90,13 +99,14 @@ jobs:
         if: steps.analysis-artifact.outputs.artifact-url != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          MONITORED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          MONITORED_SHA: ${{ inputs.scan_sha || github.event.workflow_run.head_sha || github.sha }}
           ARTIFACT_URL: ${{ steps.analysis-artifact.outputs.artifact-url }}
         shell: bash
         run: |
           set -euo pipefail
           check_name="Code Analysis Dashboard"
           external_id="code-analysis-dashboard:${MONITORED_SHA}"
+          printf '\n[Download the full searchable dashboard artifact](%s)\n' "$ARTIFACT_URL" >> dashboard/github-summary.md
           existing="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${MONITORED_SHA}/check-runs?filter=latest&per_page=100")"
           check_id="$(jq -r --arg name "$check_name" --arg external "$external_id" \
             '[.check_runs[] | select(.name == $name and .external_id == $external)] | first | .id // empty' <<<"$existing")"
@@ -127,8 +137,8 @@ jobs:
               echo "Dashboard generation did not complete. Inspect this run's logs."
             fi
             echo
-            echo "- Monitored branch: \`${{ github.event.workflow_run.head_branch || github.ref_name }}\`"
-            echo "- Monitored commit: \`${{ github.event.workflow_run.head_sha || github.sha }}\`"
+            echo "- Monitored branch: \`${{ inputs.scan_branch || github.event.workflow_run.head_branch || github.ref_name }}\`"
+            echo "- Monitored commit: \`${{ inputs.scan_sha || github.event.workflow_run.head_sha || github.sha }}\`"
             echo "- Full dashboard artifact: ${{ steps.analysis-artifact.outputs.artifact-url }}"
             echo "- Issue writes: \`disabled\`"
             echo "- Autofix generation/application: \`disabled\`"

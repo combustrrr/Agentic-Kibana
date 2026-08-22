@@ -12,8 +12,8 @@ For a pull request into the fork's `claude/main` branch:
 2. Select the single neutral **Code Analysis Dashboard** check for the commit.
 3. Review the bounded severity, tool, affected-file, and issue-concept tables directly
    in GitHub.
-4. Select **Details** to download the retained analysis artifact, extract it, and open
-   `dashboard/index.html` for every normalized finding.
+4. Use **Download the full searchable dashboard artifact** inside that check summary,
+   extract it, and open `dashboard/index.html` for every normalized finding.
 
 The full HTML view is searchable and filtered by severity, tool, category, file, rule,
 concept, and message. It renders 100 rows at a time by default (selectable 50/100/250),
