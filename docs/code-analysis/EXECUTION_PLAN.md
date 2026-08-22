@@ -1,6 +1,6 @@
 # Static Code Analysis — Execution & Issue Reporting Plan
 
-> **Status**: Phase 0 complete (dormant, safe, no CI disruption)
+> **Status**: Phase 1 findings baseline captured; remediation deferred by operator direction
 > **Branch**: `feature/static-code-analysis`
 > **Target**: Integration into `Testing` after all phases pass
 
@@ -11,7 +11,7 @@
 | Phase | Name | Duration | Goals |
 |-------|------|----------|-------|
 | 0 | Dormant Setup | Done ✓ | Branches created, workflows dormant, no CI disruption |
-| 1 | Manual Testing | ~3 days | Run workflows manually, review findings, suppress FPs |
+| 1 | Manual Testing | Done ✓ | Run workflows manually and publish raw findings artifacts |
 | 2 | Canary Validation | ~1 day | Activate canary integration test, verify detection coverage |
 | 3 | Selective Activation | ~2 days | Uncomment triggers, keep gates advisory (`-exit-zero`) |
 | 4 | Blocking Gates | ~3 days | Flip key gates to blocking, resolve new findings |
@@ -49,8 +49,15 @@
 
 ## Phase 1 — Manual Testing & Baseline Resolution
 
+**Status: COMPLETE for findings collection (2026-08-22).** The operator explicitly
+deferred finding fixes, suppressions, and false-positive classification. See
+[`PHASE1_BASELINE.md`](PHASE1_BASELINE.md) for the verified run links, artifact inventory,
+raw counts, and known reporting caveats.
+
 ### Goal
-Run each workflow manually, review ALL findings, suppress false positives, and document known issues. Establish a clean baseline before activation.
+Run each workflow manually and preserve scanner-native findings in GitHub Actions and
+code-scanning artifacts. Remediation and suppression are a separate, explicitly approved
+activity; Phase 1 does not make the baseline green.
 
 ### Execution Steps
 

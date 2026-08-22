@@ -10150,3 +10150,21 @@
 - Environment: Native WSL setup was attempted with approval but Windows required an
   elevated Administrator process; no WSL feature was changed. GitHub-hosted Linux
   runners provide the supported Semgrep execution path instead.
+
+### 2026-08-22 — orchestrator — Static-analysis Phase 1 findings baseline complete
+- Result: Manual web scans now execute on the fork and retain scanner-native artifacts.
+  Final Code Quality succeeded with Ruff (5,392 raw) and Bandit (7 raw) artifacts.
+  Final Security/SAST succeeded across Semgrep and both CodeQL languages; Semgrep
+  scanned 888 files and retained 2,738 raw results plus 9 parser diagnostics. CodeQL
+  SARIF retained 333 Python and 6 JavaScript/TypeScript results.
+- Supply-chain evidence: OSV 335, Gitleaks 18, Trivy filesystem 17, Trivy config 6,
+  and Checkov 4 raw results were downloaded and parsed from GitHub artifacts. Code
+  Health retained Radon and Vulture artifacts; its Xenon and coverage steps remain
+  visible non-zero evidence rather than being suppressed.
+- Documentation: Added `docs/code-analysis/PHASE1_BASELINE.md` with direct run links,
+  artifact locations, counts, interpretation, and deferred work. Updated the execution
+  plan to mark Phase 1 complete for findings collection under the operator's explicit
+  no-remediation direction.
+- Safety: Automatic workflow triggers remain dormant. Only the fork branches were
+  updated; `feature/static-code-analysis` remains checked out and equal to the fork's
+  default `claude/main`. Upstream and production were untouched.
