@@ -181,8 +181,7 @@ jobs:
       - name: Run Pyright (advisory)
         run: |
           pyright backend/app \
-            --outputjson \
-            --output pyright-results.json \
+            --outputjson > pyright-results.json \
             || true
 
       - name: Upload Pyright results
@@ -237,4 +236,4 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: eslint-results
-          path: eslint-results.json
+          path: webui/eslint-results.json

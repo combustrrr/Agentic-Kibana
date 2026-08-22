@@ -23,7 +23,7 @@ def coverage_manifest(artifacts: Path, findings: list[dict]) -> dict:
     for tool, patterns in EXPECTED.items():
         files = sorted({str(path.relative_to(artifacts)).replace("\\", "/")
                         for pattern in patterns for path in artifacts.rglob(pattern)})
-        rows.append({"tool": tool, "status": "observed" if files else "missing",
+        rows.append({"tool": tool, "status": "observed" if files or counts.get(tool, 0) else "missing",
                      "artifact_files": files, "findings": counts.get(tool, 0)})
     unknown = sorted(set(counts) - set(EXPECTED))
     rows.extend({"tool": tool, "status": "observed", "artifact_files": [], "findings": counts[tool]}

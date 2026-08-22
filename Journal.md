@@ -10222,3 +10222,16 @@
   it writes a patch and manifest but never edits source, commits, pushes, or opens a PR.
 - Local verification: Six focused unit tests and Ruff checks pass, Python modules compile,
   both modified workflow YAML files parse, and `git diff --check` reports no errors.
+
+### 2026-08-22 — orchestrator — Unified dashboard fork dry-run completed
+- Web validation: Fork-only run `32573134244` succeeded with issue writes disabled.
+  The generated 9.75 MB searchable dashboard contains 8,590 unique findings; restored
+  Semgrep ingestion contributed 2,736 findings. A 510 KB review-only Ruff patch was
+  generated for 2,487 deterministic candidates without editing the worktree.
+- Coverage evidence: The manifest initially observed 8/14 expected artifact channels.
+  It truthfully exposed missing Pyright, ESLint, coverage, and Hadolint plumbing rather
+  than treating workflow execution as proof of ingestion. CodeQL and Checkov findings
+  were present but their downloaded filenames did not retain tool names.
+- Follow-up repairs: Corrected Pyright JSON redirection, ESLint artifact path, always-run
+  coverage report materialization, and coverage accounting when parsed findings prove
+  an artifact was consumed. Hadolint upload was added in the preceding service commit.

@@ -151,6 +151,13 @@ jobs:
             --cov-fail-under=70 \
             -q
 
+      - name: Materialize coverage reports after failed or successful tests
+        if: always()
+        working-directory: backend
+        run: |
+          python -m coverage json -o coverage.json || true
+          python -m coverage xml -o coverage.xml || true
+
       - name: Upload coverage reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
