@@ -1,13 +1,7 @@
-name: Advisory Finding Aggregation
+name: Code Analysis Dashboard
 
 on:
   workflow_dispatch:
-    inputs:
-      max_new_issues:
-        description: "Dry-run cap for proposed HIGH/CRITICAL advisory records"
-        required: true
-        default: "25"
-        type: string
   workflow_run:
     workflows: ["Code Health & Technical Debt"]
     types: [completed]
@@ -17,12 +11,12 @@ on:
 
 permissions:
   actions: read
+  checks: write
   contents: read
-  issues: read
 
 jobs:
   aggregate:
-    name: Normalize, deduplicate, and plan advisory issues
+    name: Build one advisory findings dashboard
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.event == 'pull_request' &&
@@ -80,20 +74,8 @@ jobs:
           --artifacts scan-artifacts
           --output-dir dashboard
 
-      - name: Read existing advisory issues
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          gh api --paginate --slurp "/repos/${GITHUB_REPOSITORY}/issues?state=all&labels=code-analysis&per_page=100" | jq 'flatten | map(select(.pull_request | not))' > existing-issues.json
-
-      - name: Plan issue synchronization (dry-run by default)
-        shell: bash
-        run: |
-          args=(--findings normalized/deduplicated-findings.json --existing-issues existing-issues.json --output issue-sync-plan.json --max-new "${{ inputs.max_new_issues || '25' }}")
-          python scripts/code_analysis/issue_sync.py "${args[@]}"
-
       - name: Upload complete advisory analysis
+        id: analysis-artifact
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -101,27 +83,55 @@ jobs:
           path: |
             normalized/
             dashboard/
-            issue-sync-plan.json
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Publish one neutral GitHub Check for this commit
+        if: steps.analysis-artifact.outputs.artifact-url != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MONITORED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ARTIFACT_URL: ${{ steps.analysis-artifact.outputs.artifact-url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          check_name="Code Analysis Dashboard"
+          external_id="code-analysis-dashboard:${MONITORED_SHA}"
+          existing="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${MONITORED_SHA}/check-runs?filter=latest&per_page=100")"
+          check_id="$(jq -r --arg name "$check_name" --arg external "$external_id" \
+            '[.check_runs[] | select(.name == $name and .external_id == $external)] | first | .id // empty' <<<"$existing")"
+          jq -n \
+            --arg name "$check_name" \
+            --arg sha "$MONITORED_SHA" \
+            --arg external "$external_id" \
+            --arg url "$ARTIFACT_URL" \
+            --rawfile summary dashboard/github-summary.md \
+            '{name:$name, head_sha:$sha, external_id:$external, status:"completed", conclusion:"neutral", details_url:$url, output:{title:"Advisory findings are ready", summary:$summary}}' \
+            > check-run.json
+          if [[ -n "$check_id" ]]; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/check-runs/${check_id}" --input check-run.json >/dev/null
+          else
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/check-runs" --input check-run.json >/dev/null
+          fi
 
       - name: Publish run summary
         if: always()
         shell: bash
         run: |
           {
-            echo "## Advisory finding aggregation"
+            if [[ -f dashboard/github-summary.md ]]; then
+              cat dashboard/github-summary.md
+            else
+              echo "## Code Analysis Dashboard"
+              echo
+              echo "Dashboard generation did not complete. Inspect this run's logs."
+            fi
             echo
             echo "- Monitored branch: \`${{ github.event.workflow_run.head_branch || github.ref_name }}\`"
             echo "- Monitored commit: \`${{ github.event.workflow_run.head_sha || github.sha }}\`"
+            echo "- Full dashboard artifact: ${{ steps.analysis-artifact.outputs.artifact-url }}"
             echo "- Issue writes: \`disabled\`"
             echo "- Autofix generation/application: \`disabled\`"
             echo "- Merge blocking: \`disabled\`"
             echo "- Automatic closing: \`disabled\`"
-            if [[ -f issue-sync-plan.json ]]; then
-              echo
-              echo '```json'
-              jq 'del(.create)' issue-sync-plan.json
-              echo '```'
-            fi
           } >> "$GITHUB_STEP_SUMMARY"

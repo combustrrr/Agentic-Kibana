@@ -159,7 +159,7 @@ flowchart TD
 | Security/SAST | `02-security-sast.yml` | PRs into fork `claude/main` + manual | CodeQL, Semgrep, Bandit |
 | Dependency Security | `03-dependency-security.yml` | PRs into fork `claude/main` + manual | OSV-Scanner, Trivy, Gitleaks, Hadolint, Checkov |
 | Code Health | `04-code-health.yml` | PRs into fork `claude/main` + manual | Radon, Xenon, Vulture, Coverage.py |
-| Advisory Finding Aggregation | `05-issue-aggregation.yml` | After same-repository PR health scan + manual | Same-commit scanner artifacts, normalization, fingerprint dedupe, searchable dashboard |
+| Code Analysis Dashboard | `05-issue-aggregation.yml` | After same-repository PR health scan + manual | One neutral commit check, same-commit artifacts, normalization, fingerprint dedupe, paginated searchable dashboard |
 | Canary Validation | `06-canary-validation.yml` | Manual only | Canary scanners + validation |
 | API Fuzzing | `07-api-fuzzing.yml` | Manual only | Schemathesis scaffold |
 
@@ -238,7 +238,7 @@ Key fields:
 - `evidence`: List of corroborating tool findings
 - `validation_status`: State machine lifecycle state
 
-### Advisory issue synchronization
+### Separate findings dashboard
 
 `05-issue-aggregation.yml` automatically waits for the four scanner workflows from the
 exact same same-repository PR commit, or downloads the latest completed artifacts when
@@ -246,18 +246,19 @@ manually dispatched. It recursively normalizes supported SARIF/JSON files. Findi
 from overlapping tools share one fingerprint when their repository-relative file,
 line, and canonical concept match.
 
-The workflow has read-only Issue permission and only uploads `issue-sync-plan.json`,
-the normalized artifacts, and `dashboard/index.html`. The
+The workflow has no Issue permission. It publishes one neutral **Code Analysis Dashboard**
+check on the monitored commit and uploads the normalized artifacts plus
+`dashboard/index.html`. The
 dashboard is a dependency-free searchable view of every unique finding, with filters
 for severity, tool, category, file/rule/message search, retained corroborating evidence,
 diagnosis guidance, scanner-artifact coverage, runtime coverage when available, and
-review-only autofix eligibility metadata. The plan is non-mutating; this phase cannot
-create or close Issues. The three-clean-scan plus targeted-rescan lifecycle remains
-future work.
+review-only autofix eligibility metadata. The check presents bounded severity/tool/file/
+concept rollups in GitHub and links to the full artifact. This phase cannot create or close
+Issues. The three-clean-scan plus targeted-rescan lifecycle remains future work.
 
 The same artifact contains `dashboard/coverage-manifest.json`. Phase 3 does not generate
-an autofix patch. Download the aggregation artifact from its GitHub Actions run and open
-`dashboard/index.html` locally to inspect the complete finding set in one place.
+an autofix patch. The dashboard paginates findings instead of rendering thousands of rows
+at once. See [`MONITORING_UI.md`](MONITORING_UI.md) for the exact GitHub navigation.
 
 ## 8. Deployment & On-Prem Constraints
 

@@ -3,7 +3,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from scripts.code_analysis.dashboard import coverage_manifest, generate
+from scripts.code_analysis.dashboard import coverage_manifest, generate, github_summary
 from scripts.code_analysis.issue_sync import build_plan
 from scripts.code_analysis.normalizer import Finding, FindingDeduplicator, canonicalize_file
 
@@ -51,6 +51,9 @@ class NormalizerServiceTests(unittest.TestCase):
             page = output.read_text(encoding="utf-8")
             self.assertIn("backend/app/a.py", page)
             self.assertIn("Every normalized finding", page)
+            summary = github_summary(serialized, manifest, {"percent": 81.25})
+            self.assertIn("one advisory monitoring record", summary)
+            self.assertIn("81.25%", summary)
 
     def test_semgrep_pyright_and_eslint_json_are_ingested(self):
         from scripts.code_analysis.normalizer import EslintParser, PyrightParser, SemgrepParser

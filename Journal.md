@@ -10338,3 +10338,11 @@
   advisory because artifact/dashboard collection remains authoritative. Issue permission
   is read-only; automatic fix output, issue mutation, blocking, upstream, and production
   actions remain disabled. Phase 3 is complete; application findings were not fixed.
+
+### 2026-08-22 — orchestrator — Separate findings surface work started
+- Operator feedback: the retained Actions ZIP is not discoverable enough in GitHub, while
+  materializing thousands of findings as GitHub Issues would flood and degrade the UI.
+- Objective: research and implement a separate, fork-only, searchable monitoring surface
+  with one stable entry point. Preserve deduplication and full finding visibility without
+  creating application Issues, applying fixes, or colliding with the product documentation
+  deployment, upstream repository, live site, or production environment.
