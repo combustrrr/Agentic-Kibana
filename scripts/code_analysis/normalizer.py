@@ -106,6 +106,14 @@ CONCEPT_MAP: dict[str, str] = {
     "python.lang.security.hardcoded-token":      "hardcoded-secret",
     "kavach-hardcoded-api-key":                  "hardcoded-secret",  # custom
     "kavach-hardcoded-password":                 "hardcoded-secret",
+    "kavach-jwt-secret":                        "hardcoded-secret",
+    "kavach-openai-key":                        "hardcoded-secret",
+    "kavach-anthropic-key":                     "hardcoded-secret",
+    "kavach-google-api-key":                    "hardcoded-secret",
+    "kavach-oauth-client-secret":               "hardcoded-secret",
+    "kavach-totp-secret":                       "hardcoded-secret",
+    "kavach-db-password":                       "hardcoded-secret",
+    "kavach-generic-api-key":                   "hardcoded-secret",
     "S105":                                      "hardcoded-secret",  # Ruff
     "S106":                                      "hardcoded-secret",
     "S107":                                      "hardcoded-secret",
@@ -407,9 +415,10 @@ class SarifParser:
                 cwes = [t for t in tags if t.startswith("CWE-")]
                 owasps = [t for t in tags if "OWASP" in t or t.startswith("A0")]
 
+                category = normalize_category(tool_name, rule_id, tags)
                 finding = Finding(
                     source_tool=tool_name,
-                    category=normalize_category(tool_name, rule_id, tags),
+                    category=category,
                     severity=severity,
                     confidence="HIGH" if tool_name in ("CodeQL",) else "MEDIUM",
                     file=file_path,
@@ -423,6 +432,7 @@ class SarifParser:
                     cwe=cwes,
                     owasp=owasps,
                     tags=tags,
+                    rule_concept="dependency-vuln" if tool_name == "OSV-Scanner" else "",
                 )
                 findings.append(finding)
 

@@ -10275,3 +10275,15 @@
 - Scope: Audit the proposal/tool inventory honestly as implemented, partial, deferred,
   or not implemented; update every execution phase with work completed so far; then run
   Phase 2 canary validation manually on the fork without enabling automatic triggers.
+
+### 2026-08-22 — orchestrator — Phase 2 baseline measured and harness repaired
+- Baseline: Manual fork run `32574844342` failed with only 1/10 canary expectations
+  satisfied. Its 31 normalized findings came only from Bandit and Ruff; this replaces
+  the stale unverified 7/10 estimate in the former plan.
+- Diagnosis: Semgrep 1.80 rejected `--exit-zero`; Gitleaks was incorrectly requested
+  from PyPI and never ran; Bandit was asked for unsupported SARIF; OSV and Hadolint were
+  not invoked by the canary workflow at all.
+- Repair: Switched Semgrep to retained JSON, removed invalid Bandit SARIF, added pinned
+  Docker Gitleaks against a non-allowlisted copy of the secret fixture, and added pinned
+  OSV-Scanner and Hadolint canary steps. Added Gitleaks secret concept mappings and OSV
+  dependency-family normalization. Automatic triggers remain disabled.
