@@ -3,28 +3,32 @@ name: Advisory Finding Aggregation
 on:
   workflow_dispatch:
     inputs:
-      apply_issues:
-        description: "Explicitly create advisory GitHub Issues (dry-run when false)"
-        required: true
-        default: false
-        type: boolean
       max_new_issues:
-        description: "Safety cap for new HIGH/CRITICAL issues"
+        description: "Dry-run cap for proposed HIGH/CRITICAL advisory records"
         required: true
         default: "25"
         type: string
-  # DORMANT: no schedule, push, pull_request, or workflow_run trigger in Phase 1.
+  workflow_run:
+    workflows: ["Code Health & Technical Debt"]
+    types: [completed]
+
+# Phase 3 monitoring only: the automatic path observes same-repository PR runs and
+# cannot create/close Issues, apply fixes, or affect branch protection.
 
 permissions:
   actions: read
   contents: read
-  issues: write
+  issues: read
 
 jobs:
   aggregate:
     name: Normalize, deduplicate, and plan advisory issues
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - name: Checkout this fork branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -40,19 +44,30 @@ jobs:
       - name: Download latest completed scanner artifacts for this branch
         env:
           GH_TOKEN: ${{ github.token }}
-          SCAN_BRANCH: ${{ github.ref_name }}
+          SCAN_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+          SCAN_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          AUTOMATIC_RUN: ${{ github.event_name == 'workflow_run' }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p scan-artifacts
           for workflow in 01-code-quality.yml 02-security-sast.yml 03-dependency-security.yml 04-code-health.yml; do
-            run_id="$(gh run list --workflow "$workflow" --branch "$SCAN_BRANCH" --status completed --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+            run_id=""
+            for attempt in $(seq 1 40); do
+              if [[ "$AUTOMATIC_RUN" == "true" ]]; then
+                run_id="$(gh run list --workflow "$workflow" --commit "$SCAN_SHA" --status completed --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+              else
+                run_id="$(gh run list --workflow "$workflow" --branch "$SCAN_BRANCH" --status completed --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+              fi
+              [[ -n "$run_id" ]] && break
+              sleep 30
+            done
             if [[ -z "$run_id" ]]; then
-              echo "::warning::No completed run found for $workflow on $SCAN_BRANCH"
-              continue
+              echo "::error::No completed run found for $workflow at monitored commit $SCAN_SHA"
+              exit 1
             fi
             mkdir -p "scan-artifacts/$workflow"
-            gh run download "$run_id" --dir "scan-artifacts/$workflow" || echo "::warning::No downloadable artifacts for $workflow run $run_id"
+            gh run download "$run_id" --dir "scan-artifacts/$workflow"
           done
 
       - name: Normalize and deduplicate by repository file, line, and concept
@@ -65,12 +80,6 @@ jobs:
           --artifacts scan-artifacts
           --output-dir dashboard
 
-      - name: Generate review-only deterministic autofix patch
-        run: >-
-          python scripts/code_analysis/safe_autofix.py
-          --findings normalized/deduplicated-findings.json
-          --output-dir autofix
-
       - name: Read existing advisory issues
         env:
           GH_TOKEN: ${{ github.token }}
@@ -79,14 +88,9 @@ jobs:
           gh api --paginate --slurp "/repos/${GITHUB_REPOSITORY}/issues?state=all&labels=code-analysis&per_page=100" | jq 'flatten | map(select(.pull_request | not))' > existing-issues.json
 
       - name: Plan issue synchronization (dry-run by default)
-        env:
-          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          args=(--findings normalized/deduplicated-findings.json --existing-issues existing-issues.json --output issue-sync-plan.json --max-new "${{ inputs.max_new_issues }}")
-          if [[ "${{ inputs.apply_issues }}" == "true" ]]; then
-            args+=(--apply --repository "$GITHUB_REPOSITORY")
-          fi
+          args=(--findings normalized/deduplicated-findings.json --existing-issues existing-issues.json --output issue-sync-plan.json --max-new "${{ inputs.max_new_issues || '25' }}")
           python scripts/code_analysis/issue_sync.py "${args[@]}"
 
       - name: Upload complete advisory analysis
@@ -97,7 +101,6 @@ jobs:
           path: |
             normalized/
             dashboard/
-            autofix/
             issue-sync-plan.json
           if-no-files-found: warn
           retention-days: 30
@@ -109,8 +112,10 @@ jobs:
           {
             echo "## Advisory finding aggregation"
             echo
-            echo "- Branch: \`${GITHUB_REF_NAME}\`"
-            echo "- Issue apply requested: \`${{ inputs.apply_issues }}\`"
+            echo "- Monitored branch: \`${{ github.event.workflow_run.head_branch || github.ref_name }}\`"
+            echo "- Monitored commit: \`${{ github.event.workflow_run.head_sha || github.sha }}\`"
+            echo "- Issue writes: \`disabled\`"
+            echo "- Autofix generation/application: \`disabled\`"
             echo "- Merge blocking: \`disabled\`"
             echo "- Automatic closing: \`disabled\`"
             if [[ -f issue-sync-plan.json ]]; then

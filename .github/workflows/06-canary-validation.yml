@@ -14,7 +14,7 @@ name: Canary Coverage Validation
 
 on:
   workflow_dispatch:
-  # DORMANT: Activate after Phase 2 testing (see docs/code-analysis/README.md)
+  # Phase 3: intentionally manual while the three acknowledged gaps remain visible.
   # To activate, uncomment the triggers below:
   # schedule:
   #   - cron: "0 5 * * 0"    # Sunday 05:00 UTC

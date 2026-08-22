@@ -1,6 +1,6 @@
 # Static Code Analysis — Execution Plan
 
-> **Current phase:** Phase 2 complete with acknowledged gaps; awaiting Phase 3 decision
+> **Current phase:** Phase 3 — fork-only advisory monitoring activation
 > **Branch:** `feature/static-code-analysis`
 > **Operating mode:** fork-only, manual, advisory; no upstream/production changes
 > **Last updated:** 2026-08-22
@@ -17,7 +17,7 @@ channels; it does not mean every shortlisted proposal tool is installed.
 | 0 — Dormant setup | **Complete** | Fork safety established; `feature/static-code-analysis` retained; fork default synchronized; workflows manual-only; existing `ci.yml` untouched; custom Semgrep, CodeQL, Bandit, Ruff, Gitleaks and canary configuration added. | Preserve dormant triggers until Phase 3 is explicitly approved. |
 | 1 — Manual baseline and diagnosis service | **Complete for collection; remediation deferred** | All four scanner families manually exercised; raw artifacts retained; recursive normalizer repaired; file+line+concept fingerprints; 298+ overlaps proven; searchable all-findings dashboard; 14/14 configured channels; 81.16% parent-process runtime coverage; bounded dry-run issue plan; review-only Ruff patch. | False-positive classification and application finding fixes remain intentionally out of scope. Shortlisted services not yet implemented are tracked below, not counted as Phase 1 coverage. |
 | 2 — Canary validation | **Complete with 3 acknowledged gaps** | Manual-only canary repaired and measured: 7/10 expectations, 202 normalized findings, eight contributing tools. SQL injection, path traversal, and React XSS remain visible failures with concrete next actions in `ACKNOWLEDGED_GAPS.md`. | Do not represent 7/10 as full coverage. Close the three gaps in a later coverage-improvement iteration; Phase 3 still requires explicit approval. |
-| 3 — Selective advisory activation | **Not started** | Proposed triggers and schedules remain commented. The dashboard and issue planner are capable of advisory output. | Requires operator approval after Phase 2. Activate only selected PR/push triggers on the fork/approved target; issue apply remains a separate opt-in. No required checks. |
+| 3 — Selective advisory activation | **Implementation in progress** | Operator approved monitoring-only work. The four verified scanner families are configured for PRs into fork `claude/main`; automatic aggregation is limited to same-repository PR commits and produces a retained dashboard with read-only Issue access. Push/schedule triggers, autofix output, Issue writes, required checks, upstream, and production remain disabled. | Exercise the PR path on the fork, confirm all four exact-commit artifact families and the unified dashboard, then record the acceptance run. |
 | 4 — Controlled remediation and optional gates | **Partially prototyped; not activated** | Ruff safe-fix candidates and a non-mutating patch artifact are verified. Issue synchronization is idempotent, HIGH/CRITICAL-only, capped, dry-run by default, and never auto-closes. | Add selected-finding approval, isolated fix branch, tests/rescan, human PR, and three-clean-scan lifecycle. Blocking gates contradict the current advisory directive and require a new explicit decision. AI patches and ESLint patch generation are not implemented. |
 | 5 — Integration / deployment | **Not started** | None of the analysis workflows were added to `ci.yml`; no merge, branch protection, DefectDojo, CodeScene, Pages, or production deployment occurred. | Only after stable release and explicit approval: choose persistent dashboard backend, integrate approved lanes, merge to `Testing`, and separately plan production rollout. |
 
@@ -119,13 +119,13 @@ and `scripts/code_analysis/validate_canary.py`. Current expectations cover:
 
 ## Phase 3 decision gate
 
-Phase 3 is not automatic after Phase 2. Before activation, explicitly decide:
+Phase 3 was explicitly approved for monitoring-only work. The conservative decisions are:
 
-- which branches/events are in scope;
-- which workflows remain manual due cost or noise;
-- whether GitHub Issues stay dry-run or can be created;
-- retention and visibility for the HTML dashboard;
-- whether the fork or a future `Testing` integration owns the checks.
+- scope only same-repository pull requests into fork `claude/main`;
+- keep push, schedule, canary, and API-fuzzing triggers manual;
+- keep GitHub Issues read-only and retain only a dry-run plan;
+- retain the downloadable HTML dashboard artifact for 30 days;
+- keep ownership entirely in the fork, with no `Testing` or upstream integration.
 
 The current operator policy is advisory. Phase 3 must not add required status checks or
 branch protection changes.

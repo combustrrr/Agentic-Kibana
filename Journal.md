@@ -10319,3 +10319,10 @@
 - Application finding remediation, automatic fixes, blocking merge gates, and production
   activation are out of scope for now. Scanner-infrastructure changes may be made only
   to improve monitoring coverage and evidence quality; findings themselves stay advisory.
+
+### 2026-08-22 — orchestrator — Phase 3 advisory monitoring started
+- Scope: activate pull-request analysis only for the fork default branch and assemble
+  same-commit scanner artifacts into one normalized, deduplicated dashboard.
+- Safety boundary: no push/schedule triggers, issue writes, autofix generation, required
+  checks, upstream changes, or production deployment. Finding presence remains advisory;
+  only broken monitoring infrastructure should fail the aggregation service.

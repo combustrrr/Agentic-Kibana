@@ -9,14 +9,14 @@ name: Security / SAST
 
 on:
   workflow_dispatch:
-  # pull_request:
-    # branches: [main, Testing]
+  pull_request:
+    branches: [claude/main]
   # push:
     # branches: [main, Testing]
   # schedule:
     # - cron: "0 2 * * 1"    # weekly full scan — Monday 02:00 UTC
 
-  # DORMANT: Activate after Phase 2 testing (see docs/code-analysis/README.md)
+  # Phase 3: fork-only PR monitoring. Push/schedule activation remains disabled.
 permissions:
   contents: read
   security-events: write

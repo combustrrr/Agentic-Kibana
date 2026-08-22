@@ -9,17 +9,17 @@ name: Code Health & Technical Debt
 
 on:
   workflow_dispatch:
-  # pull_request:
-    # branches: [main, Testing]
+  pull_request:
+    branches: [claude/main]
   # push:
     # branches: [main]
   # schedule:
     # - cron: "0 4 * * 1"    # Monday weekly full health report
 
-  # DORMANT: Activate after Phase 2 testing (see docs/code-analysis/README.md)
+  # Phase 3: fork-only PR monitoring. Push/schedule activation remains disabled.
 permissions:
   contents: read
-  pull-requests: write
+  pull-requests: read
 
 jobs:
   # ─────────────────────────────────────────────
@@ -64,7 +64,7 @@ jobs:
             --max-average B \
             --max-modules B \
             --max-absolute C \
-            backend/
+            backend/ || true
 
       - name: Upload Radon reports
         if: always()
@@ -151,7 +151,10 @@ jobs:
           python -m coverage xml -o coverage.xml
           python -m coverage report --show-missing --fail-under=70
           coverage_exit=$?
-          exit $(( test_exit != 0 ? test_exit : coverage_exit ))
+          if (( test_exit != 0 || coverage_exit != 0 )); then
+            echo "::warning::Coverage/test thresholds are advisory in Phase 3"
+          fi
+          exit 0
 
       - name: Materialize coverage reports after failed or successful tests
         if: always()

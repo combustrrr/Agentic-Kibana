@@ -11,7 +11,7 @@ name: API Fuzzing & Reliability
 
 on:
   workflow_dispatch:
-  # DORMANT: Activate after Phase 2 testing (see docs/code-analysis/README.md)
+  # Phase 3: intentionally manual; active-testing normalization is still partial.
   # To activate, uncomment the triggers below:
   # schedule:
   #   - cron: "0 4 * * 6"    # Saturday 04:00 UTC
@@ -23,7 +23,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 jobs:
   schemathesis-fuzz:

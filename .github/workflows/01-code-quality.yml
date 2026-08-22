@@ -8,15 +8,15 @@ name: Code Quality
 
 on:
   workflow_dispatch:
-  # pull_request:
-    # branches: [main, Testing]
+  pull_request:
+    branches: [claude/main]
   # push:
     # branches: [main, Testing]
 
-  # DORMANT: Activate after Phase 2 testing (see docs/code-analysis/README.md)
+  # Phase 3: fork-only PR monitoring. Push/schedule activation remains disabled.
 permissions:
   contents: read
-  pull-requests: write
+  pull-requests: read
   security-events: write
 
 jobs:
@@ -218,12 +218,14 @@ jobs:
         run: npm ci
 
       - name: TypeScript type check
+        continue-on-error: true
         run: npx tsc --noEmit
 
       - name: ESLint lint (human-readable advisory output)
         run: npx eslint "src/**/*.{ts,tsx}" --format stylish || true
 
       - name: ESLint lint (fail on error — matches existing webui-lint CI gate)
+        continue-on-error: true
         run: npx eslint "src/**/*.{ts,tsx}"
 
       - name: Upload ESLint results (for normalizer)
