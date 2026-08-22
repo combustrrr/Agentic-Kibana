@@ -10189,3 +10189,15 @@
 - Verification: Added four unit tests covering path stability, cross-tool dedupe,
   repeat-run idempotency/no-close behavior, severity filtering, and creation caps.
   All tests pass; the workflow YAML parses and Python sources compile.
+
+### 2026-08-22 — orchestrator — Advisory aggregation web dry-run verified
+- Web validation: Fork-only manual run `32572768522` completed successfully on
+  `feature/static-code-analysis` with `apply_issues=false`. It collected the latest
+  scanner artifacts, normalized 6,143 raw findings into 5,845 unique findings, and
+  identified 298 overlapping-tool duplicates.
+- Issue plan: 549 HIGH/CRITICAL findings were eligible; the safety cap planned 25 and
+  deferred 524. No issues were created or closed (`close_issues=false`). The temporary
+  downloaded validation artifact was removed after inspection.
+- Publication: Service commit `d83ae07` was pushed only to fork branches
+  `feature/static-code-analysis` and `claude/main`. Upstream, `Testing`, production,
+  automatic triggers, merge gates, and branch protection remain untouched.
