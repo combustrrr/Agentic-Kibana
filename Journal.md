@@ -10287,3 +10287,16 @@
   Docker Gitleaks against a non-allowlisted copy of the secret fixture, and added pinned
   OSV-Scanner and Hadolint canary steps. Added Gitleaks secret concept mappings and OSV
   dependency-family normalization. Automatic triggers remain disabled.
+
+### 2026-08-22 — orchestrator — Phase 2 coverage advanced to 5/10
+- Runs: `32575058201` proved Bandit, Ruff, Gitleaks, OSV, and Hadolint ingestion and
+  improved coverage to 3/10. `32575250174` scanned a non-ignored canary copy with
+  Semgrep and improved the verified result to 5/10 across 191 normalized findings.
+- Remaining measured gaps: SQL injection lacked its second independent detector;
+  generic eval/exec lacked a matching Semgrep concept; path traversal required CodeQL;
+  React XSS required CodeQL/ESLint; and Checkov found the non-root failure but its SARIF
+  was nested under the requested output directory and missed collection.
+- Follow-up: Added a general dangerous-eval/exec Semgrep rule, corrected Checkov
+  `CKV_DOCKER_3` concept mapping and nested SARIF collection, and added a separate
+  canary-only CodeQL configuration for Python and JavaScript/TypeScript fixtures. The
+  normal SAST CodeQL exclusions/config remain unchanged.

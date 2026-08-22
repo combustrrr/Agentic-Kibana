@@ -220,6 +220,20 @@ rules:
       owasp: A03:2021
       cwe: CWE-77
 
+  - id: kavach-dangerous-eval-exec
+    message: >
+      eval() or exec() executes dynamically supplied Python code. Parse a bounded
+      data format or use an explicit operation allowlist instead.
+    severity: ERROR
+    languages: [python]
+    pattern-either:
+      - pattern: eval($VALUE)
+      - pattern: exec($VALUE)
+    metadata:
+      category: security
+      owasp: A03:2021
+      cwe: CWE-95
+
   - id: kavach-unsanitized-llm-output-in-http-response
     message: >
       LLM-generated content is returned directly in an HTTP response body

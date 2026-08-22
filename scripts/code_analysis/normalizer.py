@@ -87,6 +87,8 @@ CONCEPT_MAP: dict[str, str] = {
     "python/reflected-xss":                      "xss",
     "python/stored-xss":                         "xss",
     "javascript/xss":                            "xss",
+    "js/xss":                                    "xss",
+    "js/xss-through-dom":                        "xss",
     "javascript/dom-based-xss":                  "xss",
     "react/no-danger":                           "xss",            # ESLint
     "no-dangerouslysetinnterhtml":               "xss",
@@ -123,6 +125,7 @@ CONCEPT_MAP: dict[str, str] = {
     "python.lang.security.dangerous-eval":       "code-injection",
     "B307":                                      "code-injection",
     "kavach-llm-output-exec-injection":          "code-injection",   # custom
+    "kavach-dangerous-eval-exec":                "code-injection",
     "S307":                                      "code-injection",
 
     # ── Deserialization ───────────────────────────────────────
@@ -177,7 +180,8 @@ CONCEPT_MAP: dict[str, str] = {
     "DL3002":                                  "dockerfile-root",   # Hadolint
     "DL3006":                                  "dockerfile-no-tag",
     "DL3008":                                  "dockerfile-pin",
-    "CKV_DOCKER_2":                            "dockerfile-root",   # Checkov
+    "CKV_DOCKER_3":                            "dockerfile-root",   # Checkov non-root user
+    "CKV_DOCKER_2":                            "dockerfile-healthcheck",
     "CKV_GHA_1":                               "gha-pin-actions",
     "kavach-debug-mode-enabled":               "debug-mode-enabled",
 

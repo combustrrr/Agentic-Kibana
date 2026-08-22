@@ -48,6 +48,19 @@ jobs:
           cache: pip
           cache-dependency-path: .ci/requirements.txt
 
+      - name: Initialize canary-only CodeQL
+        uses: github/codeql-action/init@6d786de4d6f3531a740e445b53a42b622bbbace8 # v3
+        with:
+          languages: python,javascript-typescript
+          queries: +security-extended,security-and-quality
+          config-file: .github/codeql/codeql-canary-config.yml
+
+      - name: Analyze canary fixtures with CodeQL
+        uses: github/codeql-action/analyze@6d786de4d6f3531a740e445b53a42b622bbbace8 # v3
+        with:
+          output: canary-results-codeql
+          upload: false
+
       - name: Install tools
         run: |
           python -m pip install --requirement .ci/requirements.txt
@@ -132,7 +145,9 @@ jobs:
           cp canary-results-gitleaks.sarif canary-scan-results/ 2>/dev/null || true
           cp canary-results-osv.sarif canary-scan-results/ 2>/dev/null || true
           cp canary-results-hadolint.sarif canary-scan-results/ 2>/dev/null || true
-          cp canary-results-checkov.sarif canary-scan-results/ 2>/dev/null || true
+          find canary-results-checkov.sarif -type f -name '*.sarif' \
+            -exec cp {} canary-scan-results/canary-results-checkov.sarif \; 2>/dev/null || true
+          cp -R canary-results-codeql canary-scan-results/ 2>/dev/null || true
 
       - name: Normalize canary findings
         run: |
