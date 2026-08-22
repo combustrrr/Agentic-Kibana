@@ -10248,3 +10248,12 @@
   coverage shards (`Can't combine statement coverage data with branch data`), leaving
   no JSON/XML artifact. Added an explicit `coverage erase` before the diagnostic test
   run; no application finding was fixed or suppressed.
+
+### 2026-08-22 — orchestrator — Coverage collector isolated from child shards
+- Validation run `32573720274` proved incompatible shards are created during the test
+  suite itself, not merely left in the checkout; erase alone could not make pytest-cov's
+  combine phase coherent and no coverage artifact was emitted.
+- Decision: Replaced pytest-cov aggregation in this advisory workflow with a single
+  parent-process `coverage run --branch --source=app -m pytest`. JSON/XML and terminal
+  reports are materialized before preserving the test/threshold exit status. This is a
+  truthful stable baseline; child-process coverage is explicitly not claimed.

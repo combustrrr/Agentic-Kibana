@@ -143,16 +143,15 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/backend
         run: |
           cd backend
-          # Prevent stale/parallel coverage shards with incompatible branch settings
-          # from poisoning aggregation on a fresh diagnostic run.
           python -m coverage erase
-          pytest \
-            --cov=app \
-            --cov-report=xml:coverage.xml \
-            --cov-report=json:coverage.json \
-            --cov-report=term-missing \
-            --cov-fail-under=70 \
-            -q
+          set +e
+          python -m coverage run --branch --source=app -m pytest -q
+          test_exit=$?
+          python -m coverage json -o coverage.json
+          python -m coverage xml -o coverage.xml
+          python -m coverage report --show-missing --fail-under=70
+          coverage_exit=$?
+          exit $(( test_exit != 0 ? test_exit : coverage_exit ))
 
       - name: Materialize coverage reports after failed or successful tests
         if: always()
