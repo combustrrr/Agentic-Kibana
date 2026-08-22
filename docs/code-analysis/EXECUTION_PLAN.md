@@ -1,6 +1,6 @@
 # Static Code Analysis — Execution Plan
 
-> **Current phase:** Phase 2 — manual canary validation
+> **Current phase:** Phase 2 complete with acknowledged gaps; awaiting Phase 3 decision
 > **Branch:** `feature/static-code-analysis`
 > **Operating mode:** fork-only, manual, advisory; no upstream/production changes
 > **Last updated:** 2026-08-22
@@ -16,7 +16,7 @@ channels; it does not mean every shortlisted proposal tool is installed.
 |---|---|---|---|
 | 0 — Dormant setup | **Complete** | Fork safety established; `feature/static-code-analysis` retained; fork default synchronized; workflows manual-only; existing `ci.yml` untouched; custom Semgrep, CodeQL, Bandit, Ruff, Gitleaks and canary configuration added. | Preserve dormant triggers until Phase 3 is explicitly approved. |
 | 1 — Manual baseline and diagnosis service | **Complete for collection; remediation deferred** | All four scanner families manually exercised; raw artifacts retained; recursive normalizer repaired; file+line+concept fingerprints; 298+ overlaps proven; searchable all-findings dashboard; 14/14 configured channels; 81.16% parent-process runtime coverage; bounded dry-run issue plan; review-only Ruff patch. | False-positive classification and application finding fixes remain intentionally out of scope. Shortlisted services not yet implemented are tracked below, not counted as Phase 1 coverage. |
-| 2 — Canary validation | **In progress** | Deliberately vulnerable fixture suite and expectation registry exist; canary workflow remains manual-only; earlier plumbing run failed as expected and is not accepted as coverage proof. | Repair/run the canary web, record per-concept detections, and reach 10/10 or document explicit tool gaps with owners. No automatic triggers. |
+| 2 — Canary validation | **Complete with 3 acknowledged gaps** | Manual-only canary repaired and measured: 7/10 expectations, 202 normalized findings, eight contributing tools. SQL injection, path traversal, and React XSS remain visible failures with concrete next actions in `ACKNOWLEDGED_GAPS.md`. | Do not represent 7/10 as full coverage. Close the three gaps in a later coverage-improvement iteration; Phase 3 still requires explicit approval. |
 | 3 — Selective advisory activation | **Not started** | Proposed triggers and schedules remain commented. The dashboard and issue planner are capable of advisory output. | Requires operator approval after Phase 2. Activate only selected PR/push triggers on the fork/approved target; issue apply remains a separate opt-in. No required checks. |
 | 4 — Controlled remediation and optional gates | **Partially prototyped; not activated** | Ruff safe-fix candidates and a non-mutating patch artifact are verified. Issue synchronization is idempotent, HIGH/CRITICAL-only, capped, dry-run by default, and never auto-closes. | Add selected-finding approval, isolated fix branch, tests/rescan, human PR, and three-clean-scan lifecycle. Blocking gates contradict the current advisory directive and require a new explicit decision. AI patches and ESLint patch generation are not implemented. |
 | 5 — Integration / deployment | **Not started** | None of the analysis workflows were added to `ci.yml`; no merge, branch protection, DefectDojo, CodeScene, Pages, or production deployment occurred. | Only after stable release and explicit approval: choose persistent dashboard backend, integrate approved lanes, merge to `Testing`, and separately plan production rollout. |
@@ -104,6 +104,18 @@ and `scripts/code_analysis/validate_canary.py`. Current expectations cover:
 - Preserve raw and normalized canary artifacts even when validation fails.
 - Exit with either 10/10 expectations passing or an acknowledged-gap table showing the
   missing tool, reason, and next implementation action.
+
+### Phase 2 measured result
+
+- Baseline run `32574844342`: **1/10**, proving the original harness was not coherent.
+- Repaired intermediate runs: **3/10**, then **5/10**.
+- Final run [32575538895](https://github.com/combustrrr/Agentic-Kibana/actions/runs/32575538895):
+  **7/10**, 202 normalized findings from Bandit, Semgrep, CodeQL, Gitleaks,
+  OSV-Scanner, Hadolint, Checkov, and Ruff.
+- Passing concepts: hardcoded secrets, JWT none algorithm, eval/exec injection, unsafe
+  deserialization, LLM-output execution, insecure Dockerfile/root, vulnerable dependencies.
+- Open concepts: SQL injection independence, path traversal dataflow, React XSS.
+- Detailed evidence and next actions: [`ACKNOWLEDGED_GAPS.md`](ACKNOWLEDGED_GAPS.md).
 
 ## Phase 3 decision gate
 

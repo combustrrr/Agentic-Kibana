@@ -10300,3 +10300,15 @@
   `CKV_DOCKER_3` concept mapping and nested SARIF collection, and added a separate
   canary-only CodeQL configuration for Python and JavaScript/TypeScript fixtures. The
   normal SAST CodeQL exclusions/config remain unchanged.
+
+### 2026-08-22 — orchestrator — Phase 2 completed with acknowledged gaps
+- Final run: Fork-only manual canary `32575538895` produced 202 normalized findings
+  from eight tools and satisfied 7/10 expectations. Passing coverage includes secrets,
+  JWT-none, eval/exec, unsafe deserialization, LLM-output execution, Docker non-root,
+  and vulnerable dependencies.
+- Honest gaps: SQL injection has only Bandit evidence; path traversal lacks a recognized
+  user-input source/model; React XSS lacks a proven CodeQL flow or advisory ESLint React
+  security rule. The validator remains red and no threshold was weakened.
+- Documentation: Added `ACKNOWLEDGED_GAPS.md` with evidence and concrete implementation
+  actions. Updated every execution phase and the full shortlist inventory. Phase 3 is
+  not started and requires explicit operator approval; all triggers remain manual-only.
