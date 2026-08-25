@@ -15,7 +15,8 @@ on:
     workflows: ["Code Health & Technical Debt"]
     types: [completed]
 
-# Phase 3 monitoring only: the automatic path observes same-repository PR runs and
+# Monitoring only: the automatic path observes same-repository PR runs and the fork's
+# dedicated analysis-branch pushes. It
 # cannot create/close Issues, apply fixes, or affect branch protection.
 
 permissions:
@@ -28,8 +29,10 @@ jobs:
     name: Build one advisory findings dashboard
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.event == 'pull_request' &&
-       github.event.workflow_run.head_repository.full_name == github.repository)
+      (github.event.workflow_run.head_repository.full_name == github.repository &&
+       (github.event.workflow_run.event == 'pull_request' ||
+        (github.event.workflow_run.event == 'push' &&
+         github.event.workflow_run.head_branch == 'feature/static-code-analysis')))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

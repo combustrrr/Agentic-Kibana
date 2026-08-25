@@ -10,10 +10,10 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [claude/main]
-  # push:
-    # branches: [main, Testing]
+  push:
+    branches: [feature/static-code-analysis]
 
-  # Phase 3: fork-only PR monitoring. Push/schedule activation remains disabled.
+  # Fork-only monitoring: analysis-branch pushes exercise upstream syncs automatically.
 permissions:
   contents: read
   pull-requests: read
