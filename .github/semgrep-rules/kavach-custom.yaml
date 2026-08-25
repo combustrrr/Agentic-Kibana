@@ -1,5 +1,5 @@
 # ============================================================
-# Semgrep Custom Rules — Kavach-AgenticSOC
+# Semgrep Custom Rules — Agentic SOC
 # These complement the public OWASP + python rulesets
 # Focus: FastAPI patterns, LangGraph agent safety, SOC context,
 #        JWT auth, SQLAlchemy/aiosqlite, ES query injection
@@ -26,7 +26,7 @@ rules:
       category: security
       owasp: A03:2021
       cwe: CWE-89
-      more-info: https://docs.kavach.dev/code-analysis/rules/sql-injection
+      more-info: https://github.com/combustrrr/Agentic-Kibana/tree/claude/main/docs/code-analysis
 
   - id: kavach-aiosqlite-raw-string-execute
     message: >
@@ -40,6 +40,54 @@ rules:
       category: security
       owasp: A03:2021
       cwe: CWE-89
+
+  - id: agentic-soc-sql-string-construction
+    message: Dynamic SQL reaches execute(). Use a parameterized statement.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $QUERY = f"..."
+              ...
+              $DB.execute($QUERY)
+          - pattern: |
+              $QUERY = "..." + $INPUT + "..."
+              ...
+              $DB.execute($QUERY)
+          - pattern: |
+              $QUERY = "..." % $INPUT
+              ...
+              $DB.execute($QUERY)
+    metadata:
+      category: security
+      cwe: CWE-89
+
+  - id: agentic-soc-unvalidated-file-path
+    message: A caller-controlled path reaches a filesystem read without containment validation.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern: open($PATH, ...)
+          - pattern: open($PATH).read()
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: "(?i).*(?:path|filename|file_name).*"
+    metadata:
+      category: security
+      cwe: CWE-22
+
+  - id: agentic-soc-react-unsanitized-html
+    message: Untrusted React content is assigned to an HTML execution sink.
+    severity: ERROR
+    languages: [typescript]
+    pattern-either:
+      - pattern: '<$ELEMENT dangerouslySetInnerHTML={{__html: $VALUE}} />'
+      - pattern: $ELEMENT.innerHTML = $VALUE
+    metadata:
+      category: security
+      cwe: CWE-79
 
   # ── Elasticsearch / OpenSearch — Query injection ───────────────────────────
 
@@ -92,7 +140,7 @@ rules:
       category: security
       owasp: A01:2021
       cwe: CWE-306
-      more-info: https://docs.kavach.dev/code-analysis/rules/missing-auth
+      more-info: https://github.com/combustrrr/Agentic-Kibana/tree/claude/main/docs/code-analysis
 
   # ── JWT — None algorithm bypass ────────────────────────────────────────────
 

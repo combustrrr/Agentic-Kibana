@@ -1,368 +1,99 @@
-# Kavach-AgenticSOC — Code Intelligence & Security Analysis
+# Agentic SOC Static-Analysis Monitoring
 
-> Multi-layer, defense-in-depth code analysis system combining deterministic
-> static analysis, dependency scanning, secret detection, code health
-> monitoring, API fuzzing, and AI-assisted triage.
+> **Authority:** [`EXECUTION_PLAN.md`](EXECUTION_PLAN.md) is the current implementation
+> contract. The August 2026 automation-heavy proposal is retained as a long-term scanner
+> research roadmap. Its autofix, patch, Issue-sync, blocking-gate, hosted DefectDojo,
+> external-AI, upstream, and production sections are deferred and are not authorized.
 
-## Table of Contents
+## Current objective
 
-1. [System Overview](#1-system-overview)
-2. [Tool Pool — Full Candidate List](architecture/TOOL_POOL.md)
-3. [Selected Stack](#3-selected-stack)
-4. [Architecture Diagram](#4-architecture-diagram)
-5. [GitHub Actions Workflows](#5-github-actions-workflows)
-6. [CI Gate Policy](#6-ci-gate-policy)
-7. [Auto-Fix Policy](#7-auto-fix-policy)
-8. [Unified Finding Schema](#8-unified-finding-schema)
-9. [Deployment & On-Prem Constraints](#9-deployment--on-prem-constraints)
-10. [Implementation Roadmap](#10-implementation-roadmap)
+Turn a large scanner backlog into a manageable, searchable stream of changes while
+preserving complete historical visibility:
 
----
-
-## 1. System Overview
-
-### The Core Design Principle
-
-> **Use deterministic tools for broad, repeatable detection.**  
-> **Use AI agents for contextual reasoning, triage, and limited remediation.**  
-> **Never use AI to replace what a scanner can answer definitively.**
-
-This architecture avoids two failure modes:
-- *"Just run one AI reviewer"* — misses deterministic security patterns, high false-negative rate
-- *"Run 40 tools and dump 10,000 warnings"* — alert fatigue, no signal-to-noise
-
-Instead it uses **layered ensemble analysis → normalization → deduplication →
-AI triage → safe remediation**.
-
-### Repository Context
-
-| Attribute | Value |
-|-----------|-------|
-| Repository | Kavach-AgenticSOC |
-| Backend | Python 3.11, FastAPI, LangGraph, SQLAlchemy, aiosqlite, Redis, Elasticsearch/OpenSearch |
-| Frontend | TypeScript, React 18, Vite, Tailwind, Radix UI, ESLint, tsc |
-| Tests | pytest (~2,300) + Vitest (~1,900) |
-| Existing tools | Ruff, ESLint, tsc, GitHub Actions |
-| Deployment | Docker Compose, on-prem |
-| Security level | HIGH — SOC product with RBAC, MFA/TOTP, SSO/OIDC, JWT (stdlib HS256), audit logging |
-| Network | Potentially air-gapped / restricted — external SaaS tools require explicit approval |
-
----
-
-## 2. Selected Stack
-
-> **Implementation status:** This is the proposal shortlist, not a claim that every
-> entry is operational. The authoritative verified/partial/not-implemented inventory
-> and current phase evidence are in [`EXECUTION_PLAN.md`](EXECUTION_PLAN.md).
-
-### Core Toolchain
-
-```
-Surface                 Primary              Secondary / Notes
-──────────────────────  ──────────────────── ──────────────────────────
-Python lint + format    Ruff                 (already present in ci.yml)
-Python security         Bandit               AST-based Python security
-Python types            Pyright              Microsoft type checker
-TS/React lint           ESLint + tsc         (already present)
-Multi-lang SAST         CodeQL               GitHub native semantic analysis
-Pattern SAST            Semgrep              Custom Kavach rules + OWASP
-Dependency CVEs         OSV-Scanner          Google-backed vulnerability DB
-Secret detection        Gitleaks             Scan code + git history
-Container/IaC           Trivy + Hadolint     Image CVEs + Dockerfile linting
-                        Checkov              IaC (Docker Compose, GH Actions)
-Code health             CodeScene            On-prem behavioral hotspot analysis
-Complexity              Radon + Xenon        Cyclomatic complexity CI gate
-Dead code               Vulture              Static dead code detection
-Test coverage           Coverage.py          Runtime dead-code evidence
-API fuzzing             Schemathesis         OpenAPI property-based fuzzing
-Python fuzzing          Atheris              Coverage-guided state machine fuzzer
-AI code review          CodeRabbit OSS       Free for open-source (cloud)
-                        PR-Agent OSS         Self-hosted fallback
-Finding aggregation     DefectDojo           Self-hosted vulnerability management
+```text
+Find → Normalize → Compare → Show → Track
 ```
 
-## 3. Architecture Diagram
+The deterministic scanner web spans semantic and pattern SAST, Python/TypeScript
+analysis, dependency vulnerabilities, secrets, infrastructure, complexity, dead code,
+and runtime coverage evidence. Its source of truth is
+[`required-channels.json`](../../config/code-analysis/required-channels.json); the
+implementation does not hard-code a channel count.
 
-```mermaid
-flowchart TD
-    Repo("GitHub Repository (Kavach-AgenticSOC)") --> Orchestrator{"GitHub Actions\nOrchestrator"}
+No single scanner is treated as sufficient. Multiple observations of the same source
+concept become one canonical finding, while independent scanner-family evidence remains
+visible as corroboration.
 
-    Repo --> PR("On each PR\n(diff-aware)")
-    Repo --> Push("On each push\n(full codebase)")
-    Repo --> Sched("Daily/Weekly\n(scheduled)")
+## Two discovery lanes
 
-    PR --> L1
-    Push --> L1
-    Sched --> L1
+- **Deterministic monitoring:** canonical findings, accepted-baseline and prior-run
+  comparison, dashboard, advisory Check, and human triage.
+- **Optional AI review:** a future, separately approved PR-advisory lane. AI suggestions
+  are not deterministic evidence, do not count as corroboration, and require human
+  confirmation before canonical tracking.
 
-    subgraph Pipeline [6-LAYER ANALYSIS PIPELINE]
-        L1["LAYER 1 ── CODE QUALITY\nRuff, Pyright, ESLint, tsc"] -->
-        L2["LAYER 2 ── SECURITY / SAST\nCodeQL, Semgrep, Bandit"] -->
-        L3["LAYER 3 ── AI CODE REVIEW\nCodeRabbit"] -->
-        L4["LAYER 4 ── SUPPLY CHAIN & INFRA\nOSV-Scanner, Trivy, Gitleaks, Hadolint, Checkov"] -->
-        L5["LAYER 5 ── CODE HEALTH\nCodeScene, Radon, Xenon, Vulture, Coverage.py"] -->
-        L6["LAYER 6 ── ACTIVE FUZZING\nSchemathesis, Atheris"]
-    end
+The deterministic service works without an AI provider or external code-sharing service.
 
-    L6 -- "All outputs → SARIF / JSON" --> Norm
+## States
 
-    Norm["FINDING NORMALIZER\nUnify outputs → single schema\nDeduplicate by (file + line + category)"]
+The service keeps three dimensions separate:
 
-    Norm --> Triage["TRIAGE & ROUTING\nHIGH/CRITICAL → Block PR\nMEDIUM → Advisory comment\nLOW → Dashboard only\nAuto-fixable → Level 1 auto-apply"]
+| Dimension | Values |
+|---|---|
+| Scanner | `COMPLETED`, `FAILED`, `TIMED_OUT`, `SKIPPED`, `NOT_CONFIGURED`, `PARTIAL` |
+| Lifecycle | `NEW`, `EXISTING`, `MOVED`, `NOT_OBSERVED`, `INDETERMINATE` |
+| Human | `UNREVIEWED`, `CONFIRMED`, `FALSE_POSITIVE`, `ACCEPTED_RISK`, `DEFERRED` |
 
-    Triage --> Rem["REMEDIATION\nLevel 1: ruff --fix + eslint --fix\nLevel 2: AI patch → sandbox → tests → human PR"]
-    Triage --> Out["OUTPUT CHANNELS\nPR inline comments\nGitHub Security tab\nCI status / gate\nSonarCloud & CodeScene"]
-```
+A scanner failure is not disappearance; disappearance is not remediation; a human risk
+decision is not a technical fix.
 
-## 4. Architecture Diagram
+## Developer surface
 
-```mermaid
-flowchart TD
-    subgraph DataPlane [FINDING FLOW - DATA PLANE]
-        direction LR
-        CodeQL -- SARIF --> Normalizer((normalizer.py))
-        Semgrep -- SARIF --> Normalizer
-        Bandit -- JSON --> Normalizer
-        Ruff -- JSON --> Normalizer
-        Trivy -- SARIF --> Normalizer
-        Gitleaks -- SARIF --> Normalizer
-        Checkov -- SARIF --> Normalizer
-        Hadolint -- SARIF --> Normalizer
-        Schemathesis -- XML --> Normalizer
-        Atheris -- XML --> Normalizer
-    end
+The **Code Analysis Dashboard** workflow publishes:
 
-    Normalizer -- "SARIF/JSON → unified schema\nfingerprint + dedup" --> Files
+- One advisory custom Check per internal repository/commit/name/namespace key
+- A bounded Attention view for new, serious, corroborated, moved, or uncertain findings
+- A searchable complete backlog with 50/100/250-row pagination
+- Scanner status, lifecycle reason codes, independent corroboration, and human state
+- An attention-surface ratio that measures UI compression, not vulnerability coverage
 
-    subgraph Files [Output Files]
-        UF[unified-findings.json]
-        DF[deduplicated-findings.json]
-        NS[normalized.sarif]
-    end
+See [`MONITORING_UI.md`](MONITORING_UI.md) for navigation.
 
-    Files --> GHSec[GitHub Security Tab\nSARIF upload]
-    Files --> DD[DefectDojo\nAPI import]
-    Files --> GHIssue[GitHub Issues\nissue sync]
+## Persistent evidence
 
-    GHSec --> SC[CodeScene\nquality metrics]
-    DD --> SC
-    GHIssue --> SC
+- Raw and normalized per-run evidence follows GitHub Actions artifact retention.
+- The explicitly accepted baseline is reconstructed only from accepted run `32578162932`
+  and validated against [`baseline-manifest.json`](../../config/code-analysis/baseline-manifest.json).
+- Human decisions live in the sparse, versioned
+  [`triage-registry.json`](../../config/code-analysis/triage-registry.json).
+- A minimal DefectDojo fixture proves stable future identity mapping offline; there is
+  no DefectDojo deployment or network integration.
 
-    SC --> CR[CodeRabbit\nreads GH Security + CodeScene\nfor full context when reviewing PRs]
-```
+## Safety boundary
 
-## 5. GitHub Actions Workflows
+The monitoring workflow grants only `contents: read`, `actions: read`, and
+`checks: write`. It cannot create Issues or PR comments, commit or push changes, generate
+patches, modify branch protection, deploy, contact production or DefectDojo, or mutate
+the original/upstream repository.
 
-| Workflow | File | Trigger | Tools |
-|----------|------|---------|-------|
-| Code Quality | `01-code-quality.yml` | PRs into fork `claude/main` + manual | Ruff, Pyright, ESLint, tsc, Bandit |
-| Security/SAST | `02-security-sast.yml` | PRs into fork `claude/main` + manual | CodeQL, Semgrep, Bandit |
-| Dependency Security | `03-dependency-security.yml` | PRs into fork `claude/main` + manual | OSV-Scanner, Trivy, Gitleaks, Hadolint, Checkov |
-| Code Health | `04-code-health.yml` | PRs into fork `claude/main` + manual | Radon, Xenon, Vulture, Coverage.py |
-| Code Analysis Dashboard | `05-issue-aggregation.yml` | After same-repository PR health scan + manual | One neutral commit check, same-commit artifacts, normalization, fingerprint dedupe, paginated searchable dashboard |
-| Canary Validation | `06-canary-validation.yml` | Manual only | Canary scanners + validation |
-| API Fuzzing | `07-api-fuzzing.yml` | Manual only | Schemathesis scaffold |
+Permitted completion claims are limited to:
 
-### CI Gate Summary
+> Static-analysis monitoring is validated across the configured required channels.
 
-> **Current fork policy (Phase 3): advisory monitoring only.** The four validated
-> scanner families run for pull requests into the fork's `claude/main` branch and
-> remain manually runnable. They do not supply required checks, write Issues, apply
-> fixes, run on push/schedule, or change branch protection.
-> The table below is a future policy proposal, not the active repository behavior.
+> The configured scanner web provides validated detection for the defined canary set.
 
-| Condition | Action |
-|-----------|--------|
-| Secret / credential found | **Block PR** |
-| CodeQL security finding (HIGH+) | **Block PR** |
-| Semgrep OWASP violation (HIGH+) | **Block PR** |
-| Bandit HIGH vulnerability | **Block PR** |
-| Vulnerable dependency introduced (HIGH+) | **Block PR** |
-| Gitleaks secrets found | **Block PR** |
-| Trivy CRITICAL CVE | **Block PR** |
-| Hadolint ERROR | **Block PR** |
-| Ruff lint errors | **Block PR** |
-| TypeScript / Pyright type errors | **Block PR** |
-| Xenon complexity exceeded | **Block PR** |
-| Coverage below 70% | **Block PR** |
-| CodeRabbit AI review | Advisory comment (non-blocking) |
-| Vulture dead code | Advisory (non-blocking) |
-| MEDIUM findings | Advisory (non-blocking) |
+The project does not claim that the application is secure or assign unsupported
+vulnerability-detection percentages.
 
-## 6. Future Auto-Fix Policy (inactive)
+## ADR supersession matrix
 
-No automatic or proposed fix is generated by the Phase 3 monitoring path. The levels
-below are retained only as a future design and require a separate operator decision.
-
-### Level 0 — NO auto-fix (human required)
-Security-critical code requiring expert review:
-- Authentication flows (login, token issuance, session creation)
-- Authorization checks (RBAC, permission validators)
-- MFA/TOTP validation
-- JWT signing and verification (`backend/app/auth/tokens.py`)
-- OAuth/OIDC token exchange
-- Agent tool permissions and allowlists (`backend/app/tools/`)
-- Elasticsearch index scoping / read-only enforcement (`backend/app/es/`)
-- Audit logging
-- Rate limiting logic
-- CSRF protection
-
-### Level 1 — Safe auto-fix (applies immediately)
-Non-breaking formatting and style changes:
-- Python: `ruff --fix` (unused imports, style, simple lint)
-- TypeScript: `eslint --fix` (auto-fixable rules)
-- Import ordering, trailing commas, whitespace
-
-### Level 2 — AI-proposed fix (sandbox + human approval)
-Complex code changes proposed by AI, validated before merging:
-1. AI generates patch (in isolated branch)
-2. Patch applied to sandbox
-3. Full test suite runs (`pytest` + `vitest`)
-4. Linters re-run (`ruff`, `eslint`, `tsc`)
-5. Security scanners re-run (CodeQL, Semgrep, Bandit)
-6. If all pass → PR created for human approval
-7. Human reviews diff → approves or rejects
-
-## 7. Unified Finding Schema
-
-See `scripts/code_analysis/normalizer.py` for the full schema and
-`scripts/code_analysis/normalizer.py` for the Concept Normalization Map.
-
-Key fields:
-- `id`: Stable SHA256 fingerprint = `SHA256(file:line:concept)[:16]`
-- `source_tool`: Which tool detected it
-- `category`: SECURITY | QUALITY | DEAD_CODE | COMPLEXITY | DEPENDENCY | SECRET
-- `severity`: CRITICAL | HIGH | MEDIUM | LOW | INFO
-- `rule_concept`: Canonical concept (e.g., `sql-injection`, `jwt-none-alg`)
-- `duplicate_group`: ID of canonical finding if this is a duplicate
-- `evidence`: List of corroborating tool findings
-- `validation_status`: State machine lifecycle state
-
-### Separate findings dashboard
-
-`05-issue-aggregation.yml` automatically waits for the four scanner workflows from the
-exact same same-repository PR commit, or downloads the latest completed artifacts when
-manually dispatched. It recursively normalizes supported SARIF/JSON files. Findings
-from overlapping tools share one fingerprint when their repository-relative file,
-line, and canonical concept match.
-
-The workflow has no Issue permission. It publishes one neutral **Code Analysis Dashboard**
-check on the monitored commit and uploads the normalized artifacts plus
-`dashboard/index.html`. The
-dashboard is a dependency-free searchable view of every unique finding, with filters
-for severity, tool, category, file/rule/message search, retained corroborating evidence,
-diagnosis guidance, scanner-artifact coverage, runtime coverage when available, and
-review-only autofix eligibility metadata. The check presents bounded severity/tool/file/
-concept rollups in GitHub and links to the full artifact. This phase cannot create or close
-Issues. The three-clean-scan plus targeted-rescan lifecycle remains future work.
-
-The same artifact contains `dashboard/coverage-manifest.json`. Phase 3 does not generate
-an autofix patch. The dashboard paginates findings instead of rendering thousands of rows
-at once. See [`MONITORING_UI.md`](MONITORING_UI.md) for the exact GitHub navigation.
-
-## 8. Deployment & On-Prem Constraints
-
-### Self-Hosted Runner Requirements
-All CI jobs run on GitHub-hosted runners (`ubuntu-latest`). For fully
-air-gapped environments, use self-hosted runners:
-- Source code never leaves the on-prem environment
-- No external internet access required for deterministic analysis tools
-- Tools that download rule databases (Semgrep, OSV-Scanner) can use
-  cached/offline modes
-
-### Tool Data Flow
-
-| Tool | Code leaves env? | Network required? | Self-hosted? |
-|------|-----------------|------------------|--------------|
-| Ruff | No | No | pip |
-| Bandit | No | No | pip |
-| Pyright | No | No | npm |
-| CodeQL | No | No | CLI binary (GitHub-provided) |
-| Semgrep | No (OSS rules) | Only to download rules | pip |
-| OSV-Scanner | No | Only downloads vuln DB | binary |
-| Trivy | No | Only downloads vuln DB | binary |
-| Gitleaks | No | No | Go binary (via action) |
-| Hadolint | No | No | Docker (via action) |
-| Checkov | No | No | pip |
-| Radon/Xenon | No | No | pip |
-| Vulture | No | No | pip |
-| CodeScene | No (on-prem) | No | Docker Compose |
-
-### Vulnerability Database Caching
-For fully air-gapped environments:
-```bash
-# Trivy DB cache
-trivy image --download-db-only --cache-dir /opt/trivy-cache
-
-# OSV-Scanner — pre-download vulnerability database
-osv-scanner --download-vuln-db --cache-dir /opt/osv-cache
-
-# Semgrep — use bundled rules (no network needed)
-semgrep --config=.github/semgrep-rules/ --no-rewrite-rule-messages .
-```
-
-## 9. Implementation Roadmap
-
-### Phase 1 — Foundation (Week 1–2)
-- [x] Deploy `01-code-quality.yml`: Ruff, Pyright, ESLint, tsc, Bandit
-- [x] Enable Dependabot + GitHub Dependency Review (already configured)
-- [ ] Establish baseline; fix or suppress existing issues
-- [ ] Register with CodeScene free tier for hotspot analysis
-
-### Phase 2 — Security Hardening (Week 2–3)
-- [x] Deploy `02-security-sast.yml`: CodeQL, Semgrep, Bandit
-- [x] Add 15 custom Semgrep rules (`kavach-custom.yaml`)
-- [x] Deploy `03-dependency-security.yml`: OSV-Scanner, Trivy, Gitleaks, Hadolint, Checkov
-- [ ] Enable GitHub Advanced Security: CodeQL + Secret Scanning (repository Settings)
-- [ ] Enroll in Snyk OSS Developer Program (free enterprise features)
-
-### Phase 3 — Finding Normalization (Week 3–4)
-- [x] Deploy `normalizer.py` as a post-CI step
-- [x] Configure SARIF upload to GitHub Security tab
-- [x] Set up deduplication + correlation
-- [x] Create canary test suite (`tests/security_canary/`)
-- [ ] Deploy `06-canary-validation.yml` for integration testing
-
-### Phase 4 — AI Triage + Remediation (Week 4–5)
-- [x] Deploy AI Triage Agent prompt (`scripts/code_analysis/ai-triage-prompt.md`)
-- [x] Configure Level 1 safe-fix automation (ruff --fix + eslint --fix in CI)
-- [ ] Set up Level 2 AI-proposed fix pipeline with sandbox validation
-- [ ] Deploy `05-issue-aggregation.yml` for auto-issue creation
-
-### Phase 5 — Code Health Dashboard (Week 5–6)
-- [x] Add Radon + Xenon complexity CI gate (`04-code-health.yml`)
-- [x] Add Vulture dead code detection
-- [x] Add Coverage.py test coverage gate (70% minimum)
-- [ ] Deploy CodeScene on-prem (Docker Compose: `deploy/codescene-compose.yml`)
-- [ ] Integrate DefectDojo for vulnerability management (`deploy/defectdojo-compose.yml`)
-- [ ] Validate effectiveness with canary coverage suite
-
-## 10. Tool Evaluation Matrix
-
-| Tool | Code Q | SAST | Security | Dead Code | Complexity | Deps | Secrets | PR | GH Actions | SARIF | On-Prem | Cost |
-|------|--------|------|----------|-----------|------------|------|---------|----|----|-------|---------|------|
-| **Ruff** | ✓ | — | ✓ (S-rules) | — | — | — | — | ✓ | ✓ | JSON | ✓ | Free |
-| **Pyright** | ✓ | — | — | — | — | — | — | ✓ | ✓ | JSON | ✓ | Free |
-| **ESLint** | ✓ | — | — | — | — | — | — | ✓ | ✓ | JSON | ✓ | Free |
-| **tsc** | ✓ | — | — | — | — | — | — | ✓ | ✓ | JSON | ✓ | Free |
-| **CodeQL** | — | ✓ | ✓ | — | — | — | — | ✓ | ✓ | SARIF | ✓ | Free* |
-| **Semgrep** | — | ✓ | ✓ | — | — | — | — | ✓ | ✓ | SARIF | ✓ | Free |
-| **Bandit** | — | — | ✓ | — | — | — | — | ✓ | ✓ | SARIF | ✓ | Free |
-| **Qodana** | ✓ | ✓ | ✓ | — | — | — | — | ✓ | ✓ | SARIF | ✓ | Free |
-| **OSV-Scanner** | — | — | — | — | — | ✓ | — | ✓ | ✓ | SARIF | ✓ | Free |
-| **Trivy** | — | — | ✓ | — | — | ✓ | — | ✓ | ✓ | SARIF | ✓ | Free |
-| **Gitleaks** | — | — | — | — | — | — | ✓ | ✓ | ✓ | JSON | ✓ | Free |
-| **Hadolint** | — | — | ✓ | — | — | — | — | ✓ | ✓ | SARIF | ✓ | Free |
-| **Checkov** | — | — | ✓ | — | — | — | ✓ | ✓ | ✓ | SARIF | ✓ | Free |
-| **CodeScene** | — | — | — | — | ✓ | — | — | ✓ | ✓ | — | ✓ | Free tier |
-| **Radon** | — | — | — | — | ✓ | — | — | ✓ | ✓ | JSON | ✓ | Free |
-| **Xenon** | — | — | — | — | ✓ | — | — | ✓ | ✓ | — | ✓ | Free |
-| **Vulture** | — | — | — | ✓ | — | — | — | ✓ | ✓ | JSON | ✓ | Free |
-| **Coverage.py** | — | — | — | ✓ | — | — | — | ✓ | ✓ | XML | ✓ | Free |
-
-> `*` CodeQL requires GitHub Advanced Security license for private repos (free for public)
-
----
-
-*Generated by Kavach-AgenticSOC Code Intelligence Architecture*  
-*August 2026 · Version 1.0*
+| Historical decision | Current status |
+|---|---|
+| Complementary scanner web and canary suite | **Retained** |
+| File + line + concept as sole identity | **Replaced** by versioned stable identity plus observations |
+| Existing CI remains untouched and analysis workflows stay additive | **Retained** |
+| GitHub Security plus deployed DefectDojo as current database | **Deferred**; dashboard artifact is authoritative now |
+| Copilot/custom autofix | **Deferred** |
+| Automatic GitHub Issues and Projects synchronization | **Deferred** |
+| Blocking severity gates and coverage percentages | **Deferred/rejected for MVP** |
+| AI reviewers as contextual advisers | **Deferred pending explicit privacy/service approval** |

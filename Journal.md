@@ -10360,3 +10360,13 @@
   and 81.16% coverage. Dashboard-only rebuild `32580941289` reused prior scanner artifacts,
   updated the same check (`97043497690`) instead of duplicating it, and exposed the link.
   No findings were fixed; no upstream, production, Pages, or application deployment changed.
+### 2026-08-25 — orchestrator — Static-analysis monitoring MVP implementation started
+- Scope: Implement the approved Find → Normalize → Compare → Show → Track MVP on `feature/static-code-analysis`, including a complementary required-channel manifest, deterministic canonical identities, immutable baseline and previous-run comparison, bounded dashboard, lightweight triage, idempotent advisory Check, and offline-only DefectDojo fixture.
+- Safety: No application findings will be fixed; no patches, Issues, PR comments, branch protection, deployments, external AI services, DefectDojo requests, upstream refs, or production systems are in scope.
+
+### 2026-08-25 — orchestrator — Lean monitoring MVP implemented and locally verified
+- Implemented: Manifest-driven complementary scanner web; versioned canonical finding and observation identities; accepted-baseline and lineage-compatible previous-run comparison; fail-closed evidence validity; conservative moved matching; lifecycle reason codes; conservation-of-findings; sparse expiring triage; bounded Attention/full-backlog dashboard; attention-surface metric; restart-stable advisory Check identity; and a minimal offline DefectDojo fixture.
+- Detection: Added project-specific Semgrep evidence for dynamic SQL construction, caller-controlled file paths, and React HTML sinks, while retaining the independent SQL canary requirement. The full fork canary run remains the acceptance authority.
+- Removed: The inactive Issue-sync and review-patch generator prototypes, plus active dashboard autofix presentation. The historical proposal is now explicitly a deferred roadmap.
+- Verification: 13 focused tests passed; Python compilation passed; workflow/Semgrep YAML parsed; `git diff --check` passed. The deterministic 10,000-finding benchmark completed in 6.85 seconds with 78.49 MiB peak allocation and bounded 250-row DOM rendering.
+- Safety: Workflow permissions remain `contents: read`, `actions: read`, and `checks: write`. No application finding, upstream ref, production system, Issue, PR comment, patch, deployment, external AI service, or DefectDojo endpoint was changed or contacted.

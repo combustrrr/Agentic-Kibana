@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Finding Normalizer — Kavach-AgenticSOC Code Intelligence System
+Finding Normalizer — Agentic SOC static-analysis monitoring
 ================================================================
 Ingests tool outputs (SARIF, Bandit JSON, Ruff JSON) and normalizes them
 into a unified finding schema with deterministic deduplication.
@@ -82,6 +82,7 @@ CONCEPT_MAP: dict[str, str] = {
     "B608":                                      "sql-injection",  # Bandit
     "sql-injection":                             "sql-injection",
     "S608":                                      "sql-injection",  # Ruff
+    "agentic-soc-sql-string-construction":       "sql-injection",
 
     # ── XSS ───────────────────────────────────────────────────
     "python/reflected-xss":                      "xss",
@@ -92,12 +93,14 @@ CONCEPT_MAP: dict[str, str] = {
     "javascript/dom-based-xss":                  "xss",
     "react/no-danger":                           "xss",            # ESLint
     "no-dangerouslysetinnterhtml":               "xss",
+    "agentic-soc-react-unsanitized-html":        "xss",
 
     # ── Path Traversal ────────────────────────────────────────
     "python/path-injection":                     "path-traversal",
     "python.lang.security.audit.path-traversal": "path-traversal",
     "B609":                                      "path-traversal",
     "B604":                                      "path-traversal",
+    "agentic-soc-unvalidated-file-path":         "path-traversal",
 
     # ── Hardcoded Secrets / Credentials ──────────────────────
     "HardcodedPassword":                         "hardcoded-secret",
@@ -742,9 +745,9 @@ class SarifExporter:
                 {
                     "tool": {
                         "driver": {
-                            "name": "KavachCodeIntelligence",
+                            "name": "AgenticSOCStaticMonitoring",
                             "version": "1.0.0",
-                            "informationUri": "https://github.com/ARYDESTROYER/Kavach-AgenticSOC",
+                            "informationUri": "https://github.com/combustrrr/Agentic-Kibana",
                             "rules": list(rules.values()),
                         }
                     },

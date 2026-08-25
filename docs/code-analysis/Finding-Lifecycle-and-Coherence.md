@@ -1,5 +1,5 @@
 # Finding Lifecycle & Tool Coherence Architecture
-## Kavach-AgenticSOC Code Intelligence System
+## Agentic SOC Static-Analysis Monitoring
 
 > **Version:** 1.1 — Addressing Core Engineering Challenges
 
@@ -260,3 +260,10 @@ catch all known vulnerabilities.
 
 **Canary validation workflow** runs weekly and after any tool config change
 (`06-canary-validation.yml`).
+# Historical Design Notice
+
+This document records the earlier Issue/DefectDojo lifecycle proposal. It is not the
+current implementation authority. Automatic Issues, DefectDojo synchronization,
+autofix, and automatic closure are deferred. Use
+[`EXECUTION_PLAN.md`](EXECUTION_PLAN.md) and [`README.md`](README.md) for the active
+Find → Normalize → Compare → Show → Track monitoring contract.

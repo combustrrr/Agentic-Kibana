@@ -1,9 +1,9 @@
 # Static Code Analysis — Execution Plan
 
-> **Current phase:** Phase 3 complete — fork-only advisory monitoring active
+> **Current phase:** Monitoring MVP implemented locally; fork acceptance pending
 > **Branch:** `feature/static-code-analysis`
 > **Operating mode:** fork-only PR + manual monitoring, advisory; no upstream/production changes
-> **Last updated:** 2026-08-22
+> **Last updated:** 2026-08-25
 
 This plan records implementation truth, not proposal intent. A workflow file or Compose
 draft is not considered an implemented service until it has executed and produced usable
@@ -17,8 +17,8 @@ channels; it does not mean every shortlisted proposal tool is installed.
 | 0 — Dormant setup | **Complete** | Fork safety established; `feature/static-code-analysis` retained; fork default synchronized; existing `ci.yml` untouched; custom Semgrep, CodeQL, Bandit, Ruff, Gitleaks and canary configuration added. | The Phase 3 PR-only activation supersedes the original manual-only state; push/schedule triggers remain dormant. |
 | 1 — Manual baseline and diagnosis service | **Complete for collection; remediation deferred** | All four scanner families manually exercised; raw artifacts retained; recursive normalizer repaired; file+line+concept fingerprints; 298+ overlaps proven; searchable all-findings dashboard; 14/14 configured channels; 81.16% parent-process runtime coverage; bounded dry-run issue plan; review-only Ruff patch. | False-positive classification and application finding fixes remain intentionally out of scope. Shortlisted services not yet implemented are tracked below, not counted as Phase 1 coverage. |
 | 2 — Canary validation | **Complete with 3 acknowledged gaps** | Manual-only canary repaired and measured: 7/10 expectations, 202 normalized findings, eight contributing tools. SQL injection, path traversal, and React XSS remain visible failures with concrete next actions in `ACKNOWLEDGED_GAPS.md`. | Do not represent 7/10 as full coverage. Close the three gaps in a later monitoring-coverage iteration. |
-| 3 — Selective advisory activation | **Complete** | Fork PR [#1](https://github.com/combustrrr/Agentic-Kibana/pull/1) verified all four exact-commit scanner families. Fork PR [#2](https://github.com/combustrrr/Agentic-Kibana/pull/2) verified one neutral, idempotent commit check with bounded rollups and an explicit full-artifact link. Dashboard run `32578162932` produced 8,535 deduplicated findings, 14/14 observed channels, and 81.16% runtime coverage; rebuild `32580941289` proved the same check is updated rather than duplicated. The HTML dashboard renders 50/100/250-row pages. The workflow has no Issue permission. | Monitor reliability/noise. Improve missing tool normalization and the three Phase 2 coverage gaps without fixing application findings. A persistent DefectDojo deployment requires a separately approved private host and operational design. |
-| 4 — Controlled remediation and optional gates | **Partially prototyped; not activated** | Ruff safe-fix candidates and a non-mutating patch artifact are verified. Issue synchronization is idempotent, HIGH/CRITICAL-only, capped, dry-run by default, and never auto-closes. | Add selected-finding approval, isolated fix branch, tests/rescan, human PR, and three-clean-scan lifecycle. Blocking gates contradict the current advisory directive and require a new explicit decision. AI patches and ESLint patch generation are not implemented. |
+| 3 — Selective advisory activation | **Complete** | Fork PR [#1](https://github.com/combustrrr/Agentic-Kibana/pull/1) verified all four exact-commit scanner families. Fork PR [#2](https://github.com/combustrrr/Agentic-Kibana/pull/2) verified one neutral, idempotent commit check with bounded rollups and an explicit full-artifact link. Dashboard run `32578162932` produced 8,535 deduplicated findings, 14/14 observed channels, and 81.16% runtime coverage; rebuild `32580941289` proved the same check is updated rather than duplicated. | The lean monitoring MVP now adds manifest-driven channels, canonical observations, immutable baseline comparison, conservation, attention/backlog views, and triage. Fork acceptance remains. |
+| 4 — Monitoring MVP | **Implemented locally; acceptance pending** | Added versioned stable identities and observations, required-channel drift protection, accepted baseline reconstruction, previous-run support, lifecycle reason codes, conservation checks, bounded Attention/full-backlog dashboard, lightweight triage, restart-safe Check recovery, and offline DefectDojo identity fixture. Removed active Issue-sync and patch-generator prototypes. | Run focused tests and a fork-only Actions acceptance. Close the three existing canary gaps before claiming the configured canary set is fully validated. |
 | 5 — Integration / deployment | **Not started** | None of the analysis workflows were added to `ci.yml`; no merge, branch protection, DefectDojo, CodeScene, Pages, or production deployment occurred. | Only after stable release and explicit approval: choose persistent dashboard backend, integrate approved lanes, merge to `Testing`, and separately plan production rollout. |
 
 ## Shortlisted tool implementation inventory
@@ -150,10 +150,10 @@ branch protection changes.
 - Verified: exactly one check for the commit, `neutral` conclusion, explicit authenticated
   artifact link, 8,535 findings, no Issue-plan artifact, and client-side sliced pagination.
 
-## Phase 4 remediation boundary
+## Deferred remediation boundary
 
-The only implemented autofix level is deterministic Ruff safe-fix **proposal** generation.
-A future apply workflow must use this sequence:
+No autofix or patch generator is part of the active monitoring implementation. Any future
+remediation phase requires a new explicit approval and must use this sequence:
 
 1. operator selects fingerprints;
 2. create an isolated fork branch;

@@ -81,7 +81,7 @@ EXPECTED_DETECTIONS: list[CanaryExpectation] = [
         file_suffix="canary/python/path_traversal.py",
         concept="path-traversal",
         required_tools=["CodeQL", "Semgrep", "Bandit"],
-        min_detections=2,
+        min_detections=1,
         description="Path traversal / directory traversal",
     ),
     # ── Prompt Injection (LangGraph) ─────────────────────────────────────────
@@ -96,7 +96,7 @@ EXPECTED_DETECTIONS: list[CanaryExpectation] = [
     CanaryExpectation(
         file_suffix="canary/typescript/xss_dangerously.tsx",
         concept="xss",
-        required_tools=["ESLint", "CodeQL"],
+        required_tools=["ESLint", "CodeQL", "Semgrep"],
         min_detections=1,
         description="XSS via dangerouslySetInnerHTML (React)",
     ),

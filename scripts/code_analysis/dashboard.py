@@ -1,136 +1,41 @@
 #!/usr/bin/env python3
-"""Generate a dependency-free, searchable HTML view of every normalized finding."""
-
+"""Generate the bounded Find → Compare → Show monitoring dashboard."""
 from __future__ import annotations
-
-import argparse
-import json
+import argparse, json
 from collections import Counter
 from pathlib import Path
 
-EXPECTED = {
-    "CodeQL": ("*codeql*.sarif",), "Semgrep": ("*semgrep*.sarif", "*semgrep*.json"), "Bandit": ("*bandit*.json",),
-    "Ruff": ("*ruff*.json",), "OSV-Scanner": ("*osv*.sarif",), "Gitleaks": ("*gitleaks*.sarif",),
-    "Trivy": ("*trivy*.sarif",), "Checkov": ("*checkov*.sarif",), "Hadolint": ("*hadolint*.sarif",),
-    "Vulture": ("*vulture*.txt", "*vulture*.json"), "Radon": ("*radon*.json",),
-    "Coverage.py": ("*coverage.json",), "Pyright": ("*pyright*.json",), "ESLint": ("*eslint*.json",),
-}
-
-
-def coverage_manifest(artifacts: Path, findings: list[dict]) -> dict:
-    counts = Counter(str(f.get("source_tool") or "Unknown") for f in findings)
-    rows = []
-    for tool, patterns in EXPECTED.items():
-        files = sorted({str(path.relative_to(artifacts)).replace("\\", "/")
-                        for pattern in patterns for path in artifacts.rglob(pattern)})
-        rows.append({"tool": tool, "status": "observed" if files or counts.get(tool, 0) else "missing",
-                     "artifact_files": files, "findings": counts.get(tool, 0)})
-    unknown = sorted(set(counts) - set(EXPECTED))
-    rows.extend({"tool": tool, "status": "observed", "artifact_files": [], "findings": counts[tool]}
-                for tool in unknown)
-    return {"expected_tools": len(EXPECTED), "observed_tools": sum(r["status"] == "observed" for r in rows[:len(EXPECTED)]),
-            "tools": rows}
-
-
-def coverage_metrics(artifacts: Path) -> dict:
-    files = list(artifacts.rglob("coverage.json"))
-    if not files:
-        return {"status": "missing"}
-    try:
-        data = json.loads(files[0].read_text(encoding="utf-8"))
-        totals = data.get("totals", {})
-        lowest = sorted(({"file": name, "percent": info.get("summary", {}).get("percent_covered", 0)}
-                         for name, info in data.get("files", {}).items()), key=lambda item: item["percent"])[:25]
-        return {"status": "observed", "percent": totals.get("percent_covered"), "covered": totals.get("covered_lines"),
-                "statements": totals.get("num_statements"), "lowest_files": lowest}
-    except (OSError, ValueError, TypeError) as exc:
-        return {"status": "invalid", "error": str(exc)}
-
-
-def diagnosis(finding: dict) -> str:
-    category = finding.get("category")
-    evidence = finding.get("evidence") or []
-    if len(evidence) > 0:
-        return "Corroborated by multiple tools; review the shared code location once."
-    if category == "DEPENDENCY":
-        return "Review the affected package, reachable usage, and safe upgrade path."
-    if category in {"SECURITY", "SECRET"}:
-        return "Validate data flow and exploitability before changing security-sensitive code."
-    if finding.get("auto_fixable"):
-        return "Eligible for a review-only deterministic fix proposal."
-    return "Review the rule context and classify as actionable or false positive."
-
-
-def github_summary(findings: list[dict], manifest: dict, metrics: dict) -> str:
-    """Build a bounded GitHub Check summary; the full dataset stays in the artifact."""
-    severity = Counter(str(item.get("severity") or "UNKNOWN") for item in findings)
-    tools = Counter(str(item.get("source_tool") or "Unknown") for item in findings)
-    files = Counter(str(item.get("file") or "Unknown") for item in findings)
-    concepts = Counter(str(item.get("rule_concept") or item.get("rule_id") or "Unknown") for item in findings)
-
-    def table(title: str, first: str, counts: Counter, limit: int = 15) -> list[str]:
-        rows = [f"### {title}", "", f"| {first} | Findings |", "|---|---:|"]
-        rows.extend(f"| `{name.replace('|', '&#124;')}` | {count:,} |" for name, count in counts.most_common(limit))
-        return rows + [""]
-
-    coverage = metrics.get("percent")
-    lines = [
-        "## Code Analysis Dashboard",
-        "",
-        "This is one advisory monitoring record for the commit—not thousands of GitHub Issues.",
-        "Download the linked artifact and open `dashboard/index.html` for the searchable, paginated full dataset.",
-        "",
-        f"- **Unique findings:** {len(findings):,}",
-        f"- **Corroborating duplicate evidence:** {sum(len(item.get('evidence') or []) for item in findings):,}",
-        f"- **Configured channels observed:** {manifest.get('observed_tools', 0)}/{manifest.get('expected_tools', 0)}",
-        f"- **Runtime line coverage:** {coverage:.2f}%" if isinstance(coverage, (int, float)) else "- **Runtime line coverage:** unavailable",
-        "- **Enforcement:** advisory; no Issue writes, autofix, or merge blocking",
-        "",
-    ]
-    lines += table("Severity", "Severity", severity, 10)
-    lines += table("Tools", "Tool", tools)
-    lines += table("Most affected files", "File", files)
-    lines += table("Most common concepts", "Concept", concepts)
-    return "\n".join(lines)
-
-
-def generate(findings: list[dict], manifest: dict, metrics: dict, output: Path) -> None:
-    for finding in findings:
-        finding["diagnosis"] = diagnosis(finding)
-    payload = json.dumps(findings).replace("<", "\\u003c")
-    meta = json.dumps({"manifest": manifest, "coverage": metrics}).replace("<", "\\u003c")
-    document = """<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width'>
-<title>Advisory Code Analysis</title><style>
-:root{color-scheme:dark;background:#0b1020;color:#e7ecf5;font:14px system-ui}body{margin:0;padding:24px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.card,section{background:#151c30;border:1px solid #2b3655;border-radius:10px;padding:14px;margin-bottom:16px}.n{font-size:26px;font-weight:700}input,select,button{background:#0b1020;color:#fff;border:1px solid #405071;border-radius:6px;padding:9px;margin:4px}button:disabled{opacity:.45}table{width:100%;border-collapse:collapse}th,td{text-align:left;border-bottom:1px solid #293552;padding:8px;vertical-align:top}th{position:sticky;top:0;background:#151c30}.HIGH,.CRITICAL{color:#ff887d}.MEDIUM{color:#ffd166}.LOW{color:#7dd3fc}code{word-break:break-all}.scroll{max-height:68vh;overflow:auto}.muted{color:#9ba8c2}.pager{display:flex;align-items:center;justify-content:flex-end;gap:8px}</style></head><body>
-<h1>Advisory Code Analysis</h1><p class='muted'>Every normalized finding is searchable here. This dashboard is diagnostic and does not block merges.</p>
-<div class='cards' id='cards'></div><section><h2>Detection coverage</h2><div id='coverage'></div></section>
-<section><input id='search' size='45' placeholder='Search file, rule, concept, message…'><select id='severity'><option value=''>All severities</option></select><select id='tool'><option value=''>All tools</option></select><select id='category'><option value=''>All categories</option></select><strong id='shown'></strong></section>
-<div class='pager'><select id='pageSize'><option>50</option><option selected>100</option><option>250</option></select><span>rows/page</span><button id='previous'>Previous</button><span id='page'></span><button id='next'>Next</button></div>
-<section class='scroll'><table><thead><tr><th>Severity</th><th>Location</th><th>Tool / evidence</th><th>Concept</th><th>Finding and diagnosis</th><th>Fix</th></tr></thead><tbody id='rows'></tbody></table></section>
-<script id='findings' type='application/json'>""" + payload + """</script><script id='meta' type='application/json'>""" + meta + """</script><script>
-const all=JSON.parse(document.querySelector('#findings').textContent),meta=JSON.parse(document.querySelector('#meta').textContent);const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const count=k=>Object.entries(all.reduce((a,f)=>(a[f[k]]=(a[f[k]]||0)+1,a),{})).sort();const card=(n,t)=>`<div class=card><div class=n>${n}</div>${t}</div>`;$('#cards').innerHTML=card(all.length,'Unique findings')+card(all.reduce((n,f)=>n+(f.evidence?.length||0),0),'Duplicate evidence links')+card(all.filter(f=>f.auto_fixable).length,'Deterministic fix candidates')+card(meta.manifest.observed_tools+'/'+meta.manifest.expected_tools,'Expected tools observed');
-$('#coverage').innerHTML='<table><tr><th>Tool</th><th>Status</th><th>Findings</th><th>Artifacts</th></tr>'+meta.manifest.tools.map(t=>`<tr><td>${esc(t.tool)}</td><td>${esc(t.status)}</td><td>${t.findings}</td><td>${esc(t.artifact_files.join(', '))}</td></tr>`).join('')+'</table>'+(meta.coverage.percent!=null?`<p><b>Runtime line coverage:</b> ${Number(meta.coverage.percent).toFixed(2)}%</p>`:'<p>Runtime coverage report unavailable in this aggregation.</p>');
-for(const [id,key] of [['#severity','severity'],['#tool','source_tool'],['#category','category']])for(const [v] of count(key))$(id).insertAdjacentHTML('beforeend',`<option>${esc(v)}</option>`);
-let page=1;function render(reset=false){if(reset)page=1;const q=$('#search').value.toLowerCase(),s=$('#severity').value,t=$('#tool').value,c=$('#category').value,size=Number($('#pageSize').value);const filtered=all.filter(f=>(!s||f.severity===s)&&(!t||f.source_tool===t)&&(!c||f.category===c)&&(!q||JSON.stringify(f).toLowerCase().includes(q)));const pages=Math.max(1,Math.ceil(filtered.length/size));page=Math.min(page,pages);const start=(page-1)*size,rows=filtered.slice(start,start+size);$('#shown').textContent=` ${filtered.length} matching`;$('#page').textContent=`Page ${page} of ${pages}`;$('#previous').disabled=page===1;$('#next').disabled=page===pages;$('#rows').innerHTML=rows.map(f=>`<tr><td class='${esc(f.severity)}'>${esc(f.severity)}</td><td><code>${esc(f.file)}:${f.start_line}</code></td><td>${esc(f.source_tool)}<br><span class=muted>${esc((f.evidence||[]).join(', '))}</span></td><td><code>${esc(f.rule_concept)}</code></td><td>${esc(f.message)}<br><span class=muted>${esc(f.diagnosis)}</span></td><td>${f.auto_fixable?'review-only candidate':'manual'}</td></tr>`).join('')};document.querySelectorAll('input,select').forEach(e=>e.addEventListener('input',()=>render(true)));$('#previous').addEventListener('click',()=>{page--;render()});$('#next').addEventListener('click',()=>{page++;render()});render();
-</script></body></html>"""
-    output.write_text(document, encoding="utf-8")
-
-
+def load(path: Path) -> dict: return json.loads(path.read_text(encoding="utf-8"))
+def is_attention(row: dict) -> bool:
+    return row.get("lifecycle") in {"INDETERMINATE", "MOVED"} or (row.get("lifecycle") == "NEW" and (row.get("severity") in {"CRITICAL", "HIGH", "MEDIUM"} or row.get("scanner_family_count", 0) > 1))
+def why_surfaced(row: dict) -> str:
+    if row.get("lifecycle") == "MOVED": return f"Same concept and symbol; line shift {int(row.get('line_shift') or 0):+d}; region similarity {float(row.get('region_similarity') or 0):.2f}"
+    if row.get("lifecycle") == "NEW": return "Appeared since the accepted baseline"
+    if row.get("lifecycle") == "INDETERMINATE": return "Absence cannot be trusted; scanner evidence is incomplete"
+    if row.get("lifecycle") == "NOT_OBSERVED": return "Not detected by completed owners; not treated as fixed"
+    return "Matched the accepted baseline exactly"
+def attention_rank(row: dict) -> tuple:
+    lifecycle, severity = row.get("lifecycle"), row.get("severity")
+    if lifecycle == "NEW" and severity == "CRITICAL": bucket = 0
+    elif lifecycle == "NEW" and severity == "HIGH": bucket = 1
+    elif lifecycle == "NEW" and row.get("scanner_family_count", 0) > 1: bucket = 2
+    elif lifecycle == "MOVED" and row.get("scanner_family_count", 0) > 1: bucket = 3
+    elif lifecycle == "NEW" and severity == "MEDIUM": bucket = 4
+    elif lifecycle == "INDETERMINATE": bucket = 5
+    else: bucket = 6
+    return bucket, str(row.get("file")), int(row.get("start_line") or 0), str(row.get("stable_id"))
+def github_summary(comparison: dict, channel_status: dict) -> str:
+    rows=comparison.get("findings",[]); attention=[x for x in rows if is_attention(x)]; ratio=len(attention)/len(rows)*100 if rows else 0
+    lifecycle=Counter(x.get("lifecycle","UNKNOWN") for x in rows); completed=sum(x.get("status")=="COMPLETED" for x in channel_status.get("channels",[])); required=len(channel_status.get("channels",[]))
+    lines=["## Static Analysis Monitoring","","One advisory change stream; the complete searchable backlog remains in the artifact.","",f"- **Total accounted findings:** {len(rows):,}",f"- **Attention findings:** {len(attention):,} ({ratio:.2f}% attention surface)",f"- **Required channels complete:** {completed}/{required}",f"- **Baseline validity:** {comparison.get('baseline_validity')}",f"- **Current-run validity:** {comparison.get('current_run_validity')}","- **Enforcement:** advisory; no Issues, patches, comments, or merge blocking","","| Lifecycle | Count |","|---|---:|",*[f"| {k} | {v:,} |" for k,v in sorted(lifecycle.items())]]
+    return "\n".join(lines)+"\n"
+def generate(comparison: dict, channel_status: dict, output: Path) -> None:
+    rows=comparison.get("findings",[])
+    for row in rows: row["why_surfaced"],row["attention"]=why_surfaced(row),is_attention(row)
+    rows.sort(key=attention_rank); ac=sum(x["attention"] for x in rows); ratio=ac/len(rows)*100 if rows else 0
+    payload=json.dumps(rows,separators=(",",":"),ensure_ascii=False).replace("<","\\u003c"); meta=json.dumps({"comparison":{k:v for k,v in comparison.items() if k!="findings"},"channels":channel_status,"attention_count":ac,"attention_ratio":ratio},separators=(",",":")).replace("<","\\u003c")
+    html="""<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width'><title>Static Analysis Monitoring</title><style>:root{color-scheme:dark;background:#09101f;color:#e7edf8;font:14px system-ui}body{margin:0;padding:24px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}.card,section{background:#131c31;border:1px solid #2b3b5e;border-radius:10px;padding:14px;margin-bottom:16px}.n{font-size:26px;font-weight:750}.muted{color:#9dafcf}input,select,button{background:#09101f;color:#fff;border:1px solid #48608d;border-radius:6px;padding:9px;margin:4px}button:disabled{opacity:.45}table{width:100%;border-collapse:collapse}th,td{text-align:left;border-bottom:1px solid #293957;padding:8px;vertical-align:top}th{position:sticky;top:0;background:#131c31}.CRITICAL,.HIGH{color:#ff8b83}.MEDIUM{color:#ffd166}.NEW,.MOVED{font-weight:700;color:#82c7ff}.INDETERMINATE{color:#ffcb6b}code{word-break:break-all}.scroll{max-height:66vh;overflow:auto}.pager{display:flex;justify-content:flex-end;align-items:center;gap:8px}.pill{display:inline-block;padding:2px 6px;border:1px solid #48608d;border-radius:12px;margin:2px}</style></head><body><h1>Static Analysis Monitoring</h1><p class='muted'>Find → Normalize → Compare → Show → Track. Findings are evidence, not GitHub Issues.</p><div class='cards' id='cards'></div><section><h2>Scanner web</h2><div id='channels'></div></section><section><label><input id='attention' type='checkbox' checked> Attention only</label><input id='search' size='42' placeholder='Search concept, file, evidence…'><select id='severity'><option value=''>All severities</option></select><select id='lifecycle'><option value=''>All lifecycle states</option></select><select id='triage'><option value=''>All triage states</option></select><strong id='shown'></strong></section><div class='pager'><select id='pageSize'><option>50</option><option selected>100</option><option>250</option></select><button id='previous'>Previous</button><span id='page'></span><button id='next'>Next</button></div><section class='scroll'><table><thead><tr><th>Lifecycle / severity</th><th>Why surfaced</th><th>Location</th><th>Concept</th><th>Corroboration</th><th>Human state</th></tr></thead><tbody id='rows'></tbody></table></section><script id='findings' type='application/json'>"""+payload+"""</script><script id='meta' type='application/json'>"""+meta+"""</script><script>const all=JSON.parse(document.querySelector('#findings').textContent),meta=JSON.parse(document.querySelector('#meta').textContent),$=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const card=(n,t)=>`<div class=card><div class=n>${n}</div>${t}</div>`,counts=k=>[...new Set(all.map(x=>x[k]).filter(Boolean))].sort();$('#cards').innerHTML=card(all.length.toLocaleString(),'Complete accounted backlog')+card(meta.attention_count.toLocaleString(),'Attention findings')+card(meta.attention_ratio.toFixed(2)+'%','Attention surface')+card(meta.comparison.baseline_validity,'Baseline validity');$('#channels').innerHTML='<table><tr><th>Surface</th><th>Channel</th><th>Family</th><th>Status</th><th>Evidence</th></tr>'+meta.channels.channels.map(c=>`<tr><td>${esc(c.surface)}</td><td>${esc(c.channel)}</td><td>${esc(c.scanner_family)}</td><td>${esc(c.status)}</td><td>${esc((c.artifact_files||[]).join(', '))}</td></tr>`).join('')+'</table>';for(const [id,key] of [['#severity','severity'],['#lifecycle','lifecycle'],['#triage','triage']])for(const v of counts(key))$(id).insertAdjacentHTML('beforeend',`<option>${esc(v)}</option>`);let page=1;function render(reset=false){if(reset)page=1;const q=$('#search').value.toLowerCase(),a=$('#attention').checked,s=$('#severity').value,l=$('#lifecycle').value,t=$('#triage').value,size=Number($('#pageSize').value),filtered=all.filter(f=>(!a||f.attention)&&(!s||f.severity===s)&&(!l||f.lifecycle===l)&&(!t||f.triage===t)&&(!q||JSON.stringify(f).toLowerCase().includes(q))),pages=Math.max(1,Math.ceil(filtered.length/size));page=Math.min(page,pages);const shown=filtered.slice((page-1)*size,page*size);$('#shown').textContent=` ${filtered.length.toLocaleString()} matching`;$('#page').textContent=`Page ${page} of ${pages}`;$('#previous').disabled=page===1;$('#next').disabled=page===pages;$('#rows').innerHTML=shown.map(f=>`<tr><td><span class='${esc(f.lifecycle)}'>${esc(f.lifecycle)}</span><br><span class='${esc(f.severity)}'>${esc(f.severity)}</span></td><td>${esc(f.why_surfaced)}<br><span class=muted>${esc(f.reason_code)}</span></td><td><code>${esc(f.file)}:${f.start_line}</code></td><td>${esc(f.concept)}<br><span class=muted>${esc(f.message)}</span></td><td><b>${f.scanner_family_count}</b> families / ${f.observation_count} observations<br>${(f.supporting_scanner_families||[]).map(x=>`<span class=pill>${esc(x)}</span>`).join('')}</td><td>${esc(f.triage)}</td></tr>`).join('')}document.querySelectorAll('input,select').forEach(e=>e.addEventListener('input',()=>render(true)));$('#previous').addEventListener('click',()=>{page--;render()});$('#next').addEventListener('click',()=>{page++;render()});render();</script></body></html>"""
+    output.write_text(html,encoding="utf-8")
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--findings", type=Path, required=True)
-    parser.add_argument("--artifacts", type=Path, required=True)
-    parser.add_argument("--output-dir", type=Path, required=True)
-    args = parser.parse_args()
-    findings = json.loads(args.findings.read_text(encoding="utf-8"))
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    manifest, metrics = coverage_manifest(args.artifacts, findings), coverage_metrics(args.artifacts)
-    (args.output_dir / "coverage-manifest.json").write_text(json.dumps({"tools": manifest, "runtime": metrics}, indent=2), encoding="utf-8")
-    (args.output_dir / "github-summary.md").write_text(github_summary(findings, manifest, metrics), encoding="utf-8")
-    generate(findings, manifest, metrics, args.output_dir / "index.html")
-    print(f"Dashboard contains {len(findings)} unique findings; tool coverage {manifest['observed_tools']}/{manifest['expected_tools']}.")
-
-
-if __name__ == "__main__":
-    main()
+    p=argparse.ArgumentParser();p.add_argument("--comparison",type=Path,required=True);p.add_argument("--channel-status",type=Path,required=True);p.add_argument("--output-dir",type=Path,required=True);a=p.parse_args();c,s=load(a.comparison),load(a.channel_status);a.output_dir.mkdir(parents=True,exist_ok=True);(a.output_dir/"github-summary.md").write_text(github_summary(c,s),encoding="utf-8");generate(c,s,a.output_dir/"index.html")
+if __name__=="__main__": main()
