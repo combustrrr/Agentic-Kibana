@@ -10642,3 +10642,9 @@
   restored, and the gate re-derives the same 362 composites from the rebuilt file.
 - Status: done
 - Next: PR #100 CI, and correct two inaccuracies in its generated body.
+### 2026-08-26 — orchestrator — Upstream Testing delta integrated for monitoring acceptance
+- Integrated: Merged original-repository `upstream/Testing` commit `fcaa5ac` into the fork-only `feature/static-code-analysis` branch. The delta contains four upstream commits and 167 changed files, providing a real application change set for baseline/previous-run dashboard testing.
+- Conflict handling: The only merge conflict was the append-only `Journal.md`; both histories were preserved. Monitoring code/configuration did not conflict with upstream application changes.
+- Automatic path: All four scanner workflows now run on pushes only to `feature/static-code-analysis`; the dashboard follows the completed same-repository Code Health push and gathers exact-commit artifacts. PR monitoring into the fork default remains available. No schedule, upstream push, or production trigger was added.
+- Local verification after merge: 13 monitoring tests passed; the 10,000-finding benchmark completed in 5.20 seconds at 78.49 MiB peak; all five workflow YAML files parsed; `git diff --check` passed.
+- Visualization boundary: The active developer surface is the custom Attention + searchable backlog HTML artifact and one advisory Check. DefectDojo remains an offline fixture only, not a deployed visualization.
