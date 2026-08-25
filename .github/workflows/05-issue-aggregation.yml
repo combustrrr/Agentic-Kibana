@@ -92,6 +92,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ -f config/code-analysis/baseline-index.json ]]; then
+            cp config/code-analysis/baseline-index.json baseline-index.json
+            exit 0
+          fi
           mkdir -p accepted-baseline
           expected_sha="$(jq -r .baseline_commit_sha config/code-analysis/baseline-manifest.json)"
           accepted_sha="$(gh run view 32578162932 --json headSha --jq .headSha)"
@@ -169,6 +173,7 @@ jobs:
             normalized/
             dashboard/
             channel-status.json
+            baseline-index.json
           if-no-files-found: warn
           retention-days: 30
 

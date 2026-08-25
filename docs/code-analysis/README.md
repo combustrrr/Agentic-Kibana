@@ -64,6 +64,8 @@ See [`MONITORING_UI.md`](MONITORING_UI.md) for navigation.
 - Raw and normalized per-run evidence follows GitHub Actions artifact retention.
 - The explicitly accepted baseline is reconstructed only from accepted run `32578162932`
   and validated against [`baseline-manifest.json`](../../config/code-analysis/baseline-manifest.json).
+  The first accepted MVP run retains the generated `baseline-index.json`; it must then be
+  reviewed and checked in beside the manifest before the source Actions artifact expires.
 - Human decisions live in the sparse, versioned
   [`triage-registry.json`](../../config/code-analysis/triage-registry.json).
 - A minimal DefectDojo fixture proves stable future identity mapping offline; there is
