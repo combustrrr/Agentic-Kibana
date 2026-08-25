@@ -56,6 +56,7 @@ import type {
   MemoryEntry,
   MemoryResponse,
   Metrics,
+  MetricsTrends,
   ModelsResponse,
   NoiseLineage,
   NoiseReduction,
@@ -121,6 +122,7 @@ import type {
   ThresholdTuningConfig,
   UsageSummary,
   User,
+  UserCreateOptions,
   UserPrefs,
   UsersResponse,
 } from './types';
@@ -842,6 +844,23 @@ export const api = {
         request<LoginResult>('POST', 'auth/mfa/verify', {
           body: { pending_token: pendingToken, code },
         }),
+      // MANDATED enrollment DURING login (PUBLIC; gated by the pending_token from a
+      // login that returned `mfa_enrollment_required`). Byte-same payload shape as
+      // `setup` — recovery codes appear ONLY here, so display them at this step.
+      // Re-calling regenerates the pending secret. 401 = invalid/expired pending.
+      enrollSetup: (pendingToken: string) =>
+        request<MfaSetupResult>('POST', 'auth/mfa/enroll-setup', {
+          body: { pending_token: pendingToken },
+        }),
+      // Confirm mandated enrollment: verifies the TOTP against the pending secret,
+      // persists the factor, then mints the FULL session (cookie set server-side)
+      // and returns the exact /auth/mfa/verify success payload — treat success as
+      // login-complete (incl. `user.must_change_password`). 401 = wrong code
+      // (retry while the pending token lives) or invalid/expired pending.
+      enrollConfirm: (pendingToken: string, code: string) =>
+        request<LoginResult>('POST', 'auth/mfa/enroll-confirm', {
+          body: { pending_token: pendingToken, code },
+        }),
       // Disable MFA (self): requires a current TOTP or a recovery code.
       disable: (code: string) =>
         request<{ ok: boolean }>('POST', 'auth/mfa/disable', { body: { code } }),
@@ -951,13 +970,28 @@ export const api = {
   },
   users: {
     list: () => request<UsersResponse>('GET', 'users'),
-    create: (username: string, password: string, role: string) =>
-      request<{ ok: boolean; user: User }>('POST', 'users', {
-        body: { username, password, role },
-      }),
+    // Create a user. Additive fields beyond username/password/role: full name /
+    // email / phone (plain-text contact metadata, #9), the `mfa_required` mandate
+    // (required ≠ enrolled — never mints a secret), and creation-time
+    // `custom_roles` (EXISTING custom roles, validated + persisted exactly like
+    // PUT /users/{username}/roles). The server stays authoritative for validation.
+    create: (options: UserCreateOptions) =>
+      request<{ ok: boolean; user: User }>('POST', 'users', { body: options }),
     update: (
       username: string,
-      patch: { role?: string; active?: boolean; password?: string },
+      patch: {
+        role?: string;
+        active?: boolean;
+        password?: string;
+        /** Only `false` is honored (admin force-disable); enabling stays self-service. */
+        mfa_enabled?: boolean;
+        /** Admin-editable contact metadata ("" clears; plain text, #9). */
+        display_name?: string;
+        email?: string;
+        phone?: string;
+        /** The MFA mandate — settable BOTH ways under users:manage. */
+        mfa_required?: boolean;
+      },
     ) =>
       request<{ ok: boolean; user: User }>('PUT', `users/${encodeURIComponent(username)}`, {
         body: patch,
@@ -1218,6 +1252,11 @@ export const api = {
     ),
   // Browse a window of normalised events from one source. `buildQuery` drops any
   // undefined / null / empty params, so blank query/from/to are not sent.
+  // BOUNDED, NOT COMPLETE: the server clamps limit to 1..200 with NO pagination, and
+  // echoes `limit` + `truncated` so the UI can say "most recent N". `mode` reports a
+  // volatile push live-tail ring ("buffer", from/to/query ignored) vs a real search.
+  // Every field on every row is source-controlled and UNTRUSTED (#9): plain text only,
+  // `_raw` inside a code block, never markup and never fed to a model.
   sourceLogs: (sourceId: string, params?: SourceLogsQuery) =>
     request<SourceLogsResponse>('GET', `sources/${encodeURIComponent(sourceId)}/logs`, {
       query: params as Record<string, unknown> | undefined,
@@ -1314,6 +1353,16 @@ export const api = {
   // ---- Metrics + feedback analytics ------------------------------------ //
   getMetrics: (windowHours = 24) =>
     request<Metrics>('GET', 'metrics', { query: { window_hours: windowHours } }),
+  // GET /api/metrics/trends?window_hours= — zero-filled, case-cohort-bucketed trend
+  // series (plus durable alert counters) powering the Overview hover trendlines.
+  // metrics:view server-side; aggregate counts only (#9); advisory only (#3). Kept
+  // typeof-guardable at the call site (mirrors `noiseReduction`/`sourcesCoverage`)
+  // so a minimal test/mock surface never has to stub it.
+  metricsTrends: (windowHours = 24, signal?: AbortSignal) =>
+    request<MetricsTrends>('GET', 'metrics/trends', {
+      query: { window_hours: windowHours },
+      signal,
+    }),
   getFeedbackStats: () => request<FeedbackStats>('GET', 'feedback/stats'),
   getAgentImprovement: (params?: {
     asOf?: string;

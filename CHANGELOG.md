@@ -25,6 +25,101 @@ and, just as importantly, makes each of these conditions a state an operator can
 
 ### Fixed
 
+- **The MFA enrollment QR code is now actually scannable.** The hand-rolled QR encoder
+  carried three ISO/IEC 18004 conformance defects: it never placed the two
+  version-information blocks required from symbol version 7 upward (every real
+  `otpauth://` provisioning URI is version 7+, so data bits landed in the modules a
+  scanner reads the version from), the first format-information copy was transposed
+  against the spec placement order, and the Reed-Solomon remainder loop applied the
+  generator polynomial one position late — so the error-correction bytes were not a
+  valid codeword at *any* version and every scan relied on reader error tolerance.
+  All three are fixed; the rewritten test suite includes an independent structural
+  decoder (format/version BCH checks, function-map rebuild, un-masking, zigzag walk,
+  block de-interleave, zero-syndrome verification, byte-mode round-trip at v3/v7/v10)
+  that fails on each defect individually when reverted.
+- **Changing the dashboard time range no longer stalls the headline numbers or blanks
+  the page.** Five endpoints behind the Overview (posture, noise-reduction,
+  auto-close-health, diagnostics health, sources coverage) each independently fetched
+  and re-validated a 5,000-document case page on every refresh — multiplied by the 5s
+  LIVE poll. A shared single-flight case-page cache (5s TTL, keyed by fetch limit,
+  guarded by store identity so Demo Mode's store swap self-invalidates) collapses the
+  fan-out to one scan per window; the sources-coverage count is pushed down to the
+  store (`count_created_since`: an ES `_count`, a SQL `COUNT`, a format-robust base
+  fallback) and fetches zero documents; the posture computation builds its per-case
+  timing index once (byte-identical outputs, ~31% faster at 5k cases). On the Console,
+  a window change now keeps the last snapshot visible with an explicit stale indicator
+  instead of flashing empty tiles, and a supersession guard stops a superseded
+  window's late responses from repainting newer data.
+- **A role-level MFA enforcement can no longer dead-end the env-seeded admin.**
+  `requires_mfa()` now refuses to mandate an env-managed account (it has no persisted
+  user record and could never complete enrollment) — previously
+  `mfa.enforce_for_roles` covering the seeded admin's role produced an unanswerable
+  challenge.
+- **The role editor grid no longer hides three resources.** The client's
+  permission-vocabulary mirror was missing `runbooks`, `system_updates`, and `rules`
+  relative to the backend policy, so those rows were silently absent from the custom
+  role matrix editor.
+
+- **A provider outage can no longer silently empty the knowledge corpus, and the
+  product can no longer report itself healthy while it happens.** A field report
+  described a deployment that lost its LLM/embedding API key: every call returned HTTP
+  401. The suite degraded exactly as designed — embeddings fell back to local hashing,
+  each case failed to a human, no wrong verdict was produced — and then destroyed its
+  own knowledge corpus without a single alarm. Chunks written during the outage carried
+  hash-space vectors that are meaningless in the real embedding space and carried no
+  marker distinguishing them; the next reprojection invalidated that space, re-seeded,
+  and left the corpus at **zero rows**. Because `ensure_seeded()` is lazy and
+  signature-cached, it considered itself finished and never rebuilt. For **three days**
+  every case retrieved 0 knowledge and 0 precedents and returned `NEEDS_HUMAN` at
+  0.96–0.98 confidence, auto-close sat at **0%** — and `GET /api/health` returned
+  `status: ok` with the Console showing **Healthy** throughout. The source of truth was
+  never lost: 892 analyst-confirmed cases were still in the database, and one forced
+  re-seed restored the corpus and resumed `FALSE_POSITIVE` verdicts immediately. This
+  was the second corpus loss of the same shape; the first also left
+  `RAG seeded with N chunk(s)` at INFO as its only trace.
+
+  - **A degraded embedding space can never become a durable write.** The gateway now
+    classifies each provider failure into a closed vocabulary
+    (`unauthenticated` / `quota` / `unsupported` / `unavailable` / `not_configured`) and
+    carries it on `EmbeddingBatch.fallback_reason`. RAG refuses to build a chunk from
+    any fallback batch except `not_configured` — the supported keyless/offline profile,
+    where local hashing is the intended, self-consistent space. Degrading a *read* is
+    still correct; degrading a *write* is corruption. Every chunk is additionally
+    stamped with `embedding_fallback_reason`, so a mixed-space corpus is detectable
+    rather than silently wrong, and an all-zero vector is now rejected before a partial
+    write (a contract the documentation already promised).
+  - **A projection can no longer reach zero.** A rebuild that yields no chunks while the
+    previous corpus held some, or that falls below the new
+    `rag.min_projection_retention` floor (default 0.5), is refused as a failed build:
+    the previous corpus is kept, the seed does not latch, and the condition is logged at
+    **ERROR** with a structured, durable record — not the INFO line that reads the same
+    whether the count is 2,000 or 0. The refusal record survives restart in a
+    `rag_health` KV document (no new index, table, or migration).
+  - **An empty corpus is a first-class health failure.** `GET /api/health` gained
+    additive `degraded` / `degraded_reasons` fields carrying opaque, count-free codes
+    (the endpoint is anonymous, so corpus detail stays on the `settings:read`-gated
+    `/api/diagnostics/health`), and the Console's health pill now shows **Degraded**
+    with a specific explanation instead of green "Healthy". Diagnostics gained the
+    reconciliation check the incident asked for — *"the corpus holds N documents but the
+    case history qualifies M records"* — measured against the bounded precedent window
+    so a normal `N < M` never alarms, and reported as an explicit unknown whenever a
+    truncated or lower-bound read means the answer cannot be trusted.
+  - **A provider outage is now a visible system state.** Consecutive authentication or
+    quota failures are tracked per provider and surface as
+    `llm_provider: unauthenticated` (distinct from quota and transport failures), and a
+    case that reached the investigation time cap *because* the provider is rejecting our
+    credentials now says so instead of reporting the time cap. The operator in the field
+    report chased latency and evidence quality for days because of that message.
+  - **Recovery is automatic or one action.** The seed signature now includes the
+    embedding-space identity, a retrieval that finds an empty corpus behind a satisfied
+    seed cache rebuilds once on its own, and a new `rag_rebuild` background Job provides
+    an explicit, idempotent, documented rebuild. A tiered reset now also invalidates the
+    seed cache, closing a path where a reset deployment could stay corpus-less forever.
+
+  Non-negotiable #3 is untouched: `decide()` is byte-identical, the verdict on a failed
+  run stays `NEEDS_HUMAN`, and nothing added here is read by the close/escalate decision.
+  Ledger behaviour (#6) is unchanged — the same number of usage rows per call.
+
 - **Analyst-confirmed precedent no longer arrives without rule identity, and a
   precedent-rich rule can no longer be silently ignored.** A field report described an
   operator reviewing 349 cases of one detection rule, confirming every one benign through
@@ -154,6 +249,72 @@ and, just as importantly, makes each of these conditions a state an operator can
   untunable-by-`n` with the structural reason instead of being drafted.
 
 ### Added
+
+- **The landing dashboard answers "how much is the agent actually closing?"** The
+  Active Risk Index — a number no percentage could honestly qualify — gives up its
+  place to a **Human vs AI** card: agent, human, and system close counts with their
+  shares, over a windowed two-series trendline. The backend now partitions closed
+  cases exactly (`human_closed` and `system_closed` join `auto_closed` in both the
+  trend buckets and `quality_metrics`), so the unattributed residual is a visible
+  band rather than something quietly folded into "human", and the shares total
+  exactly one hundred by largest-remainder. Every band falls back to an em dash with
+  a named reason when the partition does not reconcile or the sample is bounded, and
+  the card states plainly that attribution is last-recorded-decider — an agent-closed
+  case a human later merely acknowledges migrates into the human band.
+- **Every landing metric now shows its share beside the number**, through a new
+  plain-text secondary slot, each against a denominator drawn from the same
+  population as its numerator, and each with an explicit condition under which it
+  refuses to state a rate rather than divide by a truncated sample.
+- **The noise funnel's Simple view shows percentages again**, one per stage against
+  its flow parent, so the dispositions of a stage visibly sum to it. The denominator
+  is named in every accessible label, and the same rule now holds in the narrow-width
+  rail — the view states one rule and shows one rule at every size.
+- **Source log browsing became contract-complete**: `GET /api/sources` reports
+  `can_browse` from the same predicate the browse routes gate on, `GET /api/logs`
+  accepts an optional `source_id` scope, every per-source entry reports whether it is
+  a real backing search or a volatile tail, and both routes share one truncation rule
+  so they can no longer disagree about the same rows. Pagination, filters, sort,
+  columns, deep links, and export remain deliberately deferred.
+
+- **Admin-mandated MFA, enforced inside the login phase.** A per-user `mfa_required`
+  flag (settable at creation or later; distinct from `mfa_enabled`, which means
+  *enrolled* — it never mints a secret and is not caught by the
+  admin-cannot-enable-MFA guard). A mandated-but-unenrolled user's login returns an
+  additive `mfa_enrollment_required` phase-1 response with a short-lived pending
+  token; two pending-token-gated endpoints (`POST /api/auth/mfa/enroll-setup`,
+  `/enroll-confirm`) let the user complete authenticator enrollment during sign-in and
+  land in a full session — there is no way past the screen without enrolling. Pending
+  tokens stay rejected on every other surface, an already-enrolled account cannot
+  replace its factor through this path, and every step is audited.
+- **User accounts carry contact identity, and creation shows what a role grants.**
+  Create/edit now accept full name, email, and mobile number (rendered as plain text
+  everywhere), plus the Require-MFA switch; the users table shows MFA status
+  (On / Required / —) and a name-and-email line. The create dialog displays a live
+  per-resource permission summary for the selected role (wildcards exploded against
+  the shared vocabulary; unknown server resources rendered honestly), lets existing
+  custom roles be attached at creation (validated exactly like post-hoc assignment),
+  and offers inline fine-graining: an "Adjust permissions…" flow opens the existing
+  role matrix editor seeded to inherit the chosen base role, behind the standard
+  fresh-auth step-up.
+- **19 new enrichment providers (38 registered) with built-in setup guides.** Keyless
+  and default-on: CIRCL hashlookup, SANS ISC DShield, Tor Onionoo. Keyless but
+  default-off (resolver/latency caveats): Spamhaus ZEN/DBL, Team Cymru MHR, Robtex,
+  crt.sh. Keyed, default-off: CrowdSec CTI, Google Safe Browsing, IPQualityScore,
+  ipdata, APIVoid, Maltiverse, SecurityTrails, Criminal IP, Netlas, Hybrid Analysis,
+  MetaDefender, EmailRep. Every provider manifest (existing ones included) now carries
+  `setup_steps` — concrete operator steps naming the exact env var — and an `example`
+  of how the source helps triage, rendered on the provider cards as a collapsible
+  "How to set up" guide. Score discipline holds: verdict feeds 80-90, graded
+  reputations map directly, context feeds cap at 40 and never set `malicious`, so no
+  context source alone can cross the fusion cut.
+- **Hover trendlines on every landing-dashboard metric with an honest series.** A new
+  `GET /api/metrics/trends` (metrics:view) serves zero-filled, UTC-aligned cohort
+  buckets that reconcile with the quality metrics — `fp_rate` distinguishes a real
+  zero from not-measured, alert volume comes from the durable noise counters — and a
+  reusable hover/focus affordance (WCAG 1.4.13 keyboard-reachable) reveals the
+  trendline, window, and bucket disclosure for 11 landing metrics. Metrics with no
+  honest series (Critical/High split, Active Risk Index, Dwell) deliberately show
+  none rather than an invented one.
 
 - **A Console home for both new controls.** `analyst_rule_policies` is an array-of-model
   and `precedent.promotion` a nested object, and the generic Advanced settings form can
@@ -340,6 +501,64 @@ and, just as importantly, makes each of these conditions a state an operator can
   fixed bug for a permanent hole in the audit log.
 
 ### Changed
+
+- **The sign-in surface gained two identity accents, rebuilt from first principles.**
+  The primary CTA is now a gradient-faced `ShineButton`: a blurred cyan-to-orchid halo
+  sits rotated and invisible at rest and un-rotates into place on hover or keyboard
+  focus, a soft gradient blob sweeps the face once per interaction, and the label is
+  gradient-clipped until hover flattens it to solid white. The corner appearance
+  control is now a `ThemeModePill` that names the mode you are in — a crescent on the
+  left and a disc on the right scale-swap, the label slides toward whichever glyph is
+  showing, and two blurred orbs behind the pill trade sides on every toggle. Both are
+  pure CSS scoped to `.login-auth-canvas`; no animation library is involved and neither
+  lands on a lazy chunk, so first paint is unchanged. The CTA also moved to the
+  full-width 48px geometry the page's other primary actions already used.
+  All three theme modes remain reachable: the pill reflects and sets the *resolved*
+  appearance, and a round *Use system theme* reset beside it keeps `system` a first-class
+  choice.
+- **Login accent colour is now measured and gated, not chosen by eye.** These are the
+  only surfaces in the console that paint text on a raw gradient rather than a semantic
+  token pair, so the existing token-contrast gate is structurally blind to them. A new
+  `login accents` design gate re-derives the worst case straight from `theme.css` on
+  every `npm run gates` and every Vitest run: it composites each face stop with the
+  sweep at its peak keyframe opacity and the overlay tint at its declared per-theme
+  opacity, measures against both label stops, and samples the pill's label zone across
+  the span the sliding label can actually occupy. All 362 composites clear 4.5:1. The
+  ramps these are modelled on do not — which is exactly why the shipped ones are deeper.
+- **The login focus ring is visible again.** The identity canvas overrode `--ring` to a
+  grey measuring 1.84:1 on the white slab, well under the 3:1 WCAG 2.4.11 bar for a
+  focus indicator. Light is now 4.74:1 and dark 5.65:1, which every control on the
+  canvas inherits. The indicator is also drawn on each accent's opaque child rather
+  than on the button, because an element's outer box-shadow paints before its
+  descendants — a ring on the button sat underneath the halo, on exactly the state that
+  shows the ring.
+- **The login accents survive forced-colors mode.** `forced-color-adjust: none` opts an
+  element out of the UA's own correction, so any state selector that outranked the
+  fallback on specificity kept a hard-coded colour the system theme never sees: the
+  appearance pill's dark-state navy ink, and the disabled CTA's muted face and label.
+  The disabled CTA is the resting state of the password step, so that was the default
+  rendering, not an edge case. Both now hand back to `ButtonFace`/`ButtonText`, with
+  `GrayText` for the genuinely inert state.
+- **A submitting sign-in button no longer looks like a dead one.** The CTA is disabled
+  both while nothing is typed and while the request is in flight; the inert treatment
+  now excludes the busy state, so clicking Sign in keeps the gradient and shows the
+  spinner instead of flattening to grey.
+- **The top KPI is Critical alone**, not Critical/High, and deep-links to that
+  severity.
+- **Demo mode moved into the top bar.** The banner took a full-width strip above
+  every route; a compact pill now sits beside the release badge on every viewport,
+  its popover keeping the isolation explanation and the Reset and Exit-and-clear
+  actions.
+
+- **The landing dashboard is now the "Cyber Defence Center"** (renamed from
+  "Security Command Center"; the exported constant and boot-guard anchor are
+  unchanged, and append-only history keeps the old name). The design pass unifies the
+  band framing across the KPI strip, instrument band, and operations band, gives the
+  burndown chart a real legend, and discloses the new hover-trend affordance in a
+  quiet footnote — all inside the existing token system.
+- **The false-positive-rate tile no longer shows a comparison percentage.** The delta
+  chip compared against the previous window without saying so; it and its footnote are
+  removed (the Analytics posture page's compare machinery is untouched).
 
 - **Proposals carry an evidence fingerprint and derived provenance.** A proposal records a
   deterministic fingerprint over the keys defining its recommendation and over the

@@ -7,7 +7,9 @@
  *   with disclosure groups + fly-outs when collapsed; the active item is highlighted
  *   with a quiet accent surface + edge rail. Width toggles with Cmd/Ctrl-B (persisted).
  * - Top bar: product breadcrumb ("<Product> / <Page>" using OUR product name from
- *   branding), and on the right a theme toggle, version badge, a health pill
+ *   branding), and on the right a theme toggle, a compact demo-mode chip (shown at
+ *   every width while the demo tenant is active — it replaced the full-width banner
+ *   that used to eat content real estate on every route), version badge, a health pill
  *   (polls /api/health, debounced), an optional user chip + logout, and a Cmd-K
  *   hint that opens a cmdk command palette for navigation.
  * - Content: `bg-canvas`, the single gutter/vertical-rhythm authority for every
@@ -87,7 +89,7 @@ import {
 import { useTheme } from './theme';
 import { usePrefs } from './prefs';
 import { useDemo } from './demo';
-import { DemoBanner } from './components/DemoBanner';
+import { DemoIndicator } from './components/DemoIndicator';
 import { AnnouncerProvider } from './components/announcer';
 import { CommandPalette } from './components/CommandPalette';
 import { GlassSurface } from './components/GlassSurface';
@@ -196,6 +198,50 @@ interface HealthView {
 /** The in-memory ES fallback's class name (own-state runs in memory, no persistence). */
 const isInMemoryStore = (t?: string): boolean => t === 'InMemoryESClient';
 
+/**
+ * Local copy for each opaque degradation code the public `/api/health` may report.
+ * The endpoint is unauthenticated, so it deliberately carries codes rather than
+ * counts or source names; the human-readable explanation lives here.
+ */
+const DEGRADED_LABELS: Record<string, { label: string; help: string }> = {
+  rag_corpus_empty: {
+    label: 'Knowledge corpus empty',
+    help:
+      'The knowledge corpus holds no documents, so every investigation runs without ' +
+      'runbook, ATT&CK or precedent context and auto-close cannot fire.\n\n' +
+      'How to fix: rebuild the corpus from Jobs. If the rebuild is refused, check the ' +
+      'embedding provider credentials first.',
+  },
+  rag_projection_refused: {
+    label: 'Knowledge rebuild refused',
+    help:
+      'The last knowledge projection was refused because it would have replaced the ' +
+      'corpus with an empty or drastically smaller one. The existing corpus was kept.\n\n' +
+      'How to fix: resolve the underlying cause (most often the embedding provider), ' +
+      'then rebuild.',
+  },
+  llm_provider_unauthenticated: {
+    label: 'Model provider rejecting credentials',
+    help:
+      'The model provider is returning authentication failures, so investigations ' +
+      'cannot run. No case is auto-closed on a failed call, so verdicts are unaffected.\n\n' +
+      'How to fix: check whether the provider API key has expired, been revoked, or ' +
+      'been rotated.',
+  },
+  llm_provider_quota_exhausted: {
+    label: 'Model provider quota exhausted',
+    help:
+      'The model provider is refusing calls for quota or rate-limit reasons.\n\n' +
+      'How to fix: check the provider plan limits and rate ceilings.',
+  },
+  llm_provider_unavailable: {
+    label: 'Model provider unavailable',
+    help:
+      'The model provider is not answering.\n\n' +
+      'How to fix: check provider status and network egress from the backend.',
+  },
+};
+
 export function healthView(health: HealthResponse | null, err: boolean): HealthView {
   if (err) {
     return {
@@ -244,6 +290,29 @@ export function healthView(health: HealthResponse | null, err: boolean): HealthV
         'a backend restart.\n\n' +
         'How to fix: set STATE_BACKEND=elasticsearch or postgres and configure ' +
         'connectivity (see DEPLOY.md).',
+    };
+  }
+  // A reachable state store is NOT a healthy product. The incident this branch
+  // exists for ran for three days with a green "Healthy" pill while the knowledge
+  // corpus sat at zero and auto-close was 0%: the operator's only signal was a
+  // business metric drifting. A degradation the backend positively detected must
+  // reach the one surface that is polled continuously and always visible.
+  if (stateStoreConnected && health?.degraded) {
+    const reasons = health.degraded_reasons ?? [];
+    const detail = reasons.map((code) => DEGRADED_LABELS[code]?.label ?? code).join(' · ');
+    const help = reasons
+      .map((code) => DEGRADED_LABELS[code]?.help ?? `Reported degradation: ${code}.`)
+      .join('\n\n');
+    return {
+      tone: 'warning',
+      label: 'Degraded',
+      icon: AlertTriangle,
+      detail: detail || 'A subsystem is impaired',
+      title: 'Degraded',
+      help:
+        (help ||
+          'The backend reports a degraded subsystem but did not name it.') +
+        '\n\nSee Analytics -> Effectiveness for the full agent-health diagnostics.',
     };
   }
   if (stateStoreConnected) {
@@ -1015,8 +1084,9 @@ export const AppShell: React.FC<AppShellProps> = ({
   // state runs in a throwaway in-memory store, so a "Store degraded"/unreachable
   // warning is expected and irrelevant — MUTE it to a calm demo note rather than
   // alarming the operator. The backend-unreachable critical state still shows.
+  const demoMutedHealth = demoActive && baseHv.tone !== 'critical';
   const hv: HealthView =
-    demoActive && baseHv.tone !== 'critical'
+    demoMutedHealth
       ? {
           tone: 'muted',
           label: 'Demo mode',
@@ -1278,6 +1348,14 @@ export const AppShell: React.FC<AppShellProps> = ({
               </>
             ) : null}
 
+            {/* Demo mode — a safety-relevant state, so it stays INLINE in the bar at
+                every width (never folded into the compact-controls Sheet) and sits
+                beside the release badge with the other identity chips. Its popover
+                carries the isolation statement plus Reset / Exit & clear. It only
+                announces where the health pill below is absent, so a screen reader
+                hears the state exactly once. Renders nothing when demo is off. */}
+            <DemoIndicator onNavigate={onNavigate} announce={isMobile} />
+
             {/* Release identity is build-time first, then reconciled with the public
                 backend build-info endpoint. It never infers Stable from SemVer. */}
             <ReleaseBadge buildInfo={buildInfo} />
@@ -1467,7 +1545,10 @@ export const AppShell: React.FC<AppShellProps> = ({
                       <div
                         className="rounded-md border border-border p-3"
                         role="status"
-                        aria-live="polite"
+                        // While demo mutes health to "Demo mode", the inline demo chip is
+                        // the single polite announcer at this breakpoint — this restated
+                        // card must not announce the same state a second time.
+                        aria-live={demoMutedHealth ? 'off' : 'polite'}
                         aria-label={`Platform health: ${hv.label}`}
                       >
                         <p className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -1581,15 +1662,11 @@ export const AppShell: React.FC<AppShellProps> = ({
               share CONTENT_INSET so the gutter/vertical rhythm is identical. */}
           {useMotionRoute && RouteMotion ? (
             <RouteMotion routeKey={page} className={CONTENT_INSET}>
-              {/* Demo-mode banner — renders only when the demo tenant is active. */}
-              <DemoBanner />
-              <div className={cn(demoActive && 'mt-4')}>{children}</div>
+              {children}
             </RouteMotion>
           ) : (
             <div key={page} className={cn(CONTENT_INSET, 'animate-fade-in')}>
-              {/* Demo-mode banner — renders only when the demo tenant is active. */}
-              <DemoBanner />
-              <div className={cn(demoActive && 'mt-4')}>{children}</div>
+              {children}
             </div>
           )}
         </main>

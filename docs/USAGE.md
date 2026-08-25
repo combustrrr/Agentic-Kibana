@@ -48,7 +48,7 @@ surface into **six top-level nav groups**:
 
 | Group | What lives there |
 |---|---|
-| **Overview** | Dashboard (the Security Command Center), Dashboards (custom, §21), Standup (§7) — each a full page |
+| **Overview** | Dashboard (the Cyber Defence Center), Dashboards (custom, §21), Standup (§7) — each a full page |
 | **Triage** | Cases (§3), **Case Manager** (§3), Campaigns (§16), Logs (a unified cross-source log browser, §2a), Workspace → **Chat** (§5) and **Entity investigation** (§4) as left-nav children, Approvals |
 | **Intelligence** | Knowledge corpus (§9), Reference runbooks, Operator memory (§10), Response playbooks, Agent personas |
 | **Analytics** | Metrics, **Agent effectiveness** (§7a), Cost (§8), Models (§22), Baseline (§17), Batch jobs (§22) |
@@ -67,7 +67,7 @@ Every analytics/triage surface calls its backend endpoints directly; every
 endpoint below is also usable via `curl` (§33). RBAC (`<Can>` guards) hides an
 item a signed-in user's role can't reach; with auth off, everything shows.
 
-### Security Command Center dashboard
+### Cyber Defence Center dashboard
 
 **Overview → Dashboard** is the shift landing page. One time-range control scopes
 the five primary KPIs: **Open Cases**, **Critical / High**, **Escalated to Human**,
@@ -75,12 +75,32 @@ the five primary KPIs: **Open Cases**, **Critical / High**, **Escalated to Human
 statuses (`new`, `open`, `needs_human`, `investigating`, `escalated`, `on_hold`).
 Critical / High spans both open and resolved cases in the window and states the
 split as `N open + M resolved`; it never silently drops an unknown lifecycle.
+False Positive Rate shows the selected-window rate only — it carries no
+period-over-period percentage chip.
+
+Hovering or keyboard-focusing a landing metric reveals its recent trendline for the
+same window (`GET /api/metrics/trends` zero-filled case-cohort buckets, the per-day
+timing series, or the spend ledger series). Each hover card names the exact series
+it draws and its bucketing; a metric with no measured series shows a quiet "No trend
+data yet" line, and the combined Critical / High tile deliberately has no trendline
+because no per-severity series exists.
+
+`GET /api/metrics/trends?window_hours=24` (`metrics:view`) is the hover-trendline
+feed: `window_hours` clamps to 1..720 and the UTC-aligned, zero-filled buckets follow
+a fixed width ladder (≤24 h → 60 min, ≤72 h → 180, ≤168 h → 360, else 1440), with the
+newest bucket partial. Per bucket it reports new/closed/auto-closed/FP/needs-human/
+escalated case counts, an `fp_rate` (null when no verdicted case), and raw `alerts`
+from the durable noise counters (null while they warm up); a
+`truncated`/`store_total`/`fetched` marker keeps a partial (newest-5000) tally
+honest. Like the other dashboard rollups it is served from a shared short-TTL (~5 s)
+case-page cache, so the LIVE fan-out costs one store scan per refresh window.
 
 False Positive Rate and Auto-resolved use the server posture rollup for the exact
-selected range. A range change immediately hides the previous posture snapshot,
-cancels the superseded request, and accepts only a response whose echoed window still
-matches the selector. A slower earlier request cannot repaint those tiles beneath a
-new range; loading/unavailable copy appears instead of mixed-window values.
+selected range. A range change keeps the last successful posture snapshot mounted —
+explicitly marked by the tiles' `Loading …` sub-line — while the superseded request
+is cancelled and the new window loads, so the dashboard never blanks. Only a
+response whose echoed window still matches the selector is accepted; a slower
+earlier request cannot repaint those tiles beneath a new range.
 
 The next row uses the available height for a current-open-queue **Active Risk
 Index**, Open-above-Resolved severity rings, and exactly four **Latest Cases**.
@@ -298,11 +318,14 @@ privileges):
 
 ## 2a. Browse a source's logs
 
-From the Sources table's kebab menu, **"Browse logs"** is shown only for
-connectors that advertise the `browse` capability (`capabilities:["browse"]`: all
-pull connectors, and every push receiver). It opens the **`SourceLogsSheet`**, a
-live window onto that one source's recent events, backed by
-`GET /api/sources/{id}/logs?limit=&query=&from=&to=` (auth-protected).
+From the Sources table's kebab menu, **"Browse logs"** (and the table's
+**Browsable** column) is shown only for sources the **server** reports as
+browsable — `GET /api/sources` returns `can_browse` per source from the same
+predicate the browse routes gate on, which resolves to the connector's `browse`
+capability (`capabilities:["browse"]`: all pull connectors, and every push
+receiver, which the registry augments automatically). It opens the
+**`SourceLogsSheet`**, a live window onto that one source's recent events, backed
+by `GET /api/sources/{id}/logs?limit=&query=&from=&to=` (auth-protected).
 
 | Control | What it does |
 |---|---|
@@ -337,6 +360,37 @@ with a mandatory `source_id`/`source_name` provenance column. One slow or failin
 source degrades to a per-source error entry and never blocks the rest
 (`asyncio.gather(return_exceptions=True)`); still hard-capped at 200 rows and
 read-only.
+
+Pass the optional **`source_id`** to scope the fan-out to exactly one source
+(`GET /api/logs?source_id=prod-es`). Omitting it is the default all-sources
+behaviour. An id that is not visible in the current mode returns `404` — while
+**Demo Mode** is active a real tenant id is deliberately indistinguishable from an
+unknown one, so a demo session can never confirm that a live source exists — and a
+visible id that is not an eligible browse target (disabled, no registered
+connector, or no `browse` capability) returns `501`, the same status and detail the
+per-source route uses.
+
+### The browse contract (what it is, and what it is not)
+
+Browse is a **bounded read-only window**, not a log archive or a search product.
+Read this before building on it:
+
+| Guarantee | Detail |
+|---|---|
+| **Capability is server-authoritative** | `GET /api/sources` returns **`can_browse`** per source, computed by the *same* predicate the browse routes gate on. The Console never re-derives it from connector manifests or health — one definition, so the "Browse logs" affordance can never disagree with what the endpoint will do. |
+| **Bounded, never complete** | `limit` is clamped to **1..200** (applied per source *and* on the merge) and there is **no pagination, cursor, offset, or `search_after`**. Both envelopes echo the effective **`limit`** and a **`truncated`** flag, so a surface says *"most recent N"* rather than implying completeness. `truncated: false` only means nothing was demonstrably cut — it is **not** proof you have seen everything. |
+| **One `truncated` rule, both routes** | `truncated` is computed the same way everywhere. When the connector reports a **coherent match total** the answer is exact: `total > returned`. A page that is saturated *and* complete (`total == returned == limit`) is **not** advertised as having more. Only when a total is absent or incoherent — a live-tail ring, a connector that omits it — does a **saturated page** stand in as the evidence of a cut. In the unified envelope every `sources[]` entry carries its **own** `truncated` by that same rule, and the envelope flag is `merge was cut OR any single source was cut`. Each source is itself read at `limit`, so a one-source read (a `source_id` scope, or a single-source deployment) can never overflow the merge — without the OR the two routes would report opposite flags for identical data. |
+| **Two read modes** | Each response (and each `sources[]` entry in the unified envelope) carries **`mode`**. `"search"` = a real backing query where `from`/`to`/`query` apply and a match `total` is reported when the connector supplies one. `"buffer"` = an in-memory live-tail ring where `from`/`to`/`query` are **ignored** and no total exists. `mode` describes the **filters**, never the durability of the backing store: a **Demo Mode** adapter reports `"search"` because it genuinely applies `from`/`to`/`query` over its ring — see *Buffers are volatile* for the separate durability fact. |
+| **Buffers are volatile** | The push live-tail ring is **process-local and in-memory** (500 events per source), so it is lost on restart and is not shared across replicas. It is a live tail, not storage. |
+| **Rows are NOT OCSF** | Browse deliberately bypasses OCSF normalisation. `_raw` is the **verbatim source-native document** — the strongest untrusted-data case in the product. Every field on every row is attacker-influenceable: render as plain text, `_raw` only inside a code block, never as markup (#9). No browsed row is ever sent to a model (#7). |
+| **Scoped read-only key** | Pull reads run through `state.es_client_for_source()`, which honours the source's own URL/TLS and **explicitly drops the management key** (#1). |
+| **Permission** | Both routes are gated on **`sources:read`** — the same grant that lists source configuration. There is deliberately no separate "read log content" permission today. |
+
+**Deliberately deferred** (do not assume these exist): pagination / PIT / cursors
+and any `total` reconciliation, structured filters (`ip`/`user`/`host`/
+`severity_gte`), sort control, column/field selection, saved views, `deep_link`
+"open in Kibana/Wazuh" plumbing, export or download of browsed rows, durable
+storage for push-source logs, and any LLM summarisation of a browsed window.
 
 ---
 
@@ -1351,17 +1405,25 @@ updates live.
 
 ---
 
-## 19. Enrichment providers (19 registered)
+## 19. Enrichment providers (38 registered)
 
 **Settings → Integrations → Enrichment** (`GET /api/enrichment/providers`) lists
 every registered indicator-reputation provider's manifest plus its current
-config/key state (booleans only — secret values are never returned):
-**AbuseIPDB, VirusTotal, GreyNoise, Shodan, Shodan InternetDB, Censys, BinaryEdge,
-IPinfo, OTX, Pulsedive, Spur, XForce, URLScan, HIBP, ProjectHoneypot, RDAP,
-URLhaus, ThreatFox,** and **MalwareBazaar** — 19 classes across 17 files (the
-abuse.ch trio — URLhaus/ThreatFox/MalwareBazaar — share one file). Several
-**keyless** providers default ON (Shodan InternetDB, IPinfo, the abuse.ch trio,
-RDAP); the rest need a key set in the secret tier.
+config/key state (booleans only — secret values are never returned) — **38
+registered classes**. Round 3's 19: **AbuseIPDB, VirusTotal, GreyNoise, Shodan,
+Shodan InternetDB, Censys, BinaryEdge, IPinfo, OTX, Pulsedive, Spur, XForce,
+URLScan, HIBP, ProjectHoneypot, RDAP, URLhaus, ThreatFox,** and **MalwareBazaar**
+(the abuse.ch trio shares one file). Round 11 adds 19 more — keyless **CIRCL
+hashlookup, DShield, Onionoo, Spamhaus, Cymru MHR, Robtex,** and **crt.sh**, plus
+keyed **CrowdSec, Google Safe Browsing, IPQualityScore, ipdata, APIVoid,
+Maltiverse, SecurityTrails, Criminal IP, Netlas, Hybrid Analysis, MetaDefender,**
+and **EmailRep**. The quota-safe **keyless** providers default ON (Shodan
+InternetDB, IPinfo, the abuse.ch trio, RDAP, CIRCL hashlookup, DShield, Onionoo);
+Spamhaus + Cymru MHR (DNS lookups needing the host's own resolver) and Robtex +
+crt.sh (slow free tiers) are keyless but default OFF; every keyed provider needs
+its key set in the secret tier. Each provider card renders the manifest's
+per-provider **"How to set up"** steps (naming the exact env var to set) and an
+**example** blurb of how that source helps triage.
 
 | Action | Endpoint |
 |---|---|
@@ -1734,11 +1796,21 @@ Manage users (super_admin only) on **Settings → Security & access → Users**:
 curl -s localhost:8088/api/users                                   # list
 curl -s -X POST localhost:8088/api/users \
   -H 'content-type: application/json' \
-  -d '{"username":"alice","password":"<temp>","role":"analyst_tier2"}'
+  -d '{"username":"alice","password":"<temp>","role":"analyst_tier2",
+       "display_name":"Alice Ng","email":"alice@example.org","phone":"+91 ...",
+       "mfa_required":true,"custom_roles":["tier1_plus"]}'
 curl -s -X PUT localhost:8088/api/users/alice \
   -H 'content-type: application/json' -d '{"role":"soc_manager","active":true}'
 curl -s -X DELETE localhost:8088/api/users/alice
 ```
+
+Beyond `username`/`password`/`role`, creation accepts the optional profile fields
+`display_name` (doubles as the full name), `email`, and `phone`, the `mfa_required`
+enrolment mandate (see MFA below), and creation-time `custom_roles` (validated
+exactly like `PUT /api/users/{username}/roles`). Update accepts the same profile
+fields plus `mfa_required` (`null` = leave unchanged; clearing a text field is an
+explicit empty string); custom roles are re-assigned post-hoc via the roles
+endpoint. All additive — the base `role` must remain one of the six built-ins.
 
 ### Custom roles
 
@@ -1782,6 +1854,19 @@ After that, **login is two-phase**: the password call returns
 `POST /api/auth/mfa/verify` to receive the real JWT (a recovery code works here too,
 once). Disable with `POST /api/auth/mfa/disable` (self, requires a current code; an
 admin can force-disable). `mfa.enforce_for_roles` can require MFA for chosen roles.
+
+**Admin-mandated enrolment:** an admin can set **Require MFA** on a user at create
+or edit time (the `mfa_required` flag — required ≠ enrolled; it never mints a
+secret). At the next login, a mandated-but-unenrolled user's password call returns
+`{ requires_mfa, mfa_enrollment_required, pending_token }` and the login screen
+walks them through authenticator enrolment **inside the login flow** —
+`POST /api/auth/mfa/enroll-setup` (QR + recovery codes) then
+`POST /api/auth/mfa/enroll-confirm` (proves possession, persists the enrolment,
+and mints the full session) — before any session is issued. Both routes are gated
+by the same short-lived pending token (never a session); an already-enrolled
+account cannot replace its factor through this path, every step is audited, and
+the env-managed admin fallback is never mandated (it has no persisted user record
+to enrol).
 
 ### Configuring SSO (OIDC)
 
@@ -2486,12 +2571,30 @@ curl -s localhost:8088/api/sources/coverage   # rollup: silent sources, events/m
 
 # Browse a source's recent logs (pull=bounded scoped search ≤200; push=live-tail buffer)
 curl -s "localhost:8088/api/sources/prod-es/logs?limit=50&query=ssh&from=now-15m&to=now"
-# -> [{ "ts": "...", "source_ip": "...", "user": "...", "host": "...",
-#       "rule": "...", "severity": "...", "message": "...", "_raw": { ... } }]
+# -> { "source_id": "prod-es", "mode": "search", "count": 50, "total": 1234,
+#      "limit": 50, "truncated": true, "query": "...",
+#      "logs": [{ "ts": "...", "source_ip": "...", "user": "...", "host": "...",
+#                 "rule": "...", "severity": "...", "message": "...", "_raw": { ... } }] }
 # 404 unknown source · 501 browse-unsupported connector · 502 read failure
+# `limit`/`truncated` = the bound (most recent N, NO pagination); `mode` = a real
+# filtered search (from/to/query apply) vs a live-tail buffer that IGNORES them.
+# `truncated` is exact when the connector reports a total (`total > count`), and falls
+# back to "the page saturated" only when no total exists: total==count==limit is
+# COMPLETE, not "more exist".
+
+# Which sources can be browsed at all (server-authoritative, same predicate)
+curl -s localhost:8088/api/sources | jq '.sources[] | {id, can_browse}'
 
 # Browse across EVERY enabled, browse-capable source at once
 curl -s "localhost:8088/api/logs?limit=50&query=ssh&from=now-15m&to=now"
+# -> { "logs": [...], "count": 50, "partial": false, "limit": 50, "truncated": true,
+#      "sources": [{ "source_id": "...", "source_name": "...", "ok": true,
+#                    "count": 25, "mode": "search", "truncated": true }] }
+# Envelope `truncated` = the merge was cut OR any single source was cut, so a
+# one-source read agrees with GET /api/sources/{id}/logs on the identical data.
+
+# ...or scope the same fan-out to ONE source (404 unknown · 501 not browsable)
+curl -s "localhost:8088/api/logs?limit=50&source_id=prod-es"
 
 # Delete a source
 curl -s -X DELETE localhost:8088/api/sources/edr-webhook
@@ -2646,6 +2749,7 @@ curl -s "localhost:8088/api/scans/notifications?since=now-24h"
 
 # Standup, aggregate agent-effectiveness evidence, and cost
 curl -s "localhost:8088/api/standup/report?window_hours=24"
+curl -s "localhost:8088/api/metrics/trends?window_hours=24"   # dashboard hover-trendline buckets (§0)
 curl -s "localhost:8088/api/metrics/agent-improvement"
 curl -s "localhost:8088/api/diagnostics/health?window_hours=24"
 curl -s "localhost:8088/api/metrics/auto-close-health?window_hours=24"
@@ -2710,7 +2814,8 @@ curl -s -X POST localhost:8088/api/poll
 ### Auth, users + RBAC (only when TLSOC_AUTH_ENABLED=true)
 
 ```bash
-# Login (returns {requires_mfa, pending_token} when the user has MFA; else {token, user})
+# Login (returns {requires_mfa, pending_token} when the user has MFA — plus
+# mfa_enrollment_required:true when MFA is mandated but not yet enrolled (§24); else {token, user})
 curl -s -X POST localhost:8088/api/auth/login \
   -H 'content-type: application/json' -d '{"username":"Admin","password":"Admin@123"}'
 # Forced on the seeded admin's first login:
@@ -2745,6 +2850,9 @@ curl -s -X POST localhost:8088/api/auth/mfa/setup     # -> {secret, otpauth_uri,
 curl -s -X POST localhost:8088/api/auth/mfa/confirm -H 'content-type: application/json' -d '{"code":"123456"}'
 # Login phase 2: exchange the pending_token + a TOTP (or recovery) code for a session
 curl -s -X POST localhost:8088/api/auth/mfa/verify  -H 'content-type: application/json' -d '{"pending_token":"...","code":"123456"}'
+# Admin-mandated enrolment DURING login (§24; pending-token-gated, confirm mints the session)
+curl -s -X POST localhost:8088/api/auth/mfa/enroll-setup   -H 'content-type: application/json' -d '{"pending_token":"..."}'
+curl -s -X POST localhost:8088/api/auth/mfa/enroll-confirm -H 'content-type: application/json' -d '{"pending_token":"...","code":"123456"}'
 
 # SSO (OIDC)
 curl -s localhost:8088/api/auth/sso/providers

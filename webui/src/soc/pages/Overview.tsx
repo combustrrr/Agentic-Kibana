@@ -1,27 +1,51 @@
 /**
- * Overview — the Security Command Center (default landing surface).
+ * Overview — the Cyber Defence Center (default landing surface).
  *
  * A dense command-center dashboard adapted from the operator-provided Stitch concept:
  *
  *   ┌ MASTHEAD ─── a PLAIN, dense <PageHeader> (no card / no glow — the big title sits
  *   │             flush on the page background, like the Sources page) carrying the
  *   │             <TimeRangePicker> + auto-refresh + a manual refresh pulse in its actions.
- *   ├ KPI STRIP ── five borderless alert/case telemetry cells separated by hairlines.
- *   ├ INSTRUMENT ── one integrated 12-column band: Active Risk Index (#1 — the ONE risk
- *   │             instrument), resolved/open donut snapshots, and the latest-case queue.
+ *   ├ KPI STRIP ── five borderless alert/case telemetry cells separated by hairlines,
+ *   │             every one carrying its count AND that count's honest share.
+ *   ├ INSTRUMENT ── one integrated 12-column band: the Human-vs-AI close-attribution
+ *   │             instrument, resolved/open donut snapshots, and the latest-case queue.
  *   ├ OPERATIONS ── the Noise-Reduction flow plus a compact burndown/timing rail.
  *   └ DEEPER ───── a COLLAPSED "Deeper analytics" group folding the secondary bands
  *                  (spend tripwire, full response timing, autonomy split, connectors,
  *                  case-volume, workload, top signatures/entities).
  *
  * Data: `usePosture(hours, 'prev')` is the AUTHORITATIVE server-side lifecycle rollup
- * (MTTA/MTTR/dwell/MTTD p50 + SLA + quality rates + period-over-period deltas).
+ * (MTTA/MTTR/dwell/MTTD p50 + SLA + quality rates + period-over-period deltas). It is
+ * STALE-WHILE-REVALIDATE: a window change keeps the last successful snapshot mounted
+ * (marked by the tiles' "Loading Nh" sub) instead of blanking every posture consumer.
  * `listCases` (current + previous window), `getMetrics` (burndown + timing_trend +
- * by_status), `usageSummary`, and `noiseReduction` are fetched with allSettled so one
- * failing call degrades a single widget, never the page. Usage and Noise Reduction keep
- * independent availability/error state: a failed refresh retains the last usable value,
- * names the unavailable slice, and offers a slice-only Retry. `noiseReduction` is typeof-
- * guarded so a minimal test/mock surface can still omit the optional funnel contract.
+ * by_status), `usageSummary`, `noiseReduction`, and `metricsTrends` (the hover-trend
+ * bucket series) are fetched with allSettled so one failing call degrades a single
+ * widget, never the page; a superseded window's late-settling batch is discarded.
+ * Usage and Noise Reduction keep independent availability/error state: a failed refresh
+ * retains the last usable value, names the unavailable slice, and offers a slice-only
+ * Retry. `noiseReduction`/`sourcesCoverage`/`metricsTrends` are typeof-guarded so a
+ * minimal test/mock surface can still omit the optional contracts.
+ *
+ * Hover trendlines: every landing metric with an HONEST server series reveals it on
+ * hover/focus via `MetricHoverTrend` (metrics/trends buckets, `timing_trend`, or the
+ * usage `cost_over_time` ledger series). A metric with no genuine series (e.g. the
+ * Critical tile — there is no per-severity bucket series) deliberately shows the quiet
+ * no-data line or no affordance rather than an invented decorative trend, and carries
+ * no decorative in-tile sparkline either.
+ *
+ * Scale context: every KPI numeral is paired with the denominator it is a share of,
+ * and each pair comes from ONE payload so numerator and denominator always describe
+ * the same population. A share whose evidence is bounded (the 200-case sample cap or a
+ * truncated posture scan), whose denominator is missing, or whose denominator does not
+ * describe this window renders an em dash with the reason NAMED in the tile's sub —
+ * never a synthetic 0%, and never a rounded-down 0% beside a non-zero numeral ("<1%").
+ * A truncated posture withholds the whole posture-fed strip (the false-positive RATE
+ * included, since its verdicted denominator is bounded too) in the same render where
+ * the Human-vs-AI card withholds the identical partition; and "Escalated To Human" is
+ * share-less by construction, because `GET /api/metrics` is an all-time, cap-2,000
+ * fetch that no window-scoped denominator reconciles with.
  *
  * Security (#9): every label/value here is a humanized enum, a formatted number, or
  * backend-derived text rendered as PLAIN text. No untrusted string is injected as markup.
@@ -49,7 +73,15 @@ import {
 
 import { useNavigateOptional, type Navigate } from '@/soc/router';
 import { api } from '@/lib/api';
-import type { Case, Metrics, NoiseReduction, SourceCoverage, UsageSummary } from '@/lib/types';
+import type {
+  Case,
+  Metrics,
+  MetricsTrends,
+  MetricsTrendBucket,
+  NoiseReduction,
+  SourceCoverage,
+  UsageSummary,
+} from '@/lib/types';
 import {
   DASH,
   fmtMoney,
@@ -71,9 +103,14 @@ import {
   type RefreshValue,
 } from '@/soc/components/TimeRangePicker';
 import { DashboardGroup } from '@/soc/components/DashboardGroup';
-import { KpiTile, type KpiAccent, type KpiDelta } from '@/soc/components/KpiTile';
-import { ActiveRiskIndex } from '@/soc/components/ActiveRiskIndex';
+import { KpiTile, type KpiAccent } from '@/soc/components/KpiTile';
+import {
+  MetricHoverTrend,
+  type MetricTrendPoint,
+  type MetricTrendSeries,
+} from '@/soc/components/MetricHoverTrend';
 import { CaseHoverCard } from '@/soc/components/CaseHoverCard';
+import { HumanVsAiCard, type HumanVsAiPoint, type HumanVsAiTotals } from '@/soc/components/HumanVsAiCard';
 import { NoiseFunnel } from '@/soc/components/NoiseFunnel';
 import { Reveal } from '@/soc/components/Reveal';
 import { CountUp } from '@/soc/components/CountUp';
@@ -95,8 +132,6 @@ import { Button } from '@/ui/button';
 
 import {
   humanizeMinutes as humanizeMins,
-  ratioPct,
-  deltaView,
   LIFECYCLE_METRICS,
   type LifecycleMetricKey,
 } from './posture.format';
@@ -108,7 +143,7 @@ import type { StatBlock } from './Metrics.posture.api';
  * constant so the title can be reworded here WITHOUT breaking the tests that check
  * "the app booted" (they import this constant rather than hardcoding the copy).
  */
-export const PAGE_TITLE = 'Security Command Center';
+export const PAGE_TITLE = 'Cyber Defence Center';
 
 interface OverviewProps {
   /**
@@ -151,6 +186,14 @@ const NUDGE_KEY = 'tlsoc.overview.automationNudge';
 /** Per-browser hide flag for the Noise-Reduction funnel band (the per-user hide toggle). */
 const NOISE_HIDE_KEY = 'tlsoc.overview.noiseFunnelHidden';
 
+/**
+ * The ONE sentence every bounded-evidence tile uses to name why its share is an em
+ * dash. Shared so the 200-row case-sample cap and a truncated posture scan read
+ * identically, and so the strip's language matches the Human-vs-AI card's
+ * "bounded sample, shares unavailable".
+ */
+const BOUNDED_SAMPLE_SUB = 'Bounded sample · share unavailable';
+
 /** Format an integer count for a count-up tile (thousands-separated). */
 const fmtInt = (n: number): string => fmtNumber(n);
 
@@ -164,15 +207,6 @@ const fmtInt = (n: number): string => fmtNumber(n);
  * unabbreviated counts via `fmtNumber`.
  */
 const fmtSnapshotCenter = (n: number): string => fmtTokens(n);
-
-/**
- * Adapt a `deltaView()` result to the KpiTile `delta` prop. Only render a delta when a
- * real comparison exists; the "new growth" case carries a 0 so the tile draws a neutral
- * marker with the "new" label.
- */
-function toKpiDelta(dv: ReturnType<typeof deltaView>): KpiDelta | undefined {
-  return dv.show ? { value: dv.value ?? 0, label: dv.label } : undefined;
-}
 
 /** Round a resolved range down to whole hours (min 1) for the window-scoped fetches. */
 function rangeHours(range: TimeRange): number {
@@ -274,20 +308,100 @@ function formatWholePercent(value: number): string {
   return `${Math.round(value)}%`;
 }
 
+/** A finite number, or null — keeps a malformed trend bucket honest (never a fake 0). */
+function finiteOrNull(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+/** Trend disclosures state sub-2-day windows in hours ("24 hours", never "1 day"). */
+function trendSpanLabel(hours: number): string {
+  return hours < 48 ? `${hours} hour${hours === 1 ? '' : 's'}` : windowLabel(hours);
+}
+
+/** The hover-trend window disclosure, e.g. "last 24 hours · 1h buckets". */
+function trendWindowLabel(t: MetricsTrends): string {
+  const mins = finiteOrNull(t.bucket_minutes);
+  const bucket =
+    mins == null || mins <= 0 ? null : mins % 60 === 0 ? `${mins / 60}h` : `${mins}m`;
+  return bucket
+    ? `last ${trendSpanLabel(t.window_hours)} · ${bucket} buckets`
+    : `last ${trendSpanLabel(t.window_hours)}`;
+}
+
+/**
+ * A short, deterministic UTC axis label for one trend bucket. Day-sized buckets read
+ * as `MM-DD`, anything finer as `HH:mm` — but ONLY while the window itself fits inside
+ * one day. A multi-day window with sub-day buckets (the 7-day preset is 6h buckets, the
+ * 72h preset 3h) would otherwise repeat the same four `HH:mm` ticks once per day and
+ * leave a hovered spike unlocatable, so those read `MM-DD HH:mm`. An unparseable
+ * instant falls back to the raw value so the axis never silently renames a bucket. UTC
+ * on purpose — the buckets are UTC-aligned server-side, so a local-time label would
+ * misplace them.
+ */
+function bucketAxisLabel(
+  t: unknown,
+  bucketMinutes: number | null | undefined,
+  windowHours?: number | null,
+): string {
+  const raw = String(t ?? '');
+  const ms = Date.parse(raw);
+  if (!Number.isFinite(ms)) return raw;
+  const iso = new Date(ms).toISOString();
+  const daily = typeof bucketMinutes === 'number' && bucketMinutes >= 1440;
+  if (daily) return iso.slice(5, 10);
+  const spansDays =
+    typeof windowHours === 'number' && Number.isFinite(windowHours) && windowHours > 24;
+  return spansDays ? `${iso.slice(5, 10)} ${iso.slice(11, 16)}` : iso.slice(11, 16);
+}
+
+/**
+ * A whole-percent share rendered as scale context for a KPI numeral, or `undefined`
+ * when there is no honest denominator. The caller renders an em dash for `undefined`
+ * — never a synthetic 0%.
+ */
+function shareContext(value: number | undefined, denominator: number | undefined | null): string | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  if (typeof denominator !== 'number' || !Number.isFinite(denominator) || denominator <= 0) {
+    return undefined;
+  }
+  // A real but tiny band reads "<1%", never a rounded-down "0%" beside a non-zero
+  // numeral — the same rule the Noise-Reduction funnel applies to its stage shares.
+  const rounded = Math.round((value / denominator) * 100);
+  const pct = value > 0 && rounded === 0 ? '<1%' : `${rounded}%`;
+  return `${pct} of ${fmtNumber(denominator)}`;
+}
+
 /** One KPI-strip tile descriptor (built in a memo, rendered as a <KpiTile>). */
 interface KpiItem {
   label: string;
+  /**
+   * Explicit, STABLE `data-testid` anchor. Pinned per tile so re-wording a label can
+   * never silently rename the tile's testid (KpiTile derives it from the label when
+   * this is omitted).
+   */
+  testId: string;
   value: React.ReactNode;
   sub?: string;
+  /**
+   * Scale context beside the numeral ("N (P%)"-style): the denominator this count is
+   * a share of, or `DASH` when that denominator is missing/bounded. Never a `delta`
+   * — see `KpiTileProps.secondary`.
+   */
+  secondary?: React.ReactNode;
   icon: LucideIcon;
   accent: KpiAccent;
   goodDirection: 'up' | 'down' | 'none';
   onClick?: () => void;
-  delta?: KpiDelta;
   countTo?: number;
   format?: (n: number) => string;
   spark?: number[];
   sparkMinPoints?: number;
+  /**
+   * The honest hover/focus trendline for this metric (server series only). Omitted
+   * when NO genuine series exists for the tile (e.g. the combined Critical/High
+   * union has no per-severity bucket series) — never an invented decorative trend.
+   */
+  trend?: MetricTrendSeries;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -341,6 +455,7 @@ function SnapshotCard({
   ariaLabel,
   ctaLabel,
   onClick,
+  trend,
 }: {
   title: string;
   caption: string;
@@ -351,6 +466,8 @@ function SnapshotCard({
   ariaLabel: string;
   ctaLabel: string;
   onClick?: () => void;
+  /** Optional honest hover trendline for the snapshot total. */
+  trend?: MetricTrendSeries;
 }) {
   const segments = sevSegments(counts);
   const legend = SEV_ORDER.map((s) => ({ key: s, value: counts[s] })).filter((r) => r.value > 0);
@@ -418,6 +535,19 @@ function SnapshotCard({
     </>
   );
 
+  const body = onClick ? (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={ctaLabel}
+      className="mt-1.5 flex w-full min-w-0 items-center gap-3 py-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {content}
+    </button>
+  ) : (
+    <div className="mt-1.5 flex items-center gap-3 p-0.5">{content}</div>
+  );
+
   return (
     <section className="min-w-0 border-b border-border/70 py-3 last:border-b-0">
       <div className="flex items-start justify-between gap-2">
@@ -427,17 +557,14 @@ function SnapshotCard({
         </div>
         <TrendChip delta={delta} goodDirection={goodDirection} />
       </div>
-      {onClick ? (
-        <button
-          type="button"
-          onClick={onClick}
-          aria-label={ctaLabel}
-          className="mt-1.5 flex w-full min-w-0 items-center gap-3 py-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {content}
-        </button>
+      {trend ? (
+        // The CTA button (when present) is the focus stop; the wrapper only adds the
+        // hover/focus-reachable trend card (WCAG 1.4.13 via MetricHoverTrend).
+        <MetricHoverTrend {...trend} focusable={!onClick} side="top">
+          {body}
+        </MetricHoverTrend>
       ) : (
-        <div className="mt-1.5 flex items-center gap-3 p-0.5">{content}</div>
+        body
       )}
     </section>
   );
@@ -484,7 +611,7 @@ function TimingStat({
         {value}
       </div>
       <div className="mt-1 text-2xs text-muted-foreground">{sub}</div>
-      <div className="text-2xs text-muted-foreground/80">{detail}</div>
+      <div className="text-2xs text-muted-foreground">{detail}</div>
     </div>
   );
 }
@@ -584,7 +711,7 @@ function TopCasesPanel({
                           {displayTitle}
                         </span>
                       </span>
-                      <span className="block font-mono text-2xs text-muted-foreground/70">
+                      <span className="block font-mono text-2xs text-muted-foreground">
                         {age || 'Just now'}
                       </span>
                     </span>
@@ -755,7 +882,9 @@ export default function Overview({ onNavigate }: OverviewProps) {
   const [usage, setUsage] = React.useState<UsageSummary | null>(null);
   const [noise, setNoise] = React.useState<NoiseReduction | null>(null);
   const [coverage, setCoverage] = React.useState<SourceCoverage | null>(null);
+  const [trends, setTrends] = React.useState<MetricsTrends | null>(null);
   const noiseSupported = typeof api.noiseReduction === 'function';
+  const trendsSupported = typeof api.metricsTrends === 'function';
   const [usageLoad, setUsageLoad] = React.useState<SliceLoadState>({
     availability: 'loading',
     error: null,
@@ -767,7 +896,20 @@ export default function Overview({ onNavigate }: OverviewProps) {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
 
+  // Monotonic batch token: a window change (or manual refresh) supersedes any batch
+  // still in flight, so a late-settling previous-window response can never repaint
+  // the dashboard beneath the newly selected range (the stale-window guard). The
+  // paired AbortController actually cancels the superseded transport where the
+  // client method accepts a signal (`metricsTrends` today); every other slice is
+  // covered by the seq check alone.
+  const loadSeqRef = React.useRef(0);
+  const loadAbortRef = React.useRef<AbortController | null>(null);
+
   const load = React.useCallback(async () => {
+    const seq = (loadSeqRef.current += 1);
+    loadAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
     setLoading(true);
     setError(null);
     try {
@@ -783,7 +925,12 @@ export default function Overview({ onNavigate }: OverviewProps) {
         typeof api.sourcesCoverage === 'function'
           ? api.sourcesCoverage()
           : Promise.resolve(null);
-      const [c, m, u, n, pc, cov] = await Promise.allSettled([
+      // The hover-trend bucket series — typeof-guarded exactly like the two above so a
+      // minimal test/mock surface simply resolves null and every hover card degrades to
+      // its quiet "No trend data yet." line.
+      const trendsP: Promise<MetricsTrends | null> =
+        trendsSupported ? api.metricsTrends(hours, controller.signal) : Promise.resolve(null);
+      const [c, m, u, n, pc, cov, t] = await Promise.allSettled([
         // #37: window the current case sample by created-at so the case-derived widgets
         // honour the range (backend caps at 200 by created-desc).
         api.listCases({ limit: 200, from: `now-${hours}h` }),
@@ -794,7 +941,10 @@ export default function Overview({ onNavigate }: OverviewProps) {
         // snapshot trend deltas (omitted gracefully when the fetch fails).
         api.listCases({ limit: 200, from: `now-${2 * hours}h`, to: `now-${hours}h` }),
         coverageP,
+        trendsP,
       ]);
+      // Superseded by a newer window/refresh — that batch owns the state now.
+      if (seq !== loadSeqRef.current) return;
       if (c.status === 'fulfilled') setCases(c.value.cases ?? []);
       if (m.status === 'fulfilled') setMetrics(m.value);
       if (u.status === 'fulfilled') {
@@ -820,21 +970,28 @@ export default function Overview({ onNavigate }: OverviewProps) {
         });
       }
       if (cov.status === 'fulfilled') setCoverage(cov.value ?? null);
+      // Trends degrade quietly: a failed/omitted read clears the series (the hover
+      // cards show "No trend data yet.") rather than showing another window's trend.
+      setTrends(t.status === 'fulfilled' ? t.value ?? null : null);
       setPrevCases(pc.status === 'fulfilled' ? pc.value.cases ?? [] : null);
       // Only surface a page-level error if the load is wholly empty.
       if (c.status === 'rejected' && m.status === 'rejected') {
         setError(c.reason ?? m.reason ?? new Error('Failed to load dashboard data.'));
       }
     } catch (e) {
-      setError(e);
+      if (seq === loadSeqRef.current) setError(e);
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
-  }, [hours, noiseSupported]);
+  }, [hours, noiseSupported, trendsSupported]);
 
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  // Unmount: cancel whatever batch is still in flight (the seq guard already
+  // discards its result; this releases the transport too).
+  React.useEffect(() => () => loadAbortRef.current?.abort(), []);
 
   // Server-side posture rollup — the AUTHORITATIVE lifecycle (MTTA/MTTR/dwell/MTTD p50 +
   // SLA + quality rates). `'prev'` also asks for the period-over-period `compare` block.
@@ -842,13 +999,20 @@ export default function Overview({ onNavigate }: OverviewProps) {
     data: postureResponse,
     loading: postureLoading,
     error: postureError,
+    stale: postureStale,
     reload: reloadPosture,
   } = usePosture(hours, 'prev');
   // Defensive echo check at the rendering boundary. The hook already rejects a
   // mismatched payload; keeping this projection here makes every posture consumer
   // visibly tied to the selected window and prevents a future hook regression from
-  // reintroducing cross-window tiles.
-  const posture = postureResponse?.window_hours === hours ? postureResponse : null;
+  // reintroducing cross-window tiles. The ONE deliberate exception is the hook's
+  // stale-while-revalidate snapshot: while the new window is in flight the previous
+  // snapshot stays mounted, explicitly marked by the tiles' "Loading Nh" sub, so a
+  // range change never blanks the dashboard.
+  const posture =
+    postureResponse && (postureResponse.window_hours === hours || postureStale)
+      ? postureResponse
+      : null;
 
   /** Retry only the LLM spend slice; healthy dashboard siblings never reload or blank. */
   const retryUsage = React.useCallback(async () => {
@@ -947,9 +1111,9 @@ export default function Overview({ onNavigate }: OverviewProps) {
   const derived = React.useMemo(() => {
     let open = 0;
     let resolved = 0;
-    let criticalHighAlerts = 0;
-    let openCriticalHigh = 0;
-    let resolvedCriticalHigh = 0;
+    let criticalAlerts = 0;
+    let openCritical = 0;
+    let resolvedCritical = 0;
     const sevCounts = emptySev();
     const openSev = emptySev();
     const resolvedSev = emptySev();
@@ -965,16 +1129,18 @@ export default function Overview({ onNavigate }: OverviewProps) {
       sevCounts[band] += 1;
       if (isOpen) openSev[band] += 1;
       if (isClosed) resolvedSev[band] += 1;
-      if (band === 'critical' || band === 'high') {
-        // Critical / High is intentionally ALL lifecycle work in the selected
-        // dashboard window: still-open pressure + terminal cases. Unknown legacy
-        // statuses are excluded rather than silently inflating a reconciliable KPI.
+      if (band === 'critical') {
+        // CRITICAL ONLY (was the Critical-OR-High union). One band means the tile can
+        // honestly drill through to the Cases severity filter, which applies exactly
+        // one band at a time. Still intentionally ALL lifecycle work in the selected
+        // window: still-open pressure + terminal cases. Unknown legacy statuses are
+        // excluded rather than silently inflating a reconciliable KPI.
         if (isOpen) {
-          criticalHighAlerts += 1;
-          openCriticalHigh += 1;
+          criticalAlerts += 1;
+          openCritical += 1;
         } else if (isClosed) {
-          criticalHighAlerts += 1;
-          resolvedCriticalHigh += 1;
+          criticalAlerts += 1;
+          resolvedCritical += 1;
         }
       }
     }
@@ -982,9 +1148,9 @@ export default function Overview({ onNavigate }: OverviewProps) {
     return {
       open,
       resolved,
-      criticalHighAlerts,
-      openCriticalHigh,
-      resolvedCriticalHigh,
+      criticalAlerts,
+      openCritical,
+      resolvedCritical,
       sevCounts,
       openSev,
       resolvedSev,
@@ -1005,29 +1171,25 @@ export default function Overview({ onNavigate }: OverviewProps) {
     return { open, resolved };
   }, [prevCases]);
 
-  // ----- Autonomous-vs-human split (#3 trust surface) --------------------- //
-  const autonomy = React.useMemo(() => {
-    const q = posture?.quality;
-    if (q && q.terminal_cases >= 0) {
-      const autoClosed = q.auto_closed_cases ?? 0;
-      const escalated = (q.escalated_cases ?? 0) + (q.needs_human_cases ?? 0);
-      const total = autoClosed + escalated;
-      return {
-        autoClosed,
-        escalated,
-        automationPct: q.automation_rate ?? (total ? autoClosed / total : 0),
-      };
-    }
-    let autoClosed = 0;
+  /**
+   * Last-resort count for the "Escalated to human" tile when `GET /api/metrics` is
+   * unavailable: the still-live needs-human / escalated rows of the bounded case
+   * sample. A tile falling back to this carries NO share — the sample is not the
+   * window population, so a percentage off it would be an invented denominator.
+   *
+   * (The former "Autonomous vs human" fold-out card was removed here: the landing
+   * page now states close attribution ONCE, in the Human-vs-AI instrument, over the
+   * server's reconciling agent/human/system partition. The card told a third,
+   * differently-denominated version of the same story.)
+   */
+  const escalatedFallback = React.useMemo(() => {
     let escalated = 0;
     for (const k of cases) {
       const st = (k.status || '').toLowerCase();
       if (st === 'needs_human' || st === 'escalated') escalated += 1;
-      else if (isAutoClosedByAI(k.status, k.decision_by)) autoClosed += 1;
     }
-    const total = autoClosed + escalated;
-    return { autoClosed, escalated, automationPct: total ? autoClosed / total : 0 };
-  }, [posture, cases]);
+    return escalated;
+  }, [cases]);
 
   // ----- Full response-timing trio (server posture) — Deeper analytics ---- //
   const timing = React.useMemo(() => {
@@ -1040,6 +1202,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
       const b = life?.[statKey];
       const copy = LIFECYCLE_METRICS[metric];
       return {
+        key: metric,
         label: copy.label,
         help: copy.help,
         value: b && b.available ? humanizeMins(b.p50) : DASH,
@@ -1071,28 +1234,6 @@ export default function Overview({ onNavigate }: OverviewProps) {
     [metrics],
   );
 
-  // ----- Active Risk Index (#1) ------------------------------------------- //
-  const activeRisk = React.useMemo<{ score: number | null; count: number }>(() => {
-    if (
-      typeof metrics?.active_risk_index === 'number' &&
-      Number.isFinite(metrics.active_risk_index)
-    ) {
-      return {
-        score: Math.round(metrics.active_risk_index),
-        count: metrics.active_risk_case_count ?? derived.open,
-      };
-    }
-    const openCases = cases.filter((k) => OPEN_STATUSES.has((k.status || '').toLowerCase()));
-    if (openCases.length) {
-      const mean = openCases.reduce((a, k) => a + (k.risk_score ?? 0), 0) / openCases.length;
-      return { score: Math.round(mean), count: openCases.length };
-    }
-    const avg = metrics?.avg_risk_score;
-    return {
-      score: typeof avg === 'number' && Number.isFinite(avg) ? Math.round(avg) : null,
-      count: 0,
-    };
-  }, [metrics, cases, derived.open]);
 
   // ----- Exactly four most-recent cases — compact live instrument queue ----- //
   const latestCases = React.useMemo(
@@ -1189,23 +1330,200 @@ export default function Overview({ onNavigate }: OverviewProps) {
     return source.sort((a, b) => b[1] - a[1]).map(([status, value]) => ({ status, value }));
   }, [metrics, cases]);
 
+  // ----- Hover trendlines — honest server series only ---------------------- //
+  // The bucket payload echoes its measured window; mirror the posture projection's
+  // render-boundary check so a previous window's buckets can never sit beneath the
+  // newly selected range while a refresh is in flight.
+  const trendsForWindow = trends && trends.window_hours === hours ? trends : null;
+  const bucketTrends = React.useMemo(() => {
+    if (!trendsForWindow?.buckets?.length) return null;
+    const buckets = trendsForWindow.buckets;
+    const series = (pick: (b: MetricsTrendBucket) => number | null): MetricTrendPoint[] =>
+      buckets.map((b) => ({ label: String(b.t ?? ''), value: pick(b) }));
+    return {
+      label: trendWindowLabel(trendsForWindow),
+      newCases: series((b) => finiteOrNull(b.new_cases)),
+      closed: series((b) => finiteOrNull(b.closed)),
+      autoClosed: series((b) => finiteOrNull(b.auto_closed)),
+      // The server's once-counted union (NEEDS_HUMAN verdict OR escalated) —
+      // `needs_human` and `escalated` overlap on an escalated needs-human case,
+      // so summing them here would double-count; chart the honest field only.
+      sentToHuman: series((b) => finiteOrNull(b.sent_to_human)),
+      // Nulls (no verdicted denominator in the bucket) stay nulls — the hover card
+      // renders measured points only and discloses the measured/total bucket count.
+      fpRate: series((b) => finiteOrNull(b.fp_rate)),
+    };
+  }, [trendsForWindow]);
+  /** Window disclosure when no bucket payload is available (quiet no-data card). */
+  const trendFallbackLabel = `last ${trendSpanLabel(hours)}`;
+
+  // ----- Human vs AI — close attribution (the instrument band's first cell) ---- //
+  /**
+   * The server's three-way LAST-WRITER partition of the window's CLOSED cases:
+   * agent / analyst / system-or-unattributed residual. Operator "declared benign"
+   * policy closes are excluded upstream (no model ran on them).
+   *
+   * Totals prefer the authoritative posture rollup; when posture is unavailable the
+   * SAME partition is summed from the (non-truncated) trend buckets, which the
+   * backend guarantees reconciles with it bucket-for-bucket. Either way the three
+   * counts must add up to the closed total — a partition that does not reconcile is
+   * reported as unavailable (em dashes) rather than shown as three plausible numbers.
+   */
+  const humanVsAi = React.useMemo<{
+    totals: HumanVsAiTotals | null;
+    reason: string;
+    series: HumanVsAiPoint[] | null;
+    truncated: boolean;
+    /**
+     * True when `totals` came from the STALE posture snapshot — i.e. it describes the
+     * PREVIOUS window while `windowLabel` already names the newly selected one. The
+     * KPI tiles mark that state with a "Loading Nh" sub; the card has no such sub, so
+     * it withholds the counts rather than publishing them under the wrong label.
+     */
+    stale: boolean;
+    alerts: number | null;
+  }>(() => {
+    const partition = (
+      ai: unknown,
+      human: unknown,
+      system: unknown,
+      closed: unknown,
+    ): HumanVsAiTotals | null => {
+      const nums = [ai, human, system, closed];
+      if (nums.some((n) => typeof n !== 'number' || !Number.isFinite(n) || (n as number) < 0)) {
+        return null;
+      }
+      const [a, h, y, c] = nums as number[];
+      // The invariant the backend documents. If it does not hold here, the payload is
+      // not a partition and must not be rendered as one.
+      if (a + h + y !== c) return null;
+      return { ai: a, human: h, system: y, closed: c };
+    };
+
+    const buckets = trendsForWindow?.buckets ?? [];
+    const truncated = trendsForWindow?.truncated === true || posture?.truncated === true;
+
+    // The bucket series: charted only when EVERY bucket carries the partition, so an
+    // older backend can never render a lone agent line that reads as "humans closed
+    // nothing". Buckets are server zero-filled, so a 0 here is a measured zero.
+    const supported =
+      buckets.length > 0 &&
+      buckets.every(
+        (b) =>
+          typeof b.human_closed === 'number' &&
+          Number.isFinite(b.human_closed) &&
+          typeof b.system_closed === 'number' &&
+          Number.isFinite(b.system_closed),
+      );
+    const series: HumanVsAiPoint[] | null = supported
+      ? buckets.map((b) => ({
+          x: bucketAxisLabel(b.t, trendsForWindow?.bucket_minutes, trendsForWindow?.window_hours),
+          ai: finiteOrNull(b.auto_closed),
+          human: finiteOrNull(b.human_closed),
+          system: finiteOrNull(b.system_closed),
+        }))
+      : null;
+
+    const q = posture?.quality;
+    let totals = partition(
+      q?.auto_closed_cases,
+      q?.human_closed_cases,
+      q?.system_closed_cases,
+      q?.terminal_cases,
+    );
+    // Whether the partition below is the previous window's (see `stale` above). Only
+    // the posture branch can be stale — the bucket branch is rejected outright on a
+    // window mismatch, so anything it produces already matches the selected window.
+    const staleTotals = totals != null && postureStale;
+    let reason = q
+      ? 'This backend does not report how closed cases were attributed.'
+      : 'Close attribution is unavailable for this window.';
+    if (!totals && supported && !truncated) {
+      const sum = (pick: (b: MetricsTrendBucket) => number | null | undefined): number =>
+        buckets.reduce((a, b) => a + (finiteOrNull(pick(b)) ?? 0), 0);
+      totals = partition(
+        sum((b) => b.auto_closed),
+        sum((b) => b.human_closed),
+        sum((b) => b.system_closed),
+        sum((b) => b.closed),
+      );
+      if (!totals) reason = 'Close attribution did not reconcile for this window.';
+    }
+
+    // Raw ingest volume is a DIFFERENT population (ingest-hour tally vs case cohort),
+    // so it is only ever shown as labelled context — and only when every bucket
+    // actually reported it. One null bucket means the counters were warming up.
+    const alertsMeasured =
+      buckets.length > 0 &&
+      buckets.every((b) => typeof b.alerts === 'number' && Number.isFinite(b.alerts));
+    const alerts = alertsMeasured
+      ? buckets.reduce((a, b) => a + (b.alerts as number), 0)
+      : null;
+
+    return { totals, reason, series, truncated, stale: staleTotals, alerts };
+  }, [posture, postureStale, trendsForWindow]);
+
+  // Per-UTC-day lifecycle timing series (GET /api/metrics `timing_trend`) — genuinely
+  // MTTD/respond/resolve, so the timing stats reuse it instead of the case sample.
+  const timingTrends = React.useMemo(() => {
+    const rows = metrics?.timing_trend ?? [];
+    if (!rows.length) return null;
+    const series = (pick: (r: (typeof rows)[number]) => number | null): MetricTrendPoint[] =>
+      rows.map((r) => ({ label: String(r.date ?? ''), value: finiteOrNull(pick(r)) }));
+    return {
+      label: `per UTC day · ${rows.length} day${rows.length === 1 ? '' : 's'}`,
+      mttd: series((r) => r.mttd),
+      respond: series((r) => r.respond),
+      resolve: series((r) => r.resolve),
+    };
+  }, [metrics]);
+
+  // The ledger's own spend-over-time series (usage summary `cost_over_time`).
+  const spendTrend = React.useMemo<MetricTrendPoint[] | undefined>(() => {
+    const rows = usage?.cost_over_time ?? [];
+    const pts = rows.map((r) => ({ label: String(r.ts ?? ''), value: finiteOrNull(r.cost) }));
+    return pts.length ? pts : undefined;
+  }, [usage]);
+
   // ----- KPI micro-strip — 5 alert/case signal tiles --------------------- //
   const kpis: KpiItem[] = React.useMemo(() => {
-    const compare = posture?.compare;
-    const fpRate = posture?.quality?.false_positive_rate;
-    const fpPercent = typeof fpRate === 'number' ? Math.round(fpRate * 100) : undefined;
-    const autoResolved = posture?.quality?.auto_closed_cases;
-    const escalated = metrics?.needs_human_cases ?? autonomy.escalated;
+    const quality = posture?.quality;
+    /**
+     * The posture scan was BOUNDED: `quality` under-counts every band it reports, so
+     * no rate or share taken off it is measurable. The Human-vs-AI instrument already
+     * withholds exactly this evidence; the strip must not publish the same numbers a
+     * few pixels above the card that just declared them unavailable.
+     */
+    const postureTruncated = posture?.truncated === true;
+    const fpRate = quality?.false_positive_rate;
+    const fpPercent =
+      !postureTruncated && typeof fpRate === 'number' ? Math.round(fpRate * 100) : undefined;
+    const autoResolved = quality?.auto_closed_cases;
+    /**
+     * `GET /api/metrics` is NOT window-filtered and is hard-capped at the newest 2,000
+     * cases with no truncation marker, so `total_cases` is a fetch bound, not the
+     * window's case population. Pairing it with this window-scoped dashboard's numeral
+     * would present a cap as a population, so the tile states its count and names the
+     * missing denominator instead of quoting a whole-store share.
+     */
+    const escalatedFromMetrics = metrics?.needs_human_cases;
+    const escalated = escalatedFromMetrics ?? escalatedFallback;
+
+    /**
+     * The case sample is a bounded 200-row, created-desc fetch: at the cap it is NOT
+     * the window population, so any share computed from it would silently become
+     * "of 200". Below the cap (and with the posture scan itself untruncated) the
+     * sample IS the complete window, so a client-derived numerator and
+     * `cases.length` describe the same population and reconcile exactly. Bounded →
+     * no denominator at all, and the tile renders an em dash.
+     */
+    const sampleTruncated = cases.length >= 200 || posture?.truncated === true;
+    const sampleTotal = sampleTruncated ? undefined : cases.length;
+
     const { fromMs, toMs } = resolveRange(range);
     const openTrend = caseArrivalTrend(cases, fromMs, toMs, (row) =>
       OPEN_STATUSES.has((row.status || '').toLowerCase()),
     );
-    const criticalTrend = caseArrivalTrend(cases, fromMs, toMs, (row) => {
-      const band = bandOfCase(row);
-      const status = (row.status || '').toLowerCase();
-      const isKnownLifecycle = OPEN_STATUSES.has(status) || CLOSED_STATUSES.has(status);
-      return isKnownLifecycle && (band === 'critical' || band === 'high');
-    });
     const escalatedTrend = caseArrivalTrend(cases, fromMs, toMs, (row) => {
       const status = (row.status || '').toLowerCase();
       return status === 'needs_human' || status === 'escalated';
@@ -1213,88 +1531,154 @@ export default function Overview({ onNavigate }: OverviewProps) {
     const resolvedTrend = caseArrivalTrend(cases, fromMs, toMs, (row) =>
       isAutoClosedByAI(row.status, row.decision_by),
     );
-    const previousFpRate = compare?.false_positive_rate?.prev;
-    // Both spark points come from the same authoritative server comparison as the
-    // numeral and delta. Never mix the bounded case sample into this tile.
-    const falsePositiveTrend =
-      typeof fpRate === 'number' && typeof previousFpRate === 'number'
-        ? [previousFpRate * 100, fpRate * 100]
-        : undefined;
     const postureSub = postureLoading
       ? `Loading ${windowLabel(hours)}`
       : postureError
         ? 'Posture unavailable'
         : undefined;
+    const bucketLabel = bucketTrends?.label ?? trendFallbackLabel;
     return [
       {
         label: 'Open Cases',
+        testId: 'open-cases',
         value: fmtNumber(derived.open),
         countTo: derived.open,
         format: fmtInt,
-        sub: `${fmtNumber(cases.length)} cases tracked`,
+        // Same-sample numerator and denominator; suppressed outright when the sample
+        // is bounded rather than quoting a share "of 200".
+        secondary: shareContext(derived.open, sampleTotal) ?? DASH,
+        sub: sampleTruncated ? BOUNDED_SAMPLE_SUB : 'Every active lifecycle state',
         icon: Inbox,
         accent: 'primary',
         spark: openTrend,
         goodDirection: 'down',
+        // There is no open-count-over-time series; the honest related series is the
+        // arrival cohort, and the card names it as such.
+        trend: {
+          metric: 'New cases opened',
+          points: bucketTrends?.newCases,
+          windowLabel: bucketLabel,
+          caption: 'case arrivals per bucket',
+          format: fmtInt,
+          colorToken: 'primary',
+        },
         onClick: navigate
           ? () => navigate('cases', { status: ACTIVE_CASES_FILTER, window: navWindow })
           : undefined,
       },
       {
-        label: 'Critical / High',
-        value: fmtNumber(derived.criticalHighAlerts),
-        countTo: derived.criticalHighAlerts,
+        label: 'Critical',
+        // Pinned: the label narrowed from "Critical / High", which would otherwise
+        // have silently renamed this anchor from `kpi-critical-high`.
+        testId: 'critical',
+        value: fmtNumber(derived.criticalAlerts),
+        countTo: derived.criticalAlerts,
         format: fmtInt,
+        // Same bounded-sample rule as Open Cases: there is NO server-side
+        // per-severity count in any loaded payload, so the only honest denominator
+        // is the sample itself — and only while the sample is the whole window.
+        secondary: shareContext(derived.criticalAlerts, sampleTotal) ?? DASH,
         // Visible arithmetic explains why this all-lifecycle number can be larger
         // than the terminal-only resolved snapshot immediately below it.
-        sub: `${fmtNumber(derived.openCriticalHigh)} open + ${fmtNumber(derived.resolvedCriticalHigh)} resolved`,
+        sub: `${fmtNumber(derived.openCritical)} open + ${fmtNumber(derived.resolvedCritical)} resolved`,
         icon: ShieldAlert,
         accent: 'critical',
-        spark: criticalTrend,
+        // No decorative spark: the Cases severity filter applies ONE band, and no
+        // per-severity bucket series exists — so this tile shows no trend at all
+        // rather than a sample-derived line the hover card cannot corroborate.
         goodDirection: 'down',
-        // Cases currently supports one severity at a time. Applying only Critical
-        // (or only High) would falsely claim to drill into this combined total, so
-        // preserve only the honest selected-window scope.
-        onClick: navigate ? () => navigate('cases', { window: navWindow }) : undefined,
+        // Now that the tile is a SINGLE band, the drill-through can carry it.
+        onClick: navigate
+          ? () => navigate('cases', { severity: 'critical', window: navWindow })
+          : undefined,
       },
       {
         label: 'Escalated To Human',
+        testId: 'escalated-to-human',
         value: fmtNumber(escalated),
         countTo: escalated,
         format: fmtInt,
-        sub: 'Awaiting review',
+        // No honest denominator exists for this numeral: `metrics.total_cases` is an
+        // all-time, cap-2,000 fetch bound (not the window population) and posture's
+        // `needs_human_cases` counts a different population (VERDICT needs-human, not
+        // status awaiting-review), so neither reconciles with the count shown here.
+        secondary: DASH,
+        sub: 'Awaiting review · all cases, no window share',
         icon: Workflow,
         accent: 'low',
         spark: escalatedTrend,
         goodDirection: 'down',
+        trend: {
+          metric: 'Sent to human',
+          points: bucketTrends?.sentToHuman,
+          windowLabel: bucketLabel,
+          caption: 'needs-human or escalated, counted once · by case-arrival bucket',
+          format: fmtInt,
+          colorToken: 'low',
+        },
         onClick: navigate
           ? () => navigate('cases', { status: 'needs_human', window: navWindow })
           : undefined,
       },
       {
         label: 'False Positive Rate',
+        testId: 'false-positive-rate',
         value: typeof fpPercent === 'number' ? `${fpPercent}%` : DASH,
         countTo: fpPercent,
         format: formatWholePercent,
-        sub: postureSub ?? 'Closed as false pos.',
+        // This numeral is ALREADY a percentage, so the missing half is its sample
+        // size: the server's exact fp / verdicted counts behind the rate. Both halves
+        // — and the rate above them — come off the bounded scan, so a truncated
+        // posture withholds all of them rather than quoting a bounded ratio as fact.
+        secondary:
+          !postureTruncated &&
+          typeof quality?.false_positive_cases === 'number' &&
+          typeof quality?.verdicted_cases === 'number' &&
+          quality.verdicted_cases > 0
+            ? `${fmtNumber(quality.false_positive_cases)} of ${fmtNumber(quality.verdicted_cases)} verdicted`
+            : DASH,
+        sub: postureSub ?? (postureTruncated ? BOUNDED_SAMPLE_SUB : 'Closed as false positive'),
         icon: Percent,
         accent: 'medium',
-        spark: falsePositiveTrend,
-        sparkMinPoints: 2,
+        // The former two-point prev→cur spark drew a straight line that read as a
+        // trend but was a single comparison, and the chip that explained it was
+        // removed in Round 11. The honest per-bucket series is the hover card's.
         goodDirection: 'down',
-        delta: toKpiDelta(deltaView(compare?.false_positive_rate)),
+        trend: {
+          metric: 'False positive rate',
+          points: bucketTrends?.fpRate,
+          windowLabel: bucketLabel,
+          caption: 'per case-arrival bucket · unverdicted buckets not measured',
+          format: formatWholePercent,
+          colorToken: 'medium',
+        },
         onClick: navigate ? () => navigate('metrics', { tab: 'posture' }) : undefined,
       },
       {
         label: 'Auto-Resolved',
+        testId: 'auto-resolved',
         value: fmtNumber(autoResolved),
         countTo: typeof autoResolved === 'number' ? autoResolved : undefined,
         format: fmtInt,
-        sub: postureSub ?? 'Closed by agent',
+        // The server's own `automation_rate` denominator: terminal (closed) cases —
+        // the SAME auto-closed/terminal partition the Human-vs-AI card withholds on a
+        // bounded scan, so this share is gated on exactly that condition.
+        secondary: postureTruncated
+          ? DASH
+          : (shareContext(autoResolved, quality?.terminal_cases) ?? DASH),
+        sub: postureSub ?? (postureTruncated ? BOUNDED_SAMPLE_SUB : 'Closed by agent'),
         icon: ShieldCheck,
         accent: 'success',
         spark: resolvedTrend,
         goodDirection: 'up',
+        trend: {
+          metric: 'Auto-resolved cases',
+          points: bucketTrends?.autoClosed,
+          windowLabel: bucketLabel,
+          caption: 'by case-arrival bucket',
+          format: fmtInt,
+          colorToken: 'success',
+        },
         onClick: navigate
           ? () => navigate('cases', { status: 'closed', window: navWindow })
           : undefined,
@@ -1306,12 +1690,14 @@ export default function Overview({ onNavigate }: OverviewProps) {
     cases,
     range,
     navWindow,
-    autonomy.escalated,
+    escalatedFallback,
     posture,
     postureLoading,
     postureError,
     hours,
     navigate,
+    bucketTrends,
+    trendFallbackLabel,
   ]);
 
   // ----- Noise-Reduction funnel drill-through ----------------------------- //
@@ -1452,48 +1838,96 @@ export default function Overview({ onNavigate }: OverviewProps) {
           <div className="space-y-1.5">
             <Stagger
               data-testid="kpi-strip"
-              className="grid grid-cols-1 border-y border-border/70 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5"
-              itemClassName="h-full min-w-0 border-b border-border/70 sm:border-r xl:border-b-0 xl:last:border-r-0"
+              className="grid grid-cols-1 border-y border-border sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5"
+              /*
+               * Exact divider math for FIVE tiles at 1 / 2 / 3 / 5 columns. A cell may
+               * never draw a hairline into empty space or lose the rule that separates
+               * it from the next row (ui-standard, operational metric surfaces):
+               *   - column rule: on for every cell that HAS a right-hand neighbour, so
+               *     it is off at 1 column, off for cells 2·4 at 2 columns, off for
+               *     cell 3 at 3 columns, and always off for the last cell;
+               *   - row rule: off for the cells in the final row — cell 5 at 1/2
+               *     columns, cells 4·5 at 3 columns, all of them at 5 columns.
+               * `:last-child` / `:nth-child()` outrank the plain utilities, so the
+               * per-breakpoint overrides resolve deterministically.
+               */
+              itemClassName={cn(
+                'h-full min-w-0 border-b border-r-0 border-border/70 last:border-b-0 last:border-r-0',
+                'sm:border-r sm:[&:nth-child(2n)]:border-r-0',
+                'md:[&:nth-child(2n)]:border-r md:[&:nth-child(3n)]:border-r-0 md:[&:nth-child(n+4)]:border-b-0',
+                'xl:border-b-0 xl:[&:nth-child(2n)]:border-r xl:[&:nth-child(3n)]:border-r',
+              )}
             >
-              {kpis.map((kpi) => (
-                <KpiTile
-                  key={kpi.label}
-                  label={kpi.label}
-                  value={kpi.value}
-                  sub={kpi.sub}
-                  icon={kpi.icon}
-                  accent={kpi.accent}
-                  variant="strip"
-                  goodDirection={kpi.goodDirection}
-                  delta={kpi.delta}
-                  countTo={kpi.countTo}
-                  format={kpi.format}
-                  spark={kpi.spark}
-                  sparkMinPoints={kpi.sparkMinPoints}
-                  onClick={kpi.onClick}
-                />
-              ))}
+              {kpis.map((kpi) => {
+                const tile = (
+                  <KpiTile
+                    label={kpi.label}
+                    testId={kpi.testId}
+                    value={kpi.value}
+                    secondary={kpi.secondary}
+                    sub={kpi.sub}
+                    icon={kpi.icon}
+                    accent={kpi.accent}
+                    variant="strip"
+                    goodDirection={kpi.goodDirection}
+                    countTo={kpi.countTo}
+                    format={kpi.format}
+                    spark={kpi.spark}
+                    sparkMinPoints={kpi.sparkMinPoints}
+                    onClick={kpi.onClick}
+                  />
+                );
+                // Hover/focus reveals the metric's honest trend; a clickable tile is
+                // already the focus stop, so the wrapper adds no second tab stop.
+                return kpi.trend ? (
+                  <MetricHoverTrend
+                    key={kpi.label}
+                    {...kpi.trend}
+                    focusable={!kpi.onClick}
+                    side="bottom"
+                  >
+                    {tile}
+                  </MetricHoverTrend>
+                ) : (
+                  <React.Fragment key={kpi.label}>{tile}</React.Fragment>
+                );
+              })}
             </Stagger>
-            {posture?.compare ? (
+            {bucketTrends ? (
               <p className="px-0.5 text-2xs text-muted-foreground">
-                Deltas compare the previous {windowLabel(hours)}.
+                {/* Device-honest affordance copy: hover-capable inputs get the
+                    hover/focus instruction; touch-only devices (hover: none) are
+                    told to tap — the trend card toggles on tap there. Both spans
+                    ship; the CSS media variant picks exactly one. */}
+                <span className="hidden [@media(hover:hover)]:inline">
+                  Hover or focus a metric for its {bucketTrends.label} trend.
+                </span>
+                <span className="[@media(hover:hover)]:hidden">
+                  Tap a metric for its {bucketTrends.label} trend.
+                </span>
               </p>
             ) : null}
           </div>
 
-          {/* ---- INSTRUMENT BAND: integrated risk · case state · live queue ---- */}
+          {/* ---- INSTRUMENT BAND: close attribution · case state · live queue ---- */}
           <Reveal
             variant="rise"
             delay={40}
             data-testid="hero-row"
-            className="grid min-w-0 items-stretch border-b border-border/70 lg:grid-cols-12"
+            className="grid min-w-0 items-stretch border-y border-border lg:grid-cols-12"
           >
+            {/* Close attribution — the band's lead instrument (it replaced the Active
+                Risk Index, whose gauge duplicated risk the page already states in the
+                severity donuts, the risk-ordered queue, and every case row). */}
             <div className="min-w-0 border-b border-border/70 lg:col-span-4 lg:border-b-0 lg:border-r">
-              <ActiveRiskIndex
-                score={activeRisk.score}
-                count={activeRisk.count}
-                variant="flat"
-                size={280}
+              <HumanVsAiCard
+                totals={humanVsAi.totals}
+                unavailableReason={humanVsAi.reason}
+                series={humanVsAi.series}
+                windowLabel={bucketTrends?.label ?? trendFallbackLabel}
+                truncated={humanVsAi.truncated}
+                stale={humanVsAi.stale}
+                alertsIngested={humanVsAi.alerts}
                 className="h-full w-full"
               />
             </div>
@@ -1511,6 +1945,14 @@ export default function Overview({ onNavigate }: OverviewProps) {
                 counts={derived.openSev}
                 ariaLabel="Open cases by severity"
                 ctaLabel="View open cases"
+                trend={{
+                  metric: 'New cases opened',
+                  points: bucketTrends?.newCases,
+                  windowLabel: bucketTrends?.label ?? trendFallbackLabel,
+                  caption: 'case arrivals per bucket',
+                  format: fmtInt,
+                  colorToken: 'primary',
+                }}
                 onClick={navigate
                   ? () => navigate('cases', { status: ACTIVE_CASES_FILTER, window: navWindow })
                   : undefined}
@@ -1524,6 +1966,14 @@ export default function Overview({ onNavigate }: OverviewProps) {
                 counts={derived.resolvedSev}
                 ariaLabel="Resolved cases by severity"
                 ctaLabel="View resolved cases"
+                trend={{
+                  metric: 'Cases now closed',
+                  points: bucketTrends?.closed,
+                  windowLabel: bucketTrends?.label ?? trendFallbackLabel,
+                  caption: 'by case-arrival bucket',
+                  format: fmtInt,
+                  colorToken: 'success',
+                }}
                 onClick={navigate ? () => navigate('cases', { status: 'closed', window: navWindow }) : undefined}
               />
             </section>
@@ -1541,7 +1991,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
           <Reveal
             variant="rise"
             delay={70}
-            className="grid min-w-0 border-b border-border/70 xl:grid-cols-12"
+            className="grid min-w-0 border-y border-border xl:grid-cols-12"
           >
             {noiseCellVisible ? (
               <div className="min-w-0 border-b border-border/70 p-4 xl:col-span-8 xl:border-b-0 xl:border-r">
@@ -1602,7 +2052,17 @@ export default function Overview({ onNavigate }: OverviewProps) {
                     </h2>
                     <p className="mt-0.5 text-2xs text-muted-foreground">opened vs resolved over time</p>
                   </div>
-                  <span className="font-mono text-2xs text-muted-foreground">opn vs res</span>
+                  {/* A real legend keyed to the chart's status-axis tokens (was "opn vs res"). */}
+                  <span className="flex shrink-0 items-center gap-3 text-2xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-info" aria-hidden />
+                      Opened
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden />
+                      Resolved
+                    </span>
+                  </span>
                 </div>
                 <div className="mt-3">
                   <BurnDownChart
@@ -1637,24 +2097,42 @@ export default function Overview({ onNavigate }: OverviewProps) {
                 </div>
                 <div className="mt-3 grid grid-cols-2 divide-x divide-border/70">
                   <div className="pr-4">
-                    <TimingStat
-                      label="MTTD"
-                      sub="Detect · log arrival → case"
-                      block={mttdBlock}
-                      dotClass="bg-info"
-                      compact
-                      help="Mean time to detect: the cluster's first event → case-open. Shown as an honest n/a when no case carries a first-event instant."
-                    />
+                    <MetricHoverTrend
+                      metric="MTTD · daily mean"
+                      points={timingTrends?.mttd}
+                      windowLabel={timingTrends?.label ?? trendFallbackLabel}
+                      format={humanizeMins}
+                      colorToken="info"
+                      side="top"
+                    >
+                      <TimingStat
+                        label="MTTD"
+                        sub="Detect · log arrival → case"
+                        block={mttdBlock}
+                        dotClass="bg-info"
+                        compact
+                        help="Mean time to detect: the cluster's first event → case-open. Shown as an honest n/a when no case carries a first-event instant."
+                      />
+                    </MetricHoverTrend>
                   </div>
                   <div className="pl-4">
-                    <TimingStat
-                      label="Respond"
-                      sub="First human action e.g. assignment / ack"
-                      block={respondBlock}
-                      dotClass="bg-success"
-                      compact
-                      help="Mean time to respond — the first active human response (investigating / escalated / assignment / ack)."
-                    />
+                    <MetricHoverTrend
+                      metric="Respond · daily mean"
+                      points={timingTrends?.respond}
+                      windowLabel={timingTrends?.label ?? trendFallbackLabel}
+                      format={humanizeMins}
+                      colorToken="success"
+                      side="top"
+                    >
+                      <TimingStat
+                        label="Respond"
+                        sub="First human action e.g. assignment / ack"
+                        block={respondBlock}
+                        dotClass="bg-success"
+                        compact
+                        help="Mean time to respond — the first active human response (investigating / escalated / assignment / ack)."
+                      />
+                    </MetricHoverTrend>
                   </div>
                 </div>
               </section>
@@ -1670,95 +2148,95 @@ export default function Overview({ onNavigate }: OverviewProps) {
           >
             {/* Full response timing (MTTA · MTTR · Dwell) + spend tripwire */}
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {timing.map((s) => (
+              {timing.map((s) => {
+                // Honest per-metric series: MTTA reuses the ACK-based `respond` daily
+                // series, MTTR the `resolve` series. Dwell has NO server series at all,
+                // so its tile carries no trend affordance — never a borrowed trend.
+                const timingSeries =
+                  s.key === 'mtta'
+                    ? timingTrends?.respond
+                    : s.key === 'mttr'
+                      ? timingTrends?.resolve
+                      : undefined;
+                const tile = (
+                  <KpiTile
+                    variant="bar"
+                    label={s.label}
+                    value={s.value}
+                    sub={s.sub}
+                    accent={s.accent}
+                    icon={Clock3}
+                    goodDirection="down"
+                    help={s.help}
+                  />
+                );
+                if (s.key === 'dwell') {
+                  return <React.Fragment key={s.label}>{tile}</React.Fragment>;
+                }
+                return (
+                  <MetricHoverTrend
+                    key={s.label}
+                    metric={`${s.label} · daily mean`}
+                    points={timingSeries}
+                    windowLabel={timingTrends?.label ?? trendFallbackLabel}
+                    format={humanizeMins}
+                    colorToken={s.accent}
+                    side="top"
+                    // The tile's HelpTip (?) button is already a tab stop and focus
+                    // bubbles to the trigger (Radix opens the card on trigger focus),
+                    // so the wrapper must not add a second stop; the tile itself is
+                    // not clickable, so a press explicitly toggles the card (touch).
+                    focusable={false}
+                    toggleOnClick={true}
+                  >
+                    {tile}
+                  </MetricHoverTrend>
+                );
+              })}
+              <MetricHoverTrend
+                metric="LLM spend"
+                points={spendTrend}
+                windowLabel={trendFallbackLabel}
+                format={(n) => fmtMoney(n, usage?.currency)}
+                colorToken="primary"
+                // The tile is itself a button (retry / drill-through) whenever an
+                // action exists; only a nav-less static tile needs the wrapper stop.
+                focusable={!(usageUnavailable || Boolean(navigate))}
+                side="top"
+              >
                 <KpiTile
-                  key={s.label}
                   variant="bar"
-                  label={s.label}
-                  value={s.value}
-                  sub={s.sub}
-                  accent={s.accent}
-                  icon={Clock3}
+                  testId="llm-spend-detail"
+                  label="LLM spend"
+                  value={usageUnavailable ? 'Unavailable' : fmtMoney(usage?.total_cost, usage?.currency)}
+                  sub={
+                    usageUnavailable
+                      ? usageFailureSub
+                      : typeof usage?.total_tokens === 'number'
+                      ? `${fmtTokens(usage.total_tokens)} tokens · ${fmtNumber(usage.call_count)} calls`
+                      : 'No spend recorded'
+                  }
+                  icon={CircleDollarSign}
+                  accent={usageUnavailable ? 'critical' : 'primary'}
                   goodDirection="down"
-                  help={s.help}
+                  onClick={
+                    usageUnavailable
+                      ? () => void retryUsage()
+                      : navigate
+                        ? () => navigate('metrics', { tab: 'cost' })
+                        : undefined
+                  }
+                  className={usageUnavailable ? 'border-critical/30' : undefined}
                 />
-              ))}
-              <KpiTile
-                variant="bar"
-                testId="llm-spend-detail"
-                label="LLM spend"
-                value={usageUnavailable ? 'Unavailable' : fmtMoney(usage?.total_cost, usage?.currency)}
-                sub={
-                  usageUnavailable
-                    ? usageFailureSub
-                    : typeof usage?.total_tokens === 'number'
-                    ? `${fmtTokens(usage.total_tokens)} tokens · ${fmtNumber(usage.call_count)} calls`
-                    : 'No spend recorded'
-                }
-                icon={CircleDollarSign}
-                accent={usageUnavailable ? 'critical' : 'primary'}
-                goodDirection="down"
-                onClick={
-                  usageUnavailable
-                    ? () => void retryUsage()
-                    : navigate
-                      ? () => navigate('metrics', { tab: 'cost' })
-                      : undefined
-                }
-                className={usageUnavailable ? 'border-critical/30' : undefined}
-              />
+              </MetricHoverTrend>
             </div>
 
-            {/* Autonomy split (#3) · connector health */}
-            <Reveal variant="rise" className="grid gap-4 xl:grid-cols-2">
-              <DashboardGroup title="Autonomous vs human" description="how cases were resolved">
-                <Card>
-                  <CardContent className="space-y-4 py-4">
-                    <div className="flex items-center justify-center gap-2 text-4xl font-semibold tabular-nums">
-                      <ShieldCheck className="h-7 w-7 text-success" aria-hidden />
-                      <span className="text-foreground">{ratioPct(autonomy.automationPct)}</span>
-                    </div>
-                    <p className="text-center text-xs text-muted-foreground">
-                      resolved autonomously by the agent
-                    </p>
-                    <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full bg-success"
-                        style={{
-                          width: `${Math.round(
-                            (autonomy.autoClosed / (autonomy.autoClosed + autonomy.escalated || 1)) * 100,
-                          )}%`,
-                        }}
-                        aria-hidden
-                      />
-                      <div className="h-full flex-1 bg-high" aria-hidden />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="rounded-md border border-success/30 bg-success/5 px-3 py-2">
-                        <div className="font-mono text-lg font-semibold tabular-nums text-success-text">
-                          {fmtNumber(autonomy.autoClosed)}
-                        </div>
-                        <div className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-                          Auto-resolved
-                        </div>
-                      </div>
-                      <div className="rounded-md border border-high/30 bg-high/5 px-3 py-2">
-                        <div className="font-mono text-lg font-semibold tabular-nums text-high-text">
-                          {fmtNumber(autonomy.escalated)}
-                        </div>
-                        <div className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-                          Sent to human
-                        </div>
-                      </div>
-                    </div>
-                    <p className="text-2xs text-muted-foreground">
-                      Advisory only — the agent recommends; the deterministic case manager
-                      decides. This dashboard never influences that.
-                    </p>
-                  </CardContent>
-                </Card>
-              </DashboardGroup>
-
+            {/* Connector health. The former "Autonomous vs human" card that sat beside
+                it was REMOVED: it re-stated the Human-vs-AI instrument's story with a
+                third denominator (auto / (auto + escalated)) that matched neither the
+                server's `automation_rate` nor the closed-case partition. Its #3
+                advisory now lives on that one instrument. */}
+            <Reveal variant="rise" className="grid gap-4">
               <DashboardGroup title="Ingest coverage" description="am I seeing everything?">
                 <Card>
                   <CardContent className="py-4">

@@ -426,6 +426,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/mfa/enroll-confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mfa Enroll Confirm
+         * @description Complete MANDATED MFA enrollment during login (PUBLIC — gated by the pending
+         *     token): verify the TOTP code against the PENDING secret, persist the enrollment
+         *     (exactly like /auth/mfa/confirm), then mint the FULL session + cookie exactly
+         *     like the /auth/mfa/verify success tail — the user lands fully signed in.
+         */
+        post: operations["mfa_enroll_confirm_api_auth_mfa_enroll_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/mfa/enroll-setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mfa Enroll Setup
+         * @description Begin MANDATED MFA enrollment during login (PUBLIC — gated by the pending
+         *     token). Same response shape as the session-authed /auth/mfa/setup: a PENDING
+         *     TOTP secret + otpauth URI + one-time recovery codes. Nothing is persisted until
+         *     the user proves possession via /auth/mfa/enroll-confirm.
+         */
+        post: operations["mfa_enroll_setup_api_auth_mfa_enroll_setup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/mfa/setup": {
         parameters: {
             query?: never;
@@ -2421,6 +2467,33 @@ export interface paths {
          *     Resilient by design: each source runs under ``asyncio.wait_for`` and the whole set
          *     under ``gather(return_exceptions=True)``, so one slow or failing source degrades to
          *     a per-source error entry and NEVER blocks the rest (partial success).
+         *
+         *     ``source_id`` (OPTIONAL) scopes the fan-out to exactly one source, mirroring the
+         *     private preview reader in ``routes_rules._read_recent_events``. Omitting it is the
+         *     byte-identical all-sources behaviour. A ``source_id`` that is not visible in the
+         *     CURRENT mode is a 404 — while Demo Mode is active a real tenant id is
+         *     indistinguishable from an unknown one, so demo isolation leaks nothing — and a
+         *     visible id that is not an eligible browse target for this route (disabled, no
+         *     registered connector, or no ``browse`` capability) is a 501, the same status and
+         *     detail the per-source sibling route uses.
+         *
+         *     Each per-source status entry carries ``mode``: ``"search"`` = a real backing search
+         *     (``from``/``to``/``query`` apply) and ``"buffer"`` = a push source's process-local,
+         *     volatile in-memory live-tail ring, where ``from``/``to``/``query`` are IGNORED and
+         *     nothing survives a restart. Without it a caller cannot tell a time-ranged query from
+         *     a ring read in the merged view. ``mode`` describes the FILTERS, not the durability
+         *     of the backing store: a Demo Mode adapter reports ``"search"`` because it really
+         *     does apply ``from``/``to``/``query``.
+         *
+         *     BOUNDED, NOT COMPLETE. ``limit`` is clamped to 1..200 and applied per source AND on
+         *     the merge; there is NO pagination, cursor, or offset. The envelope echoes the
+         *     effective ``limit`` and a ``truncated`` flag so a caller can say "most recent N"
+         *     rather than implying it has seen everything. Each per-source status carries its own
+         *     ``truncated``, computed by the SAME ``_browse_truncated`` rule the per-source
+         *     sibling route uses, and the envelope ``truncated`` is the OR of the merge being cut
+         *     with any single source being cut — so scoping to one source, or running a
+         *     single-source deployment, reports exactly what ``GET /sources/{id}/logs`` reports
+         *     for that same read.
          */
         get: operations["unified_logs_api_logs_get"];
         put?: never;
@@ -2662,6 +2735,52 @@ export interface paths {
          *     equal-length window. SLA targets come from ``Preferences.sla`` (advisory; #3).
          */
         get: operations["metrics_posture_api_metrics_posture_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metrics/trends": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Metrics Trends
+         * @description Bucketed case-cohort + raw-alert trends over the trailing ``window_hours``
+         *     (clamped to 1..720) — the Overview hover-trendline feed.
+         *
+         *     FROZEN response contract::
+         *
+         *         {"window_hours": int, "bucket_minutes": int, "generated_at": iso8601,
+         *          "buckets": [{"t": iso8601 bucket-start UTC, "new_cases": int, "closed": int,
+         *                       "auto_closed": int, "false_positives": int, "needs_human": int,
+         *                       "escalated": int, "fp_rate": float 0-100 | null,
+         *                       "alerts": int | null}],
+         *          "truncated": bool, "store_total": int, "fetched": int}
+         *
+         *     ``bucket_minutes`` follows the frozen ladder (<=24h → 60, <=72h → 180,
+         *     <=168h → 360, else 1440); buckets are UTC-aligned, zero-filled across the whole
+         *     window, newest bucket partial. Cohort counts reuse the exact
+         *     ``engine.metrics.quality_metrics`` field/verdict/decision_by semantics so they
+         *     reconcile with the posture tiles; ``fp_rate`` mirrors posture's
+         *     ``false_positive_rate`` numerator/denominator within the bucket (null when no
+         *     verdicted case). ``alerts`` comes from the durable noise counters' per-hour
+         *     ingested tallies (null when the counters are warming up / unreadable, and for
+         *     buckets predating their first observation).
+         *
+         *     Served from the SAME shared short-TTL case page as the other posture rollups
+         *     (one store scan per TTL window), computed over up to the most-recent
+         *     ``_STORE_FETCH_LIMIT`` cases — the ``truncated``/``store_total``/``fetched``
+         *     marker keeps a partial (newest-N) tally honest. DETERMINISTIC + advisory:
+         *     nothing here is read by ``case_manager.decide()`` (#3).
+         */
+        get: operations["metrics_trends_api_metrics_trends_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4397,10 +4516,12 @@ export interface paths {
          *
          *     Returns ``{sources_total, sources_enabled, sources_silent, events_per_min,
          *     alerts_triaged_24h, worst_last_event_seconds}`` computed over the configured sources,
-         *     or over the isolated native demo sources while Demo Mode is active. ``alerts_triaged_24h`` is
-         *     the count of cases opened in the last 24h computed with the SAME window filter the
-         *     ``/metrics/noise-reduction`` endpoint uses, so the two agree. Never raises — every
-         *     sub-lookup degrades to a safe zero (#3/#4/#6/#9 untouched).
+         *     or over the isolated native demo sources while Demo Mode is active. ``alerts_triaged_24h``
+         *     is the count of cases created in the last 24h, answered by a repository COUNT
+         *     push-down (``CaseRepository.count_created_since`` — one backend count, zero full
+         *     documents fetched) over the same 24h window the ``/metrics/noise-reduction``
+         *     funnel's ``cases`` stage uses. Never raises — every sub-lookup degrades to a safe
+         *     zero (#3/#4/#6/#9 untouched).
          */
         get: operations["sources_coverage_api_sources_coverage_get"];
         put?: never;
@@ -4524,6 +4645,20 @@ export interface paths {
          *     data_view_pattern (and its own TLS settings); push sources return the last N
          *     ingested events from the in-memory live-tail buffer. Hard-capped; secrets are
          *     never returned (rows are log data only).
+         *
+         *     BOUNDED, NOT COMPLETE. ``limit`` is clamped to 1..200 and there is NO pagination,
+         *     cursor, or offset: the response is always the MOST RECENT ``count`` rows for the
+         *     requested window, never the full match set. The envelope echoes the effective
+         *     ``limit`` and a ``truncated`` flag so a caller can say "most recent N" instead of
+         *     implying completeness. ``mode`` distinguishes the two read paths:
+         *     ``"search"`` = a real backing search (``from``/``to``/``query`` apply, and
+         *     ``total`` reports the match count when the connector supplies one) and
+         *     ``"buffer"`` = a push source's process-local, volatile in-memory live-tail ring,
+         *     where ``from``/``to``/``query`` are IGNORED and nothing survives a restart.
+         *     ``mode`` describes the FILTERS, never the durability of the backing store: a Demo
+         *     Mode adapter reports ``"search"`` because it really does apply
+         *     ``from``/``to``/``query`` and really does report a match ``total``, even though the
+         *     ring it searches is itself in-memory.
          */
         get: operations["source_logs_api_sources__source_id__logs_get"];
         put?: never;
@@ -6555,6 +6690,17 @@ export interface components {
          */
         HealthResponse: {
             /**
+             * Degraded
+             * @description Whether a subsystem the product depends on is impaired while the state store itself is reachable. Additive: `status` keeps its historical meaning (state-store readiness) so existing clients are unaffected.
+             * @default false
+             */
+            degraded: boolean;
+            /**
+             * Degraded Reasons
+             * @description Opaque, closed-vocabulary codes naming each active degradation. This endpoint is PUBLIC, so it carries no counts, source names or posture detail — the authenticated /api/diagnostics/health surface owns those.
+             */
+            degraded_reasons?: string[];
+            /**
              * Es Connected
              * @description Compatibility alias for state_store_connected; this does not describe log-source Elasticsearch connectivity.
              */
@@ -6618,7 +6764,7 @@ export interface components {
          * @description Registered server-owned long-operation kinds.
          * @enum {string}
          */
-        JobKind: "case_reinvestigate" | "case_lifecycle" | "case_assign" | "case_tag" | "data_export_archive" | "data_export_segment" | "precedent_bootstrap" | "runbook_reindex" | "rag_import" | "tiered_reset" | "storage_lifecycle_apply";
+        JobKind: "case_reinvestigate" | "case_lifecycle" | "case_assign" | "case_tag" | "data_export_archive" | "data_export_segment" | "precedent_bootstrap" | "runbook_reindex" | "rag_import" | "rag_rebuild" | "tiered_reset" | "storage_lifecycle_apply";
         /** JobListResponse */
         JobListResponse: {
             /** Jobs */
@@ -6781,6 +6927,18 @@ export interface components {
         MfaCodeBody: {
             /** Code */
             code: string;
+        };
+        /** MfaEnrollConfirmBody */
+        MfaEnrollConfirmBody: {
+            /** Code */
+            code: string;
+            /** Pending Token */
+            pending_token: string;
+        };
+        /** MfaEnrollSetupBody */
+        MfaEnrollSetupBody: {
+            /** Pending Token */
+            pending_token: string;
         };
         /** MfaVerifyBody */
         MfaVerifyBody: {
@@ -8328,8 +8486,30 @@ export interface components {
         };
         /** UserCreateBody */
         UserCreateBody: {
+            /** Custom Roles */
+            custom_roles?: string[] | null;
+            /**
+             * Display Name
+             * @default
+             */
+            display_name: string;
+            /**
+             * Email
+             * @default
+             */
+            email: string;
+            /**
+             * Mfa Required
+             * @default false
+             */
+            mfa_required: boolean;
             /** Password */
             password: string;
+            /**
+             * Phone
+             * @default
+             */
+            phone: string;
             /**
              * Role
              * @default analyst_tier1
@@ -8378,10 +8558,18 @@ export interface components {
         UserUpdateBody: {
             /** Active */
             active?: boolean | null;
+            /** Display Name */
+            display_name?: string | null;
+            /** Email */
+            email?: string | null;
             /** Mfa Enabled */
             mfa_enabled?: boolean | null;
+            /** Mfa Required */
+            mfa_required?: boolean | null;
             /** Password */
             password?: string | null;
+            /** Phone */
+            phone?: string | null;
             /** Role */
             role?: string | null;
         };
@@ -9114,6 +9302,72 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["MfaCodeBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mfa_enroll_confirm_api_auth_mfa_enroll_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaEnrollConfirmBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mfa_enroll_setup_api_auth_mfa_enroll_setup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaEnrollSetupBody"];
             };
         };
         responses: {
@@ -12183,6 +12437,7 @@ export interface operations {
                 query?: string | null;
                 from?: string | null;
                 to?: string | null;
+                source_id?: string | null;
                 per_source_timeout?: number;
             };
             header?: never;
@@ -12538,6 +12793,37 @@ export interface operations {
             query?: {
                 window_hours?: number;
                 compare?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    metrics_trends_api_metrics_trends_get: {
+        parameters: {
+            query?: {
+                window_hours?: number;
             };
             header?: never;
             path?: never;

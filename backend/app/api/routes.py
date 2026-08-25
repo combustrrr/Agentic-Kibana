@@ -138,6 +138,22 @@ class HealthResponse(BaseModel):
     )
     store_type: str
     setup_complete: bool
+    degraded: bool = Field(
+        default=False,
+        description=(
+            "Whether a subsystem the product depends on is impaired while the state "
+            "store itself is reachable. Additive: `status` keeps its historical "
+            "meaning (state-store readiness) so existing clients are unaffected."
+        ),
+    )
+    degraded_reasons: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Opaque, closed-vocabulary codes naming each active degradation. This "
+            "endpoint is PUBLIC, so it carries no counts, source names or posture "
+            "detail — the authenticated /api/diagnostics/health surface owns those."
+        ),
+    )
 
 
 class LivenessResponse(BaseModel):
@@ -220,14 +236,76 @@ def _release_channel(configured: str | None = None) -> str:
     return "testing"
 
 
+# --------------------------------------------------------------------------- #
+# Public degradation codes. CLOSED vocabulary, deliberately opaque.
+# --------------------------------------------------------------------------- #
+# ``/api/health`` is anonymous (the Console reads it before login), so it may never
+# publish corpus counts, source names or detection posture — that detail lives on the
+# ``settings:read``-gated ``/api/diagnostics/health``. But the incident this exists for
+# ran for three days with this endpoint returning ``ok`` and the Console showing
+# "Healthy" while the corpus sat at zero, so a coarse, count-free signal must be here:
+# it is the only surface polled continuously and visible without a page visit.
+DEGRADED_RAG_CORPUS_EMPTY = "rag_corpus_empty"
+DEGRADED_RAG_PROJECTION_REFUSED = "rag_projection_refused"
+DEGRADED_LLM_PROVIDER_UNAUTHENTICATED = "llm_provider_unauthenticated"
+DEGRADED_LLM_PROVIDER_QUOTA = "llm_provider_quota_exhausted"
+DEGRADED_LLM_PROVIDER_UNAVAILABLE = "llm_provider_unavailable"
+
+
+def _degraded_reasons(state: AppState) -> list[str]:
+    """Active degradations, from CACHED in-process state only.
+
+    Hard constraint: this runs on an anonymous, un-rate-limited endpoint that the
+    Console polls every 15 seconds, so it must never touch the vector store, the case
+    store or the network. In particular it must never reach ``rag_stats()`` /
+    ``list_documents()``, which call ``ensure_seeded()`` first — that would let an
+    unauthenticated caller trigger an embedding spend (#6). Every value read here is
+    already resident in memory. Fail-open: a health read never raises.
+    """
+    reasons: list[str] = []
+    try:
+        rag = getattr(state, "rag", None)
+        rag_cfg = getattr(getattr(state, "prefs", None), "rag", None)
+        if rag is not None and bool(getattr(rag_cfg, "enabled", False)):
+            # ``corpus_empty`` is published by the retrieval path, which already knows
+            # the count it just read — no extra read is performed here.
+            if bool(getattr(rag, "corpus_degraded", False)):
+                reasons.append(DEGRADED_RAG_CORPUS_EMPTY)
+            refusal = getattr(rag, "last_refusal", None)
+            if isinstance(refusal, dict) and refusal.get("collapsed"):
+                reasons.append(DEGRADED_RAG_PROJECTION_REFUSED)
+    except Exception:  # noqa: BLE001 — health must never fail on observability
+        logger.debug("RAG degradation probe failed", exc_info=True)
+    try:
+        tracker = getattr(state, "_provider_health", None)
+        provider_state = tracker.snapshot()["state"] if tracker is not None else "ok"
+        reasons.extend(
+            {
+                "unauthenticated": [DEGRADED_LLM_PROVIDER_UNAUTHENTICATED],
+                "quota_exhausted": [DEGRADED_LLM_PROVIDER_QUOTA],
+                "unavailable": [DEGRADED_LLM_PROVIDER_UNAVAILABLE],
+                "unsupported": [DEGRADED_LLM_PROVIDER_UNAVAILABLE],
+            }.get(str(provider_state), [])
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("provider degradation probe failed", exc_info=True)
+    return sorted(set(reasons))
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health(state: AppState = Depends(get_state)) -> HealthResponse:
     ready, store_type = await _state_store_probe(state)
     state_backend = str(
         getattr(state.secrets, "state_backend", "elasticsearch") or "elasticsearch"
     )
+    reasons = _degraded_reasons(state)
     return HealthResponse(
+        # ``status`` keeps its historical meaning — state-store readiness — because
+        # release/update tooling gates on `status == 'ok'`. A subsystem degradation is
+        # reported additively so it can be surfaced without blocking those flows.
         status="ok" if ready else "degraded",
+        degraded=bool(reasons),
+        degraded_reasons=reasons,
         version=__version__,
         # Backward-compatible wire name: this now truthfully represents the OWN-state
         # backend (ES, PostgreSQL, or SQLite), which is what existing clients use it for.
@@ -603,7 +681,15 @@ async def list_sources(
     # preserved untouched and returns immediately on disable.
     if state.demo_active:
         return {"sources": state.demo_sources_overlay()}
-    rows = [s.model_dump(mode="json") for s in state.prefs.sources]
+    # `can_browse` is SERVER-AUTHORITATIVE and additive: it is the SAME
+    # `_source_can_browse` predicate the browse routes gate on, so the inventory, the
+    # health view, the demo overlays, and `GET /api/logs` cannot disagree about which
+    # sources are browsable. Never trust a client-side re-derivation.
+    reg = get_registry()
+    rows = [
+        {**s.model_dump(mode="json"), "can_browse": _source_can_browse(reg, s)}
+        for s in state.prefs.sources
+    ]
     return {"sources": rows}
 
 
@@ -904,6 +990,23 @@ def _log_row(ev) -> dict[str, Any]:
     }
 
 
+def _browse_truncated(returned: int, limit: int, total: int | None) -> bool:
+    """Honest "there is more than this" flag for a bounded browse read.
+
+    Browse has NO pagination: every read is "the most recent ``limit`` rows". When a
+    connector reports a coherent match ``total`` we answer EXACTLY from it and stop —
+    a known total equal to the returned row count means nothing was cut, even when the
+    page is exactly saturated (``total == returned == limit`` is complete, not "more
+    exist"). Only when the total is absent or incoherent (push live-tail buffers,
+    connectors that omit or under-report ``total``) is a full page the sole evidence
+    available, and a saturated page is then reported as truncated. ``False`` never
+    means "complete" for a caller that wants completeness — it only means nothing was
+    demonstrably cut."""
+    if total is not None and total >= returned:
+        return total > returned
+    return returned >= limit
+
+
 @router.get("/sources/{source_id}/logs")
 async def source_logs(
     source_id: str,
@@ -919,7 +1022,21 @@ async def source_logs(
     Pull sources run a scoped read-only search honoring the source's field mapping +
     data_view_pattern (and its own TLS settings); push sources return the last N
     ingested events from the in-memory live-tail buffer. Hard-capped; secrets are
-    never returned (rows are log data only)."""
+    never returned (rows are log data only).
+
+    BOUNDED, NOT COMPLETE. ``limit`` is clamped to 1..200 and there is NO pagination,
+    cursor, or offset: the response is always the MOST RECENT ``count`` rows for the
+    requested window, never the full match set. The envelope echoes the effective
+    ``limit`` and a ``truncated`` flag so a caller can say "most recent N" instead of
+    implying completeness. ``mode`` distinguishes the two read paths:
+    ``"search"`` = a real backing search (``from``/``to``/``query`` apply, and
+    ``total`` reports the match count when the connector supplies one) and
+    ``"buffer"`` = a push source's process-local, volatile in-memory live-tail ring,
+    where ``from``/``to``/``query`` are IGNORED and nothing survives a restart.
+    ``mode`` describes the FILTERS, never the durability of the backing store: a Demo
+    Mode adapter reports ``"search"`` because it really does apply
+    ``from``/``to``/``query`` and really does report a match ``total``, even though the
+    ring it searches is itself in-memory."""
     limit = max(1, min(int(limit or 100), 200))  # hard cap
     # The four protocol-faithful demo adapters never enter prefs.sources. Their bounded
     # native-derived rings are exposed through the same browse row contract, with source
@@ -948,9 +1065,15 @@ async def source_logs(
                 row["source_name"] = source_name
             return {
                 "source_id": source_id,
-                "mode": "buffer",
+                # A demo adapter runs a REAL filtered search over its ring: the
+                # `contains`/`time_from`/`time_to` above are all honoured and `total`
+                # is a real match count, so the honest mode is "search". Calling it a
+                # "buffer" would tell the operator the range/query did not apply.
+                "mode": "search",
                 "count": len(rows),
                 "total": result.total,
+                "limit": limit,
+                "truncated": _browse_truncated(len(rows), limit, result.total),
                 "logs": rows,
                 "query": result.rendering.query if result.rendering else (query or "*"),
             }
@@ -968,7 +1091,9 @@ async def source_logs(
     # PUSH receivers → the live-tail buffer.
     if reg.is_receiver(src.source_type):
         rows = [_log_row(ev) for ev in state.ingest_service.recent_events_for_source(source_id, limit)]
-        return {"source_id": source_id, "mode": "buffer", "count": len(rows), "logs": rows}
+        return {"source_id": source_id, "mode": "buffer", "count": len(rows),
+                "limit": limit, "truncated": _browse_truncated(len(rows), limit, None),
+                "logs": rows}
 
     # PULL connectors → a bounded, read-only scoped search honoring per-source TLS.
     if reg.is_pull(src.source_type):
@@ -994,7 +1119,10 @@ async def source_logs(
                 raise HTTPException(status_code=502, detail=f"log read failed: {exc}") from exc
             rows = [_log_row(ev) for ev in result.events]
             return {"source_id": source_id, "mode": "search", "count": len(rows),
-                    "total": result.total, "logs": rows,
+                    "total": result.total,
+                    "limit": limit,
+                    "truncated": _browse_truncated(len(rows), limit, result.total),
+                    "logs": rows,
                     "query": result.rendering.query if result.rendering else None}
         finally:
             if owned:
@@ -1030,6 +1158,7 @@ async def unified_logs(
     query: str | None = None,
     from_: str | None = Query(default=None, alias="from"),
     to: str | None = None,
+    source_id: str | None = None,
     per_source_timeout: float = 8.0,
     state: AppState = Depends(get_state),
     _=Depends(require_permission("sources", "read")),
@@ -1045,14 +1174,71 @@ async def unified_logs(
 
     Resilient by design: each source runs under ``asyncio.wait_for`` and the whole set
     under ``gather(return_exceptions=True)``, so one slow or failing source degrades to
-    a per-source error entry and NEVER blocks the rest (partial success)."""
+    a per-source error entry and NEVER blocks the rest (partial success).
+
+    ``source_id`` (OPTIONAL) scopes the fan-out to exactly one source, mirroring the
+    private preview reader in ``routes_rules._read_recent_events``. Omitting it is the
+    byte-identical all-sources behaviour. A ``source_id`` that is not visible in the
+    CURRENT mode is a 404 — while Demo Mode is active a real tenant id is
+    indistinguishable from an unknown one, so demo isolation leaks nothing — and a
+    visible id that is not an eligible browse target for this route (disabled, no
+    registered connector, or no ``browse`` capability) is a 501, the same status and
+    detail the per-source sibling route uses.
+
+    Each per-source status entry carries ``mode``: ``"search"`` = a real backing search
+    (``from``/``to``/``query`` apply) and ``"buffer"`` = a push source's process-local,
+    volatile in-memory live-tail ring, where ``from``/``to``/``query`` are IGNORED and
+    nothing survives a restart. Without it a caller cannot tell a time-ranged query from
+    a ring read in the merged view. ``mode`` describes the FILTERS, not the durability
+    of the backing store: a Demo Mode adapter reports ``"search"`` because it really
+    does apply ``from``/``to``/``query``.
+
+    BOUNDED, NOT COMPLETE. ``limit`` is clamped to 1..200 and applied per source AND on
+    the merge; there is NO pagination, cursor, or offset. The envelope echoes the
+    effective ``limit`` and a ``truncated`` flag so a caller can say "most recent N"
+    rather than implying it has seen everything. Each per-source status carries its own
+    ``truncated``, computed by the SAME ``_browse_truncated`` rule the per-source
+    sibling route uses, and the envelope ``truncated`` is the OR of the merge being cut
+    with any single source being cut — so scoping to one source, or running a
+    single-source deployment, reports exactly what ``GET /sources/{id}/logs`` reports
+    for that same read."""
     import asyncio
 
     limit = max(1, min(int(limit or 100), 200))  # hard cap (per source AND on the merge)
     timeout = max(0.5, min(float(per_source_timeout or 8.0), 30.0))
     reg = get_registry()
+    source_id = (source_id or "").strip() or None
 
-    async def _read_pull(src) -> list[dict[str, Any]]:
+    # Resolve the optional scope BEFORE any read coroutine is constructed (an unawaited
+    # coroutine would leak on the raise path). Statuses mirror the per-source sibling.
+    if source_id is not None:
+        if state.demo_active:
+            if source_id not in {
+                str(row.get("id")) for row in state.demo_sources_overlay()
+            }:
+                # Identical to an unknown id: a demo session never reveals whether a
+                # real tenant source exists behind it.
+                raise HTTPException(status_code=404, detail="Source not found")
+        else:
+            scoped = next((s for s in state.prefs.sources if s.id == source_id), None)
+            if scoped is None:
+                raise HTTPException(status_code=404, detail="Source not found")
+            if (
+                not scoped.enabled
+                or not _source_can_browse(reg, scoped)
+                or reg.get(scoped.source_type) is None
+            ):
+                raise HTTPException(
+                    status_code=501,
+                    detail="Browsing logs is not supported for this source",
+                )
+
+    # Every read returns (rows, total) where `total` is the connector's match count
+    # when it supplies one and None when it cannot (live-tail rings). The pair is what
+    # lets the merged envelope apply the SAME `_browse_truncated` rule per source that
+    # `GET /sources/{id}/logs` applies, instead of only asking whether the merge itself
+    # overflowed (which one source can never do, since each is read at `limit`).
+    async def _read_pull(src) -> tuple[list[dict[str, Any]], int | None]:
         es_client, owned = state.es_client_for_source(src)
         try:
             from ..connectors.base import StructuredQuery
@@ -1070,7 +1256,7 @@ async def unified_logs(
                 size=limit, sort_desc=True,
             )
             result = await conn.search(state.prefs, sq)
-            return [_log_row(ev) for ev in result.events]
+            return [_log_row(ev) for ev in result.events], result.total
         finally:
             if owned:
                 try:
@@ -1078,14 +1264,17 @@ async def unified_logs(
                 except Exception:  # noqa: BLE001
                     pass
 
-    async def _read_push(src) -> list[dict[str, Any]]:
-        return [_log_row(ev)
+    async def _read_push(src) -> tuple[list[dict[str, Any]], int | None]:
+        # A live-tail ring has no match total to report — None keeps the saturated-page
+        # heuristic in `_browse_truncated`.
+        rows = [_log_row(ev)
                 for ev in state.ingest_service.recent_events_for_source(src.id, limit)]
+        return rows, None
 
-    async def _read_demo(src) -> list[dict[str, Any]]:
+    async def _read_demo(src) -> tuple[list[dict[str, Any]], int | None]:
         conn = state.demo_source_connector(src.id)
         if conn is None:
-            return []
+            return [], None
         from ..connectors.base import StructuredQuery
 
         result = await conn.search(
@@ -1095,11 +1284,13 @@ async def unified_logs(
                 size=limit, sort_desc=True,
             ),
         )
-        return [_log_row(ev) for ev in result.events]
+        return [_log_row(ev) for ev in result.events], result.total
 
     # Select the enabled + browse-capable sources and pair each read coroutine with its
     # source (for provenance + error attribution). Unsupported sources are skipped.
-    targets: list[tuple[Any, Any]] = []
+    # (src, coroutine, mode) — `mode` is carried alongside so the per-source status can
+    # report a volatile live-tail ring vs a real backing search even when the read fails.
+    targets: list[tuple[Any, Any, str]] = []
     if state.demo_active:
         from types import SimpleNamespace
 
@@ -1107,30 +1298,37 @@ async def unified_logs(
             sid = str(row.get("id"))
             if not sid:
                 continue
+            if source_id is not None and sid != source_id:
+                continue
             src = SimpleNamespace(id=sid, display_name=row.get("display_name") or sid)
-            targets.append((src, _read_demo(src)))
+            # "search", not "buffer": the demo adapter's read is a real filtered search
+            # over its ring (from/to/query all apply, and it reports a match total).
+            targets.append((src, _read_demo(src), "search"))
     else:
         for src in state.prefs.sources:
             if not src.enabled or not _source_can_browse(reg, src):
+                continue
+            if source_id is not None and src.id != source_id:
                 continue
             cls = reg.get(src.source_type)
             if cls is None:
                 continue
             if reg.is_receiver(src.source_type):
-                targets.append((src, _read_push(src)))
+                targets.append((src, _read_push(src), "buffer"))
             elif reg.is_pull(src.source_type):
-                targets.append((src, _read_pull(src)))
+                targets.append((src, _read_pull(src), "search"))
 
     async def _guarded(coro):
         return await asyncio.wait_for(coro, timeout=timeout)
 
     results = await asyncio.gather(
-        *[_guarded(coro) for _, coro in targets], return_exceptions=True
+        *[_guarded(coro) for _, coro, _mode in targets], return_exceptions=True
     )
 
     merged: list[dict[str, Any]] = []
     source_status: list[dict[str, Any]] = []
-    for (src, _coro), outcome in zip(targets, results):
+    any_source_truncated = False
+    for (src, _coro, mode), outcome in zip(targets, results):
         if isinstance(outcome, Exception):
             source_status.append({
                 "source_id": src.id, "source_name": src.display_name or src.id,
@@ -1138,28 +1336,52 @@ async def unified_logs(
                 "error": ("timeout" if isinstance(outcome, asyncio.TimeoutError)
                           else str(outcome)),
                 "count": 0,
+                "mode": mode,
+                # A read that failed returned nothing; it cut nothing either. The
+                # honest signal for "you are missing rows here" is `ok: False`.
+                "truncated": False,
             })
             continue
-        rows = outcome or []
+        rows, total = outcome if isinstance(outcome, tuple) else (outcome or [], None)
         for row in rows:
             # MANDATORY provenance — overwrite (never trust a per-source row to self-label).
             row["source_id"] = src.id
             row["source_name"] = src.display_name or src.id
         merged.extend(rows)
+        # The SAME rule the per-source sibling route applies to this identical read.
+        src_truncated = _browse_truncated(len(rows), limit, total)
+        any_source_truncated = any_source_truncated or src_truncated
         source_status.append({
             "source_id": src.id, "source_name": src.display_name or src.id,
             "ok": True, "count": len(rows),
+            # "search" = a real backing query (from/to/query applied); "buffer" = a
+            # volatile process-local live-tail ring that IGNORES from/to/query.
+            "mode": mode,
+            # This source's own rows were demonstrably cut (its page saturated, or its
+            # connector reported more matches than it returned).
+            "truncated": src_truncated,
         })
 
     # Merge newest-first by ts (ISO strings sort lexicographically for UTC; empty ts
     # sorts last). Then hard-cap the merged view.
     merged.sort(key=lambda r: (r.get("ts") or ""), reverse=True)
+    gathered = len(merged)
     merged = merged[:limit]
     return {
         "logs": merged,
         "count": len(merged),
         "sources": source_status,
         "partial": any(not s["ok"] for s in source_status),
+        # The bound is part of the contract: this is the most recent `count` rows, not
+        # a complete result.
+        "limit": limit,
+        # True when the MERGE was cut, OR when any single source's own read was cut —
+        # each source is itself read at `limit`, so with one target the merge can never
+        # overflow and only the per-source signal is honest. Without the OR this route
+        # reported `false` for the very same read the per-source sibling reports as
+        # truncated. `false` still does not mean "complete" for a caller that wants
+        # completeness (there is no pagination) — it means nothing was demonstrably cut.
+        "truncated": gathered > limit or any_source_truncated,
     }
 
 
@@ -1318,10 +1540,12 @@ async def sources_coverage(
 
     Returns ``{sources_total, sources_enabled, sources_silent, events_per_min,
     alerts_triaged_24h, worst_last_event_seconds}`` computed over the configured sources,
-    or over the isolated native demo sources while Demo Mode is active. ``alerts_triaged_24h`` is
-    the count of cases opened in the last 24h computed with the SAME window filter the
-    ``/metrics/noise-reduction`` endpoint uses, so the two agree. Never raises — every
-    sub-lookup degrades to a safe zero (#3/#4/#6/#9 untouched)."""
+    or over the isolated native demo sources while Demo Mode is active. ``alerts_triaged_24h``
+    is the count of cases created in the last 24h, answered by a repository COUNT
+    push-down (``CaseRepository.count_created_since`` — one backend count, zero full
+    documents fetched) over the same 24h window the ``/metrics/noise-reduction``
+    funnel's ``cases`` stage uses. Never raises — every sub-lookup degrades to a safe
+    zero (#3/#4/#6/#9 untouched)."""
     # Demo reads are intentionally scoped to the throwaway demo stack, just like cases,
     # metrics, usage, and RAG. Including the four real simulator rows avoids the previous
     # misleading 0/0 coverage tile without leaking tenant-source health into a demo.
@@ -1342,14 +1566,15 @@ async def sources_coverage(
         if lev > 0:
             worst = max(worst, (now_ms - lev) // 1000)
 
-    # Cases opened in the last 24h — the SAME newest-N page + 24h window the noise-reduction
-    # funnel's ``cases`` stage uses, so ``alerts_triaged_24h`` is cross-consistent with it.
+    # Cases created in the last 24h — a pure repository COUNT (no 5000-document fetch
+    # just to ``len()`` a window). The 24h boundary is the same cutoff the noise-
+    # reduction funnel's ``cases`` stage windows on, so the two stay consistent.
     alerts_triaged = 0
     try:
-        cases, _total = await state.cases.list(limit=5000)
-        from ..engine.metrics import _window_filter
+        from datetime import timedelta
 
-        alerts_triaged = len(_window_filter(list(cases), window_hours=24))
+        since_iso = (now_utc() - timedelta(hours=24)).isoformat()
+        alerts_triaged = int(await state.cases.count_created_since(since_iso))
     except Exception:  # noqa: BLE001 — a store hiccup degrades to 0, never a 500
         alerts_triaged = 0
 
@@ -2995,7 +3220,14 @@ async def playbook_update(
 # --------------------------------------------------------------------------- #
 @router.get("/metrics")
 async def metrics(window_hours: int = 24, state: AppState = Depends(get_state)) -> dict[str, Any]:
-    cases, total = await state.cases.list(limit=2000)
+    # Served through the shared short-TTL page cache (api/metrics_shared) so the
+    # Overview's LIVE 5s poll re-serves one scan instead of re-fetching 2000 full
+    # documents per refresh. Keyed by (store identity, limit) — Demo Mode's store
+    # swap self-invalidates, and the 2000-row limit keeps this response's
+    # truncation semantics byte-identical.
+    from .metrics_shared import fetch_case_page
+
+    cases, total = await fetch_case_page(state.cases, 2000)
     out = compute_metrics(cases, total_cases=total)
     try:
         out["cost"] = await state.usage_store.summary(window_hours=max(1, window_hours))
@@ -3262,6 +3494,22 @@ async def auth_login(
     # return a SHORT-LIVED pending token the client exchanges at /auth/mfa/verify
     # with a TOTP/recovery code. A user with mfa_enabled=False is UNAFFECTED. ---
     if auth.requires_mfa(user.username):
+        # --- Mandated-enrollment phase 1 (additive): the account is REQUIRED to use
+        # MFA (per-user ``mfa_required`` mandate or role enforce_for_roles) but has
+        # not ENROLLED yet, so a code challenge is impossible. Return the SAME
+        # short-lived pending token plus ``mfa_enrollment_required`` — the client
+        # completes enrollment at /auth/mfa/enroll-setup + /auth/mfa/enroll-confirm
+        # (which then mints the full session). No cookie/session here either. ---
+        if not auth.mfa_enabled(user.username):
+            await state.control_audit.record(
+                action_type=ActionType.AUTH_EVENT, surface="auth", actor=user.username,
+                result_summary="password ok; mfa enrollment required",
+            )
+            return {
+                "requires_mfa": True,
+                "mfa_enrollment_required": True,
+                "pending_token": auth.begin_mfa(user.username),
+            }
         await state.control_audit.record(
             action_type=ActionType.AUTH_EVENT, surface="auth", actor=user.username,
             result_summary="password ok; mfa challenge issued",
@@ -3770,7 +4018,25 @@ async def update_account_me(
             raise HTTPException(
                 status_code=400, detail=f"prefs too large (max {_MAX_PREFS_JSON_LEN} bytes)"
             )
-        patch["prefs"] = body.prefs
+        # INVARIANT — ``prefs["custom_roles"]`` is a RESERVED key owned by the
+        # admin surfaces (``PUT /api/users/{u}/roles`` in routes_roles.py and the
+        # users:manage creation path): it is the assignment record that
+        # ``deps._assigned_custom_roles`` UNIONs into every live RBAC decision.
+        # A self-service profile update must NEVER add, remove, or reorder the
+        # caller's admin-assigned custom roles — otherwise any authenticated user
+        # could grant themselves an existing custom role's permissions by writing
+        # this key, bypassing the users:manage + fresh-auth gate. Whatever the
+        # client sent for the key is therefore discarded and the CURRENTLY STORED
+        # value is carried forward verbatim (stored absent → stripped). The rest
+        # of the bag stays a full replacement, so clients that round-trip the
+        # prefs they read from ``public()`` keep working unchanged (no 4xx).
+        sanitized_prefs = dict(body.prefs)
+        stored_prefs = user.prefs or {}
+        if "custom_roles" in stored_prefs:
+            sanitized_prefs["custom_roles"] = stored_prefs["custom_roles"]
+        else:
+            sanitized_prefs.pop("custom_roles", None)
+        patch["prefs"] = sanitized_prefs
     if not patch:
         raise HTTPException(status_code=400, detail="no changes provided")
     updated = await state.users.update(principal.username, **patch)
@@ -3986,6 +4252,158 @@ async def mfa_verify(
     )
     # Wave 3: register the session from the freshly-minted token (carries sid/tv).
     await _register_session(state, request, token, mfa_method=method)
+    response.set_cookie(
+        "tlsoc_token", token, httponly=True, samesite="lax",
+        secure=state.secrets.auth_cookie_secure,
+        max_age=state.secrets.auth_token_hours * 3600,
+    )
+    return {
+        "token": token,
+        "user": {
+            "username": principal.username,
+            "role": _resolved_role(state, principal),
+            "must_change_password": bool(principal.must_change_password),
+            "mfa_enabled": True,
+        },
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Mandated MFA enrollment DURING login (additive). When login returns
+# ``mfa_enrollment_required`` (required-but-not-enrolled), the client completes
+# enrollment here, gated by the SAME short-lived pending token (mfa:"pending") the
+# code-challenge path uses — NOT a full session (there is none yet). Both routes:
+#   * accept ONLY the pending-token kind (``pending_subject``; ``verify()`` keeps
+#     rejecting pending tokens everywhere else, so a pending token still cannot
+#     reach any protected route);
+#   * 400 for an env-managed account (no persisted User → cannot enroll; the
+#     requires_mfa lockout guard means it is never sent here anyway);
+#   * 400 for an ALREADY-ENROLLED account — a password-only attacker holding a
+#     pending token must never be able to REPLACE the existing factor (they must
+#     clear /auth/mfa/verify with the real one);
+#   * are audited at every step (#2).
+# --------------------------------------------------------------------------- #
+class MfaEnrollSetupBody(BaseModel):
+    pending_token: str
+
+
+class MfaEnrollConfirmBody(BaseModel):
+    pending_token: str
+    code: str
+
+
+async def _enroll_pending_user(state: AppState, pending_token: str):
+    """Resolve + guard the pending-token principal for the login-phase enrollment
+    routes. Returns ``(username, User)`` or raises 400/401 (see block comment)."""
+    auth = state.auth
+    if not auth.is_enabled:
+        raise HTTPException(status_code=400, detail="authentication is disabled")
+    username = auth.pending_subject(pending_token)
+    if username is None:
+        raise HTTPException(status_code=401, detail="invalid or expired pending session")
+    user = await state.users.get(username)
+    if user is None:
+        raise HTTPException(
+            status_code=400,
+            detail="this account is managed via environment configuration and cannot enroll MFA",
+        )
+    if user.mfa_enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="MFA is already enrolled for this account; verify with your existing factor",
+        )
+    if not auth.requires_mfa(username):
+        raise HTTPException(
+            status_code=400, detail="MFA enrollment is not required for this account"
+        )
+    return username, user
+
+
+@router.post("/auth/mfa/enroll-setup")
+async def mfa_enroll_setup(
+    body: MfaEnrollSetupBody, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """Begin MANDATED MFA enrollment during login (PUBLIC — gated by the pending
+    token). Same response shape as the session-authed /auth/mfa/setup: a PENDING
+    TOTP secret + otpauth URI + one-time recovery codes. Nothing is persisted until
+    the user proves possession via /auth/mfa/enroll-confirm."""
+    from ..auth import mfa as mfa_mod
+
+    username, _user = await _enroll_pending_user(state, body.pending_token)
+    digits, period = _mfa_params(state)
+    secret = mfa_mod.generate_secret()
+    recovery = mfa_mod.generate_recovery_codes(10)
+    uri = mfa_mod.provisioning_uri(
+        secret, username, _mfa_issuer(state), digits=digits, period=period
+    )
+    _MFA_PENDING_ENROLL[username.strip().lower()] = {
+        "secret": secret,
+        "recovery_hashes": [mfa_mod.hash_recovery_code(c) for c in recovery],
+    }
+    await state.control_audit.record(
+        action_type=ActionType.AUTH_EVENT, surface="auth", actor=username,
+        result_summary="mfa enrollment started (login-mandated)",
+    )
+    return {"secret": secret, "otpauth_uri": uri, "recovery_codes": recovery}
+
+
+@router.post("/auth/mfa/enroll-confirm")
+async def mfa_enroll_confirm(
+    body: MfaEnrollConfirmBody, request: Request, response: Response,
+    state: AppState = Depends(get_state),
+) -> dict[str, Any]:
+    """Complete MANDATED MFA enrollment during login (PUBLIC — gated by the pending
+    token): verify the TOTP code against the PENDING secret, persist the enrollment
+    (exactly like /auth/mfa/confirm), then mint the FULL session + cookie exactly
+    like the /auth/mfa/verify success tail — the user lands fully signed in."""
+    from ..auth import mfa as mfa_mod
+
+    auth = state.auth
+    username, user = await _enroll_pending_user(state, body.pending_token)
+    pending = _MFA_PENDING_ENROLL.get(username.strip().lower())
+    if not pending:
+        raise HTTPException(
+            status_code=400, detail="no pending MFA enrollment; call enroll-setup first"
+        )
+    digits, period = _mfa_params(state)
+    ok, step = mfa_mod.verify_totp(
+        pending["secret"], body.code, window=1, period=period, digits=digits
+    )
+    if not ok:
+        await state.control_audit.record(
+            action_type=ActionType.AUTH_EVENT, surface="auth", actor=username,
+            result_summary="mfa enrollment confirm failed",
+        )
+        raise HTTPException(status_code=401, detail="invalid code")
+    # Persist the enrollment (the same block as /auth/mfa/confirm).
+    obf = mfa_mod.obfuscate_secret(pending["secret"], state.secrets.mfa_server_key())
+    updated = user.model_copy(update={
+        "mfa_enabled": True,
+        "mfa_secret": obf,
+        "mfa_recovery_hashes": list(pending["recovery_hashes"]),
+        "mfa_last_step": int(step),
+    })
+    await state.users.save(updated)
+    await state.refresh_users()
+    _MFA_PENDING_ENROLL.pop(username.strip().lower(), None)
+    await state.control_audit.record(
+        action_type=ActionType.AUTH_EVENT, surface="auth", actor=username,
+        result_summary="mfa enabled (login-mandated enrollment)",
+    )
+    # Mint the FULL session — the /auth/mfa/verify success tail.
+    minted = auth.mint_session(username)
+    if minted is None:  # pragma: no cover — username verified above
+        raise HTTPException(status_code=401, detail="invalid credentials")
+    token, principal = minted
+    try:
+        await state.users.update(username, last_login_at=iso_now())
+    except Exception:  # noqa: BLE001
+        pass
+    await state.control_audit.record(
+        action_type=ActionType.AUTH_EVENT, surface="auth", actor=username,
+        result_summary="mfa login ok (totp; enrolled at login)",
+    )
+    await _register_session(state, request, token, mfa_method="totp")
     response.set_cookie(
         "tlsoc_token", token, httponly=True, samesite="lax",
         secure=state.secrets.auth_cookie_secure,
@@ -4376,6 +4794,18 @@ class UserCreateBody(BaseModel):
     username: str
     password: str
     role: str = UserRole.ANALYST_TIER1.value
+    # Admin-set profile/contact fields (optional, additive — plain text, #9).
+    # ``display_name`` doubles as the full name (the existing field — no duplicate).
+    display_name: str = ""
+    email: str = ""
+    phone: str = ""
+    # The MFA-enrollment MANDATE (required ≠ enrolled — never mints a secret; the
+    # ``mfa_enabled`` admin-enable guard below does NOT apply to this flag).
+    mfa_required: bool = False
+    # Existing CUSTOM roles to assign at creation (by name; validated exactly like
+    # PUT /api/users/{u}/roles and persisted into prefs["custom_roles"] the same
+    # way). The BASE ``role`` must remain one of the six built-ins.
+    custom_roles: list[str] | None = None
 
 
 class UserUpdateBody(BaseModel):
@@ -4386,6 +4816,12 @@ class UserUpdateBody(BaseModel):
     # device). Only False is honored here; enabling MFA is always a self-service
     # enroll (setup→confirm) so the user actually possesses the authenticator.
     mfa_enabled: bool | None = None
+    # Admin-set profile/contact fields + the MFA mandate (None = leave unchanged;
+    # clearing a text field is an explicit empty string).
+    display_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    mfa_required: bool | None = None
 
 
 _VALID_ROLES = {r.value for r in UserRole}
@@ -4395,6 +4831,65 @@ def _validate_role(role: str) -> str:
     if role not in _VALID_ROLES:
         raise HTTPException(status_code=400, detail=f"unknown role: {role}")
     return role
+
+
+def _validate_email_text(value: str) -> str:
+    """Lenient contact-email sanity: capped plain text that contains an ``@`` and no
+    whitespace. Contact metadata, not an auth identifier — kept deliberately loose."""
+    v = (value or "").strip()
+    if not v:
+        return ""
+    _validate_profile_text(v, "email")
+    if "@" not in v or any(ch.isspace() for ch in v):
+        raise HTTPException(
+            status_code=400, detail="email must contain '@' and no whitespace"
+        )
+    return v
+
+
+_PHONE_CHARSET = frozenset("+0123456789 -()")
+
+
+def _validate_phone_text(value: str) -> str:
+    """Lenient phone sanity: capped plain text over the charset ``+ 0-9 space - ( )``."""
+    v = (value or "").strip()
+    if not v:
+        return ""
+    _validate_profile_text(v, "phone")
+    if not all(ch in _PHONE_CHARSET for ch in v):
+        raise HTTPException(
+            status_code=400,
+            detail="phone may only contain digits, spaces, and + - ( )",
+        )
+    return v
+
+
+async def _validate_custom_role_names(
+    state: AppState, names: list[str]
+) -> list[str]:
+    """Validate a custom-role assignment list EXACTLY like the assign path in
+    routes_roles.py (``PUT /api/users/{u}/roles``): reject a built-in name (400) and
+    a name absent from the resolved matrix (400); de-duplicate, preserve order."""
+    from ..rbac.policy import resolve_matrix
+
+    from .deps import _rbac_config_with_custom_roles
+
+    matrix = resolve_matrix(await _rbac_config_with_custom_roles(state))
+    cleaned: list[str] = []
+    for nm in names:
+        nm_s = str(nm).strip()
+        if not nm_s:
+            continue
+        if nm_s in _VALID_ROLES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{nm_s}' is a built-in role, not a custom role",
+            )
+        if nm_s not in matrix:
+            raise HTTPException(status_code=400, detail=f"unknown custom role: {nm_s}")
+        if nm_s not in cleaned:
+            cleaned.append(nm_s)
+    return cleaned
 
 
 @router.get("/users")
@@ -4417,6 +4912,15 @@ async def create_user(
     if len(pw) < 8:
         raise HTTPException(status_code=400, detail="password must be at least 8 characters")
     _validate_role(body.role)
+    display_name = _validate_profile_text((body.display_name or "").strip(), "display_name")
+    email = _validate_email_text(body.email)
+    phone = _validate_phone_text(body.phone)
+    # Custom roles at creation: validated exactly like the assign path and carried
+    # in prefs["custom_roles"] (the same shape PUT /users/{u}/roles writes). No
+    # lockout guard is needed here — creation can only ADD grants, never remove.
+    custom_roles: list[str] = []
+    if body.custom_roles is not None:
+        custom_roles = await _validate_custom_role_names(state, body.custom_roles)
     from ..auth.passwords import hash_password
 
     try:
@@ -4426,13 +4930,26 @@ async def create_user(
             role=body.role,
             active=True,
             must_change_password=True,
+            display_name=display_name,
+            email=email,
+            phone=phone,
+            mfa_required=bool(body.mfa_required),
+            prefs=({"custom_roles": custom_roles} if custom_roles else None),
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     await state.refresh_users()
+    extras = []
+    if bool(body.mfa_required):
+        extras.append("mfa_required")
+    if custom_roles:
+        extras.append(f"custom={custom_roles}")
     await state.control_audit.record(
         action_type=ActionType.USER_MGMT, surface="users", actor=current_username(request),
-        result_summary=f"created user '{user.username}' ({user.role})",
+        result_summary=(
+            f"created user '{user.username}' ({user.role})"
+            + (f" [{' '.join(extras)}]" if extras else "")
+        ),
     )
     return {"ok": True, "user": user.public()}
 
@@ -4483,6 +5000,18 @@ async def update_user(
             status_code=400,
             detail="MFA can only be enabled by the user via self-service enrollment",
         )
+    # The MFA-enrollment MANDATE is admin-settable BOTH ways (required ≠ enrolled —
+    # it never mints a secret, so the enable-guard above does not apply to it).
+    if body.mfa_required is not None:
+        patch["mfa_required"] = bool(body.mfa_required)
+    if body.display_name is not None:
+        patch["display_name"] = _validate_profile_text(
+            str(body.display_name).strip(), "display_name"
+        )
+    if body.email is not None:
+        patch["email"] = _validate_email_text(body.email)
+    if body.phone is not None:
+        patch["phone"] = _validate_phone_text(body.phone)
     if not patch:
         raise HTTPException(status_code=400, detail="no changes provided")
     demoting = body.role is not None and body.role != UserRole.SUPER_ADMIN.value

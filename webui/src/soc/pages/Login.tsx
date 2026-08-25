@@ -1,19 +1,32 @@
 /**
  * Login — branded sign-in surface for the SOC console, with Wave-1/2 identity flows.
  *
- * FOUR modes, decided from GET /api/setup/status (public) + the login response:
+ * Modes, decided from GET /api/setup/status (public) + the login response:
  *   1. FIRST-RUN ("create your admin account") — `needs_user` true (auth on, no
  *      users yet): POST /api/setup/init-admin, then sign in.            (`setup`)
  *   2. NORMAL sign-in — POST /api/auth/login.                           (`signin`)
  *   3. TWO-FACTOR — when the password is correct but MFA is required, exchange the
  *      pending token at /api/auth/mfa/verify.                           (`mfa`)
  *   4. SET-A-NEW-PASSWORD — when `must_change_password`.                (`change`)
+ *   5. MANDATED MFA ENROLLMENT — when the login returns
+ *      `mfa_enrollment_required` (the account MUST use MFA but has not enrolled):
+ *      complete enrollment inside the login via the pending-token-gated
+ *      /api/auth/mfa/enroll-setup + /enroll-confirm (confirm mints the session).
+ *      There is NO skip — the only exits are finishing enrollment or going back
+ *      to sign-in.                                        (`mfa-enroll-required`)
  *
  * The page deliberately stays minimal: one quiet, vertically-centred identity slab in
  * every stored layout, with no marketing hero or decorative command-center chrome.
  * The authentication state machine remains presentation-independent; the visual
- * layer adds stable credential controls, segmented OTP, original SSO marks, and a
- * compact System / Light / Dark chooser without introducing another theme path.
+ * layer adds stable credential controls, segmented OTP, original SSO marks, and the
+ * appearance control (a Light/Dark pill plus a system reset) without introducing
+ * another theme path.
+ *
+ * Two controls carry a deliberate identity treatment that no Console surface shares:
+ * the primary CTA is a `ShineButton` and the corner appearance control is a
+ * `ThemeModePill`. Both are scoped to `.login-auth-canvas`, both are pure CSS, and
+ * both have measured palettes enforced by the `login accents` design gate — see
+ * `docs/development/ui-standard.md` for the recorded exception.
  *
  * When `seeded_default` is true, a subtle hint surfaces the demo Admin / Admin@123
  * credentials. When auth is disabled this component is never mounted, so the
@@ -39,9 +52,6 @@ import {
   IdCard,
   ArrowLeft,
   Monitor,
-  Sun,
-  Moon,
-  type LucideIcon,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import type { LoginResult, SetupStatus, SsoProviderPublic } from '@/lib/types';
@@ -64,6 +74,8 @@ import {
   PasswordStrengthMeter,
   SsoBrandIcon,
 } from '@/soc/components/auth/loginParts';
+import { ShineButton } from '@/soc/components/auth/ShineButton';
+import { ThemeModePill } from '@/soc/components/auth/ThemeModePill';
 import { setupAccount, type LoginBranding } from '@/soc/components/auth/login.api';
 import { MfaSetupCard } from '@/soc/components/MfaSetupCard';
 import { LoginAuthBackdrop } from '@/soc/components/auth/LoginAuthBackdrop';
@@ -75,26 +87,31 @@ export interface LoginProps {
 }
 
 // `setup` is the OOBE create-first-admin flow; `mfa-enroll` is the optional
-// prompted MFA step shown AFTER the admin account is created (never forced).
-type Mode = 'signin' | 'setup' | 'change' | 'mfa' | 'mfa-enroll';
+// prompted MFA step shown AFTER the admin account is created (never forced);
+// `mfa-enroll-required` is the MANDATED enrollment step DURING login (no session
+// yet — gated by the pending token; cannot be skipped into the console).
+type Mode = 'signin' | 'setup' | 'change' | 'mfa' | 'mfa-enroll' | 'mfa-enroll-required';
 type LoginThemeMode = 'system' | 'light' | 'dark';
 type SigninStep = 'identity' | 'password';
 
-const LOGIN_THEME_OPTIONS: ReadonlyArray<{
-  id: LoginThemeMode;
-  label: string;
-  icon: LucideIcon;
-}> = [
-  { id: 'system', label: 'Use system theme', icon: Monitor },
-  { id: 'light', label: 'Use light theme', icon: Sun },
-  { id: 'dark', label: 'Use dark theme', icon: Moon },
-];
-
+/**
+ * The appearance control: the Light/Dark pill plus a quiet "follow the system"
+ * reset beside it.
+ *
+ * The pill is a two-state switch, but the console's theme has THREE modes and
+ * `system` is the default — dropping it here would strand anyone who wants the
+ * login to keep following their OS. So `system` keeps its own compact toggle,
+ * pressed while it is the active mode, and the pill always shows (and changes)
+ * the RESOLVED appearance. Choosing light or dark from the pill is an explicit
+ * choice and therefore releases `system`, which the pressed state reflects.
+ */
 function LoginThemeControl({
   value,
+  isDark,
   onChange,
 }: {
   value: LoginThemeMode;
+  isDark: boolean;
   onChange: (mode: LoginThemeMode) => void;
 }) {
   return (
@@ -102,28 +119,30 @@ function LoginThemeControl({
       data-login-theme-control
       role="group"
       aria-label="Appearance"
-      className="inline-flex items-center gap-0.5"
+      className="inline-flex items-center gap-2"
     >
-      {LOGIN_THEME_OPTIONS.map(({ id, label, icon: Icon }) => {
-        const selected = value === id;
-        return (
-          <button
-            key={id}
-            type="button"
-            title={label}
-            aria-label={label}
-            aria-pressed={selected}
-            onClick={() => onChange(id)}
-            className={cn(
-              'inline-flex h-8 w-8 items-center justify-center rounded-sm text-muted-foreground transition-colors',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-canvas',
-              selected ? 'bg-muted text-foreground' : 'hover:bg-muted/70 hover:text-foreground',
-            )}
-          >
-            <Icon className="h-3.5 w-3.5" aria-hidden />
-          </button>
-        );
-      })}
+      <button
+        type="button"
+        title="Use system theme"
+        aria-label="Use system theme"
+        aria-pressed={value === 'system'}
+        onClick={() => onChange('system')}
+        className={cn(
+          // Round, to rhyme with the pill it sits beside rather than reading as a
+          // leftover square chip next to it.
+          'inline-flex h-9 w-9 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-canvas',
+          // `bg-muted` alone is ~1.1:1 against this canvas, so the pressed state
+          // would be conveyed by a difference nobody can see (WCAG 1.4.11).
+          // Inverting the chip makes it unmistakable.
+          value === 'system'
+            ? 'border-foreground bg-foreground text-background'
+            : 'hover:bg-muted/70 hover:text-foreground',
+        )}
+      >
+        <Monitor className="h-3.5 w-3.5" aria-hidden />
+      </button>
+      <ThemeModePill dark={isDark} onToggle={onChange} />
     </div>
   );
 }
@@ -167,6 +186,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
     branding: brandingBase,
     refreshBranding,
     theme,
+    isDark,
     setTheme,
   } = useTheme();
   // Read the additive Round-4 login white-label fields structurally (they are not in
@@ -201,6 +221,18 @@ export default function Login({ onAuthenticated }: LoginProps) {
   const [password, setPassword] = React.useState('');
   const signinIdentityRef = React.useRef<HTMLInputElement>(null);
   const signinPasswordRef = React.useRef<HTMLInputElement>(null);
+  // Mandated-MFA enrollment focus target: entering 'mfa-enroll-required' unmounts
+  // the sign-in form (focus would drop to <body> and the requirement would go
+  // unannounced), so the mode HEADING takes programmatic focus instead — SR +
+  // keyboard users land on "Set up two-factor authentication", whose
+  // aria-describedby reads the requirement explanation.
+  const modeHeadingRef = React.useRef<HTMLHeadingElement>(null);
+  React.useEffect(() => {
+    if (mode !== 'mfa-enroll-required') return;
+    // Same deferred pattern the sign-in steps use for their input focus.
+    const t = window.setTimeout(() => modeHeadingRef.current?.focus(), 0);
+    return () => window.clearTimeout(t);
+  }, [mode]);
   const [themePaletteSettling, setThemePaletteSettling] = React.useState(false);
   const themePaletteFrameRef = React.useRef<number | null>(null);
   const [confirm, setConfirm] = React.useState('');
@@ -403,6 +435,17 @@ export default function Login({ onAuthenticated }: LoginProps) {
     setErrorDetail(null);
     try {
       const res: LoginResult = await api.auth.login(username.trim(), password);
+      // MANDATED-BUT-UNENROLLED (branch FIRST — the response also carries
+      // requires_mfa): the account must use MFA but has no factor yet, so a code
+      // challenge is impossible. Walk the user through enrollment IN the login,
+      // gated by the same short-lived pending token (still no session).
+      if (res.requires_mfa && res.mfa_enrollment_required && res.pending_token) {
+        setPendingToken(res.pending_token);
+        setMfaCode('');
+        setMode('mfa-enroll-required');
+        setBusy(false);
+        return;
+      }
       // Wave 2 (MFA): the password is correct but a second factor is required. The
       // backend returns a short-lived pending token instead of a session.
       if (res.requires_mfa && res.pending_token) {
@@ -472,6 +515,35 @@ export default function Login({ onAuthenticated }: LoginProps) {
     }
   };
 
+  // --- Mode (mandated MFA enrollment during login) -------------------------- //
+  // The enroll-confirm endpoint minted the FULL session and returned the exact
+  // /auth/mfa/verify success payload — finish exactly the way submitMfa does
+  // (incl. the forced password change, which the fresh cookie lets us perform).
+  const completeEnrollLogin = (res: LoginResult) => {
+    if (res.user?.must_change_password) {
+      setNewPassword('');
+      setConfirm('');
+      setMode('change');
+      return;
+    }
+    onAuthenticated();
+  };
+
+  // The short-lived pending token lapsed mid-enrollment (401). Return to the
+  // password step (identity preserved) with a clear, non-alarming explanation —
+  // signing in again simply restarts the 5-minute enrollment window.
+  const expireEnrollLogin = () => {
+    setMode('signin');
+    setSigninStep('password');
+    setPendingToken('');
+    setPassword('');
+    setError(
+      'Your setup session expired. Sign in again to continue setting up two-factor authentication.',
+    );
+    setErrorDetail(null);
+    window.setTimeout(() => signinPasswordRef.current?.focus(), 0);
+  };
+
   // --- Mode 3: set a new password (forced change) --------------------------- //
   const submitChange = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -501,6 +573,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
     change: 'Set a new password',
     mfa: 'Two-factor authentication',
     'mfa-enroll': 'Secure your account',
+    'mfa-enroll-required': 'Set up two-factor authentication',
   };
   const descByMode: Record<Mode, string> = {
     signin: loginSubtitle || `Sign in to continue to ${wordmark}.`,
@@ -512,6 +585,9 @@ export default function Login({ onAuthenticated }: LoginProps) {
       : 'Enter the 6-digit code from your authenticator app.',
     'mfa-enroll':
       'Optional but recommended: add a second factor now. You can skip and set it up later.',
+    'mfa-enroll-required':
+      'Your administrator requires multi-factor authentication for this account. ' +
+      'Set up an authenticator app now to finish signing in.',
   };
   const activeTitle =
     mode === 'signin'
@@ -574,10 +650,22 @@ export default function Login({ onAuthenticated }: LoginProps) {
           className="rounded-none border-0 bg-transparent shadow-none"
         >
             <CardHeader className="space-y-0 px-0 pb-0 pt-0 text-left">
-              <h1 className="break-words text-display font-medium text-foreground">
+              {/* tabIndex={-1}: the mandated-MFA transition focuses this heading
+                  programmatically (see modeHeadingRef) — never a tab stop. The
+                  describedby hands SRs the mode description (i.e. WHY enrollment
+                  is required) as the heading's accessible context on focus. */}
+              <h1
+                ref={modeHeadingRef}
+                tabIndex={-1}
+                aria-describedby="login-mode-description"
+                className="break-words text-display font-medium text-foreground outline-none"
+              >
                 {activeTitle}
               </h1>
-              <CardDescription className="mt-3 max-w-sm break-words text-base leading-5">
+              <CardDescription
+                id="login-mode-description"
+                className="mt-3 max-w-sm break-words text-base leading-5"
+              >
                 {activeDescription}
               </CardDescription>
             </CardHeader>
@@ -708,6 +796,44 @@ export default function Login({ onAuthenticated }: LoginProps) {
                 </div>
               ) : null}
 
+              {/* ---- Mode: MANDATED MFA enrollment during login -------------- */}
+              {mode === 'mfa-enroll-required' ? (
+                <div className="space-y-4">
+                  {/* frameless (single card grammar) + the pending token reroutes the
+                      card's setup/confirm to the PUBLIC enroll endpoints and makes a
+                      successful confirm a COMPLETED login. Deliberately NO skip: there
+                      is no session yet and the mandate is not optional — the only
+                      exits are finishing enrollment or going back to sign-in. The
+                      min-h reserve absorbs the QR growth (same as the optional step). */}
+                  <div className="min-h-[24rem]">
+                    <MfaSetupCard
+                      enabled={false}
+                      frameless
+                      pendingToken={pendingToken}
+                      onComplete={completeEnrollLogin}
+                      onPendingExpired={expireEnrollLogin}
+                    />
+                  </div>
+                  <div className="text-center">
+                    <Button
+                      type="button"
+                      variant="link"
+                      className="h-auto p-0 text-xs font-normal text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                      onClick={() => {
+                        setMode('signin');
+                        setSigninStep('identity');
+                        setPendingToken('');
+                        setPassword('');
+                        setError(null);
+                        setErrorDetail(null);
+                      }}
+                    >
+                      Back to sign in
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
               {/* ---- Mode: normal sign-in ------------------------------------ */}
               {mode === 'signin' ? (
                 signinStep === 'identity' ? (
@@ -729,13 +855,9 @@ export default function Login({ onAuthenticated }: LoginProps) {
                       />
                     </div>
                     {username.trim().length > 0 ? (
-                      <Button
-                        type="submit"
-                        className="ml-auto flex h-10 bg-foreground px-5 text-background hover:bg-foreground/90 active:bg-foreground/85"
-                        disabled={busy}
-                      >
+                      <ShineButton type="submit" className="h-12 w-full" disabled={busy} busy={busy}>
                         Continue
-                      </Button>
+                      </ShineButton>
                     ) : null}
                   </form>
                 ) : (
@@ -776,14 +898,17 @@ export default function Login({ onAuthenticated }: LoginProps) {
                         required
                       />
                     </div>
-                    <Button
+                    <ShineButton
                       type="submit"
-                      className="ml-auto flex h-10 bg-foreground px-5 text-background hover:bg-foreground/90 active:bg-foreground/85"
+                      className="h-12 w-full"
                       disabled={busy || password.length === 0}
+                      busy={busy}
+                      icon={
+                        busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null
+                      }
                     >
-                      {busy ? <Loader2 className="animate-spin" aria-hidden /> : null}
                       {busy ? 'Signing in…' : 'Sign in'}
-                    </Button>
+                    </ShineButton>
                   </form>
                 )
               ) : null}
@@ -1066,7 +1191,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
       className="login-auth-canvas relative min-h-[100dvh] overflow-x-hidden"
     >
       <div className="absolute right-4 top-4 z-40 sm:right-6 sm:top-6">
-        <LoginThemeControl value={theme} onChange={changeLoginTheme} />
+        <LoginThemeControl value={theme} isDark={isDark} onChange={changeLoginTheme} />
       </div>
       <section className="relative flex min-h-[100dvh] items-center justify-center px-0 py-0 sm:px-8 sm:py-12">
         {formInner}

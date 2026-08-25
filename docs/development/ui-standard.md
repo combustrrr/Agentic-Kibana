@@ -6,7 +6,7 @@ description: The current enforceable visual, interaction, loading, navigation, a
 # Console UI standard
 
 This is the current implementation contract for the Agentic SOC Console. It turns the
-Security Command Center visual language into reusable rules for every route. New work
+Cyber Defence Center visual language into reusable rules for every route. New work
 must use these primitives; existing pages migrate toward them as they are touched.
 
 ## Migration contract
@@ -421,6 +421,28 @@ are authoritative:
   every same-unit ribbon. Detailed intentionally retains Testing's direct Cases-to-outcome
   fan, including the overlapping human-closure view; its aligned evidence rail is the
   authoritative arithmetic.
+- Every Simple stage label carries its exact count **and** a percentage; the count stays
+  primary and the share is rendered quietly beside it. Simple uses exactly one share rule:
+  each stage's share of the stage it came from—clusters of alerts ingested, cases of
+  clusters, the conserved case split of cases opened, and human closure of escalated
+  cases. That one rule governs **every surface Simple can render**. The flow band and the
+  narrow-width evidence rail are alternative presentations of the same flow and are never
+  on screen together, so the rail repeats the graph's parent-relative shares—including the
+  em-dash baseline—rather than Detailed's funnel-top arithmetic. That denominator must be
+  named wherever the share is announced (the accessible label and the hover card name it
+  in words; a disclosure beside the graph states the rule for sighted readers), because
+  two shares with different bases must never invite comparison. The first stage is the
+  baseline and shows an em dash rather than a self-referential 100%. A zero, absent, or
+  unmeasured denominator also renders an em dash and says why—never a fabricated 0%, and
+  never a share carried over from another base. Detailed keeps its own published
+  funnel-top ("of ingested") arithmetic in the evidence rail; do not restate Simple's rule
+  there or Detailed's rule in Simple.
+- A disclosure must describe the surface that is actually rendered at the reader's width.
+  Gate a sentence about ribbons and display compression to the same container condition as
+  the flow band, drop it when conservation fails and only the rail renders, and give the
+  rail its own sentence whenever the rail is what shows. Copy that states one rule while
+  the visible percentages follow another is a defect, not a wording preference; keep any
+  always-rendered clause true on every surface it can be read against.
 - **Open cases** is current lifecycle state from the selected-window posture count. It is
   not equal to Escalated minus human closure, so keep it outside the conserved graph as a
   labelled, keyboard-operable queue action. If the bounded scan is truncated, display the
@@ -430,7 +452,8 @@ are authoritative:
   side evidence, while Detailed retains Testing's side-cohort branch.
 - Keep Simple's direct labels and Detailed's evidence rail readable in both themes. Stage
   detail must be available to keyboard and pointer users, not hover-only. At narrow widths,
-  use the evidence rail rather than crushing either desktop graph's labels.
+  use the evidence rail rather than crushing either desktop graph's labels—and carry that
+  view's share rule and disclosure into the rail with it.
 - Outcome activation opens the matching selected-window Cases filter. Earlier stages
   open the selected-window Cases context because raw alert and cluster records are not
   exposed through the case list.
@@ -542,7 +565,10 @@ configured sign-in headline replaces the default heading; it never stacks above 
 second `h1`. Do not add a synthetic audit-status claim: auditing is a platform
 invariant, not useful sign-in instructions. The form is the page. Do not add a marketing
 hero, split context pane, assurance rail, trust-path diagram, decorative illustration,
-gradient, glow, fake telemetry, or repeated security claims.
+fake telemetry, or repeated security claims. Exactly two controls carry a gradient and
+a glow — the primary CTA and the corner appearance pill, both described under
+*Identity accents* below. Nothing else on this canvas may, and nothing in the Console
+may at all.
 
 The slab has no radius, border, or elevation. It uses 48px top/side and 96px bottom
 desktop insets. Its fixed, login-scoped palette is intentionally independent of Console
@@ -559,16 +585,20 @@ movement lifecycle and retracts when that movement settles; there are no detache
 anchors or independently timed stationary blocks. The light/dark neutral tile, canvas,
 and guide tokens remain the dominant visual treatment, so the background reads as a quiet
 grid with rare colour rather than a perpetual saturated animation. Do not replace this
-with a gradient, glow, blurred blob, perpetual CSS drift, or tile border. The decoration
+backdrop with a gradient, glow, blurred blob, perpetual CSS drift, or tile border; the
+*Identity accents* exception below covers controls, never this ambient layer. The decoration
 is pointer-inert, `aria-hidden`, reduced-motion-safe, layered below the opaque slab, and
 never crosses behind credential content. Light/Dark changes snap the neutral tile palette
 atomically while preserving the active movement; never interpolate white tiles through a
 large grey flash during a theme switch. Below the small breakpoint, all
 guides and ambient tiles disappear and the
 surface becomes a full-width, full-height flow with 32px side/top and 80px bottom insets.
-A small pre-auth System/Light/Dark control may sit in the viewport corner;
-it delegates to `ThemeProvider.setTheme`, while authenticated surfaces continue through
-the preference layer. Sign-in, setup, MFA, MFA enrollment, and forced password change
+A small pre-auth appearance control may sit in the viewport corner: the Light/Dark
+pill plus a round *Use system theme* reset that is pressed while `system` is active.
+System, Light, and Dark all remain reachable — the pill reflects and sets the RESOLVED
+appearance, and choosing either explicitly releases `system`. It delegates to
+`ThemeProvider.setTheme`, while authenticated surfaces continue through the preference
+layer. Sign-in, setup, MFA, MFA enrollment, and forced password change
 share the same centred slab; taller modes grow naturally and the slab scrolls within the
 viewport so software keyboards never trap the primary action. The form owns the page's
 single `h1`.
@@ -591,6 +621,60 @@ configuration compatibility, but all render the same minimal shell. Bounded oper
 wordmark, logo, subtitle, optional short welcome copy, footer notes, and support URL may
 remain; they must stay plain text and must not rebuild a second content pane. The Branding
 editor preview mirrors this exact minimal geometry and tokens.
+
+### Identity accents
+
+The identity canvas — and only the identity canvas — carries two expressive controls:
+`ShineButton`, the primary CTA, and `ThemeModePill`, the corner appearance switch. Both
+live in `webui/src/soc/components/auth/`, both are styled entirely by
+`.login-auth-canvas`-scoped CSS in `theme.css`, and both animate with CSS transitions
+and one keyframe — no animation library, and neither sits on a lazy chunk. Every rule
+is scoped under the canvas class, so the restriction is structural rather than
+advisory: used off the identity canvas these degrade to a plain, legible button rather
+than an invisible one. They are a
+deliberate exception to the surface grammar above, not a licence to reintroduce
+decoration elsewhere: no Console page may adopt either, and the ambient backdrop stays
+neutral.
+
+The exception holds only while these rules do:
+
+- **Colour is measured, never eyeballed.** These are the only surfaces that paint text
+  on a raw gradient rather than a semantic token pair, so the token contrast gate cannot
+  see them. `webui/scripts/gate-login-accents.mjs` re-derives the worst case from
+  `theme.css` on every `npm run gates` and every Vitest run, compositing each face stop
+  with the sweep at its peak keyframe opacity and the overlay tint at its declared
+  per-theme opacity, and measuring against both label stops. Every composite clears
+  4.5:1. The reference palettes these are modelled on do not; that is why the ramps here
+  are deeper.
+- **Decoration never reaches the measured surface.** The CTA's halo renders outside an
+  opaque face; the pill's flair orbs render behind an opaque track. Both controls paint
+  no background of their own so their glow layers can sit beneath the opaque child.
+- **The pill's glyphs own fixed side cells.** The label can never drift over the bright
+  end of either ramp, which is what makes the measured label zone true. Ink and track
+  swap instantly between states — the two ramps are not interpolable, so a crossfade
+  would pair each ink with the wrong ramp mid-transition.
+- **The focus ring is drawn on the opaque child, never on the button.** An element's
+  outer box-shadow paints before its descendants, so a ring on the button itself sits
+  underneath the halo and the flair — on precisely the state that shows the ring. It
+  goes on the face and the track instead, with a 2px opaque offset so its contrast is
+  measured against the slab or the canvas rather than against whatever the glow is
+  painting behind it.
+- **Disabled and busy are different states.** The CTA is disabled both while nothing is
+  typed and while the request is in flight. Flattening it the instant it is clicked
+  reads as the form going dead, so the inert treatment excludes `[data-busy]`; busy
+  keeps the identity and lets the spinner carry the state.
+- **Every fallback is explicit.** The sweep is gated behind
+  `prefers-reduced-motion: no-preference`; translucent and blurred layers — the tint
+  included — are dropped under `prefers-reduced-transparency: reduce`; and under
+  `forced-colors: active` both controls return to the system palette AND the
+  gradient-clipped label is un-clipped, without which it would stay transparent over a
+  system-painted face and vanish. Those fallbacks carry `!important` deliberately:
+  `forced-color-adjust: none` opts the elements out of the UA's own correction, so any
+  state selector that survives on specificity — the pill's `[data-appearance]` ink, the
+  disabled CTA's muted face — keeps a hard-coded colour the system theme never sees.
+- **The CTA's accessible name is its label alone.** The sweep is `aria-hidden`, the halo
+  is a pseudo-element, and any icon renders outside the clipped label span (text-fill
+  transparency is inherited, so an icon nested inside it would disappear).
 
 ## Forms, Settings, and dangerous actions
 
@@ -661,7 +745,13 @@ scroll inside that frame.
 - Radix primitives provide menu, dialog, radio, tabs, tooltip, and focus behavior.
 - Render source/log/user text as plain text. Truncation has an accessible full-value
   path (hover/focus detail, title, or expanded view).
-- Maintain WCAG AA token contrast in both themes and never disable paste.
+- An operationally load-bearing caveat—a filter that never ran, a volatile buffer, a
+  result that is not what the controls asked for—is visible text or an accessible string.
+  A `title` on a non-focusable element is a mouse-only affordance and never the sole
+  carrier of such a caveat.
+- Maintain WCAG AA token contrast in both themes and never disable paste. A measured
+  `*-text` token has no headroom left: do not dim it with an `opacity-*` modifier on the
+  wash it was tuned for—use the token as rendered, or pick a different token.
 
 Before handoff, run typecheck, lint, design gates, focused tests, the complete Console
 suite, and the production build. Use the in-app browser to inspect both themes, a narrow

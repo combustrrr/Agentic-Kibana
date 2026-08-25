@@ -10375,3 +10375,270 @@
 - Operator request: Make the monitoring output automatic and exercise the dashboard against current changes from the original repository.
 - Upstream evidence: Added the original repository as read-only remote `upstream`; current `main` is `c3f1fa3`, current `Testing` is `fcaa5ac`, and `Testing` contains four commits not yet in the analysis branch.
 - Scope: Enable scanner workflows only for pushes to the fork's dedicated `feature/static-code-analysis` branch, allow the dashboard aggregator to follow those same-repository push runs, merge the fetched `upstream/Testing` delta locally, and validate through fork Actions. No upstream push, production deployment, DefectDojo deployment, Issue creation, patch generation, or application finding remediation is authorized.
+### 2026-08-21 16:40Z — Claude Code — Corpus loss on provider outage: refuse degraded writes, make an empty corpus loud, self-heal
+- Context: Critical field report — a deployment lost its LLM/embedding API key (HTTP 401 on every call). The suite degraded as designed (hash-embedding fallback, per-case fail-to-human, no wrong verdict, #3 held) and then destroyed its own knowledge corpus with no alarm: hash-space chunks were persisted unmarked, a reprojection took the corpus to 0 rows, `ensure_seeded()` (lazy + signature-cached) never rebuilt, and for 3 days every case retrieved 0 knowledge/0 precedents at 0.96–0.98 confidence with auto-close at 0% while `/api/health` returned `ok` and the Console showed Healthy. Second occurrence of the same shape; both times `RAG seeded with N chunk(s)` at INFO was the only trace. 892 analyst-confirmed cases survived in the DB — only the projection was lost.
+- Did: Built understanding with a 10-agent Workflow over 9 subsystems, then implemented against the synthesized brief.
+  (1) `llm/gateway.py` — added `classify_provider_failure` + a closed vocabulary (`PROVIDER_FAILURE_CLASSES`), `EmbeddingBatch.fallback_reason`, `GatewayError.failure_class`; both the completion and embedding failure paths now classify. `tools/rag.py::_embed_items` refuses to build chunks from any fallback batch except `not_configured` (the supported keyless profile), adds the documented all-zero-vector rejection, and stamps `embedding_fallback_reason`. Single choke point, so every durable write path inherits it.
+  (2) New `ProjectionCollapsed` + `_guard_projection_collapse` between embed and the stale sweep in `ensure_seeded`, and before `clear()` in `_reseed`; new `rag.min_projection_retention` (default 0.5; 0.0 disables the ratio guard, zero is refused unconditionally). Refusals log at ERROR and persist via a new `stores/rag_health.py` KV document (no new index/table/migration).
+  (3) `/api/health` gained additive `degraded`/`degraded_reasons` (opaque codes only — the endpoint is anonymous; reads cached in-process state only so it can never trigger seeding/spend). `routes_diagnostics.py` gained `rag_corpus_empty`, `rag_projection_refused`, `precedent_projection_deficit` and the "N documents vs M qualifying source records" reconciliation (measured against the bounded window; every truncated/lower-bound read reports unknown, never a deficit). Console `healthView` now renders **Degraded** with per-code copy.
+  (4) New `llm/provider_health.py` `ProviderHealth` (consecutive-failure, per provider, mock/demo excluded), owned by `AppState` so it survives `_wire()` rebuilds; exposed as `llm_provider` on diagnostics and as an opaque code publicly. `agents/pipeline.py`'s timeout branch now consults it and names the real cause (setting `Case.error`) instead of reporting the time cap; router/investigator/formatter name the failure class.
+  (5) Recovery: appended the embedding-space identity to `_source_signature`, a bounded one-shot self-heal in `retrieve_observed` when the corpus is empty behind a satisfied seed cache, a public idempotent `rebuild_corpus()`, a new `JobKind.RAG_REBUILD` (all six coordinated edits + webui union + regenerated OpenAPI types), and seed-cache invalidation in `engine/reset.py::_reset_rag`.
+  Docs: CHANGELOG `[Unreleased]`, `docs/operations/{troubleshooting,background-jobs,health-backup}.md`.
+- Audit: a 33-agent adversarial Workflow (6 audit angles, every finding independently refuted) raised 27 findings; **6 survived refutation and all 6 were fixed**, plus one inaccurate rationale comment corrected. The confirmed defects were all in the new code: (a) the collapse guard compared whole-corpus chunk counts against the managed-only projection, so an operator import — or accumulated precedent past the bounded window, or simply disabling a knowledge source — permanently wedged seeding and pinned `/api/health` red (fixed by scoping BOTH sides to `MANAGED_PROJECTION_SOURCES = FULLY_RECONCILED_SEED_SOURCES` and excluding operator-disabled sources; an initial per-source zero rule was withdrawn because it contradicted the documented "absence proves withdrawal" reconciliation contract); (b) `_chunk_counts_by_source` returned `{}` on a store read error, silently disabling the guard in the exact degraded conditions it exists for, and letting a transient failure report a full corpus as empty (now returns `None`, and the guard fails safe); (c) HTTP 401 from Azure/Bedrock/Vertex classified as `unavailable` because those providers raise a raw `httpx.HTTPStatusError` rather than a `ProviderError`; (d) provider health keyed by provider name alone, so a revoked dedicated `embedding_api_key` was cancelled out by successful completions — now tracked per `(provider, channel)`, and a changed failure class no longer resets the run; (e) a crossed provider state was sticky with no clear path (now bounded by `STALE_AFTER_SECONDS` and cleared by tiered reset); (f) a refused `rag_rebuild` job reported FAILED with no reason. Two of my own new tests were vacuous (an assertion on a response key `import_document` never returns, and an auto-close assertion routed through the router's benign shortcut, which never consults RAG) and were rewritten; a leaked module-global monkeypatch was also fixed.
+- Tests: backend **2,705 passed / 4 skipped** (from 2,677; new `tests/test_corpus_loss_provider_outage.py` replays the incident end to end against all 6 acceptance criteria, 28 tests). Two pre-existing tests that encoded the defect as intended behaviour were deliberately re-expressed (`test_rag_p1.py` fallback-seeding, `test_precedent_corpus.py` forced collapse), and the `HealthResponse` shape contract updated. webui **2,031 passed / 300 files** (`test:strict`), tsc clean, eslint **0 errors/0 warnings**, full docs+app build clean, `docs:check` consistent (app 0.1.13 / docs 0.1), all five design gates pass, `check:types` reports no OpenAPI drift. `decide()`/`risk.py`/`signatures.py` byte-identical (#3); ledger rows per call unchanged (#6).
+- Status: complete on `claude/corpus-loss-provider-outage-ec6b9i`; local only, not pushed to any protected branch and no PR opened.
+- Next: Review and, if accepted, open the Testing-targeted PR; no Stable promotion implied.
+
+### 2026-08-22 17:55Z — orchestrator (remote session) — Round-11 start: dashboard, user-management, MFA, enrichment improvements
+- Context: 10 operator requests: rename "Security Command Center"→"Cyber Defence Center"; hover trendlines on every landing KPI; slow FP%/auto-closed numbers on window change; admin-mandated MFA enrolment at next login; richer user creation (full name/email/phone/require-MFA); role-permission visibility + fine-graining at creation; many more enrichment providers with setup guides; TOTP QR-scan failure; remove the FP-rate compare %; heavy Overview design pass. Target: PR from claude/dashboard-user-management-improvements-av091r into Testing.
+- Did: verified clean baseline on the branch; 6-agent research pass mapped all areas (QR root cause: missing version-info placement for QR v≥7 + format-info copy-1 misplacement; metrics slowness: ~5 endpoints each re-scanning a 5,000-doc case page per refresh + UI nulling data on window change). Implementation starting in 3 sequenced waves.
+- Tests: baseline green — backend 2,705 passed / 4 skipped (with proxy-injected AWS env vars unset), webui 2,023 passed / 9 skipped across 300 files.
+- Status: in-progress
+- Next: wave 1 (QR fix, enrichment providers, metrics perf backend + trends endpoint), wave 2 (users/MFA backend, Overview overhaul), wave 3 (auth/users webui), adversarial verify, full gates, PR.
+
+### 2026-08-22 18:03Z — webui sub-agent — MFA TOTP QR made spec-conformant (scannable)
+- Context: users could not scan the MFA enrollment QR (manual secret entry only); root-caused via docs/research map to the hand-rolled encoder in webui/src/soc/components/QRCode.tsx.
+- Did: three ISO/IEC 18004 conformance fixes in QRCode.tsx — (1) version-information blocks (18-bit BCH(18,6), gen 0x1f25) now reserved+written for v>=7 (every real otpauth:// URI is v7+; previously data bits landed in those modules), (2) first format-info copy de-transposed to the spec placement order (copy 2 was already correct), (3) rsEncode off-by-one fixed (applied gen[j] at j with an out-of-bounds write instead of gen[j+1]; EC bytes were not a valid RS codeword at ANY version — matches Nayuki reedSolomonComputeRemainder now). Comment-only: penalty() doc corrected to rule-1-only. Rewrote __tests__/QRCode.test.tsx: spec-order format readers, Table-D.1 version-info assertions, and a fully independent structural decoder (format BCH(15,5) both copies, function-map rebuild, un-mask, zigzag, de-interleave, all-zero RS syndromes, byte-mode payload) round-tripping v3/v7/v10 payloads. MfaSetupCard rendering verified sane (bg-white wrapper, 180px, quiet zone 4) — no edit.
+- Tests: scoped vitest 42/42 green (QRCode, qrcode, MfaSetupCard.frameless, security-mfa.embedded, login.render), zero console output; eslint 0/0; tsc --noEmit -p . clean; gate-grep clean (hex baseline unchanged). Each fix independently pinned: temporarily reverting fix 1/2/3 fails 3/5/3 of the new tests respectively; full revert fails 6.
+- Status: done (working tree only; not committed).
+- Next: verify with a real phone scan on the next live run; consider a follow-up for the pre-existing unrelated tsconfig.test.json type errors (deployment-update/useDeploymentUpgrade et al.).
+
+### 2026-08-22 18:30Z — enrichment sub-agent (Round 11, request 7) — 19 new enrichment providers + manifest setup guides
+- Context: user request 7 — "a tonne more enrichment sources, with setup steps and examples of how they help".
+- Did: ProviderManifest gained additive `setup_steps: list[str]` + `example: str`, backfilled on all 19 existing manifests and serialised in GET /api/enrichment/providers; 19 new providers (38 total): keyless default-ON circl_hashlookup/dshield/onionoo, keyless default-OFF spamhaus/cymru_mhr (DNS via asyncio.to_thread; NXDOMAIN=clean, Spamhaus 127.255.255.x=no-data)/robtex/crt_sh, keyed default-OFF crowdsec/google_safebrowsing/ipqualityscore (path-key sanitised)/ipdata/apivoid/maltiverse/securitytrails/criminalip/netlas/hybrid_analysis/metadefender/emailrep. Each: Secrets field + configured_status entry + use_* toggle + _BUCKET_SPECS + BUILTIN_PROVIDERS registration + compose env lines (both files) + .env.example block. Score discipline #3 held: verdict feeds 80-90, graded direct-map, context ≤40 never-malicious (adversarial sweep test); fuse()/dispatch routing/decide() untouched. Webui: ProviderCard renders the example blurb + a collapsible keyboard-accessible "How to set up" ordered list (plain text, no page-dirty keys).
+- Tests: new tests/test_enrichment_providers_round11.py (47) + updated wave2 registry-shape tests; targeted enrichment/config suites 334 passed total; webui editor Vitest 7/7 + 93 adjacent green; tsc --noEmit clean; eslint 0/0 on touched files.
+- Status: done. Caveats: docs/ENVIRONMENT.md §2.7 + docs/USAGE.md provider lists still Round-3-only (flagged for docs sweep); settings-sections-meta search keywords could gain new provider names.
+- Next: orchestrator OpenAPI/type regen + authoritative full gates.
+
+### 2026-08-22 18:20Z — backend perf sub-agent (dashboard wave) — Metrics fan-out cache, count push-down, trends endpoint
+- Context: Overview FP%/Auto-Resolved tiles slow on time-range change — 5 endpoints (posture, noise-reduction, auto-close-health, diagnostics/health, sources/coverage) each re-fetched a 5,000-doc case page per refresh, multiplied by the 5s LIVE poll (user request 3 + backend half of request 2).
+- Did: NEW app/api/metrics_shared.py (5s-TTL, limit-keyed + store-identity-guarded, single-flight case-page cache; Demo Mode swap self-invalidates); routed routes_metrics._load_cases, routes_diagnostics._load_cases and GET /api/metrics through it (test seams _STORE_FETCH_LIMIT/_load_cases preserved, responses byte-identical); NEW CaseRepository.count_created_since (ES _count range push-down / SQL COUNT on created_at / base list() fallback) now answers GET /api/sources/coverage alerts_triaged_24h with zero documents; engine/metrics.py _CaseTimings one-pass per-case timestamp/transition index threaded through the posture sub-computations (byte-identical outputs, ~31% faster at 5k cases; decide()/risk/signatures untouched, #3); NEW pure trend_metrics + GET /api/metrics/trends (metrics:view; frozen hover-trendline contract: 60/180/360/1440-min UTC-aligned zero-filled buckets, quality_metrics-reconciling cohort counts, fp_rate null-vs-zero honesty, alerts from a new additive NoiseCounterStore.read_hourly_ingested, truncated/store_total/fetched marker); conftest autouse cache reset; NEW tests/test_metrics_trends_and_cache.py (23 tests).
+- Tests: new file 23/23; targeted suites green — posture/wave2-metrics/route-auth 75, observability+noise+SQL+agent-improvement bundle 206, demo 68, keyword sweep 156; full pytest -q on the shared multi-agent tree exited 0 (2,780 collected; authoritative full run happens post-wave).
+- Status: done (backend). ~22k docs fetched+validated per LIVE refresh → one shared 5,000-doc scan per 5s window (+0 for coverage).
+- Next: webui agent wires Overview/usePosture to GET /api/metrics/trends; docs/USAGE.md mention of the new endpoint.
+
+### 2026-08-22 18:30Z — webui agent (dashboard wave, Group A) — Overview: Cyber Defence Center rename, hover trendlines, FP%-compare removal, stale-while-revalidate, design pass
+- Context: four operator requests on the landing dashboard (rename #1, hover trendlines #2, FP% compare removal #9, heavy design pass #10) + the webui half of #3 (no blanking on window change).
+- Did: PAGE_TITLE → 'Cyber Defence Center' (constant name kept; tests/docs/comments swept — CHANGELOG/Journal/ROADMAP/research/releases untouched); removed the FP-rate delta chip + footnote (deltaView/_compare_block untouched, Metrics unaffected); new MetricHoverTrend (Radix hover-card + lazy Sparkline, WCAG 1.4.13, null-preserving, "No trend data yet" fallback) wrapping 11 landing metrics against GET /api/metrics/trends buckets, timing_trend, and cost_over_time — Critical/High, Active Risk, and Dwell deliberately trend-less (no honest series); api.metricsTrends + hand-written MetricsTrends types (typeof-guarded fetch); usePosture stale-while-revalidate (retained snapshot + `stale` flag, "Loading Nh" as indicator) + a load() supersession seq guard + AbortSignal on the trends fetch; design pass inside existing tokens only (unified border-y band framing, burndown dot legend, hover-affordance footnote/cursor, zero new tokens/deps).
+- Tests: full webui vitest 301 files / 2,048 passed; strict runner over 16 affected suites 107/107 with zero console; tsc clean; vite build clean (entry 386 kB < gate, recharts/motion lazy); eslint 0/0; design gates + bundle-first-paint green. New suite overview.trends.test.tsx (7); usePosture/overview.render stale expectations deliberately re-pinned.
+- Status: done (webui). Caveats: docs/HANDOFF.md:10 still says Security Command Center (historical, flagged); full `npm run build` needed at integration (Help Center sources changed).
+- Next: integration `npm run build` + authoritative gates; consider NoiseFunnel "Alerts ingested" hover for buckets.alerts; optional AbortSignal support on remaining dashboard api methods.
+
+### 2026-08-22 19:05Z — backend sub-agent — Mandated MFA at login + richer user admin fields + custom roles at creation
+- Context: user requests (4) admin-mandated MFA with enrollment forced during the login phase, (5) user creation with display_name/email/phone/compulsory-MFA, (6, backend) assigning existing custom roles at creation.
+- Did: User model +email/+phone/+mfa_required (additive, in public(); display_name reused as full name); UserStore.create() profile/mandate/prefs kwargs + update() allowlist +email/phone/mfa_required; AuthService _Record mirrors mfa_required + env_managed, requires_mfa() = enrolled OR (mandate ∧ not env-managed) — fixes the pre-existing enforce_for_roles env-admin lockout; POST /auth/login now returns additive {requires_mfa, mfa_enrollment_required, pending_token} for required-but-unenrolled accounts; new pending-token-gated POST /auth/mfa/enroll-setup + /enroll-confirm (reuse _MFA_PENDING_ENROLL + the confirm persistence block + the mfa_verify success tail; already-enrolled accounts 400 so a pending token can never replace an existing factor; every step audited, #2); UserCreateBody/UserUpdateBody gain display_name/email/phone (200-char cap, lenient email/phone sanity) + mfa_required (never trips the mfa_enabled=true 400 guard) and creation-time custom_roles validated exactly like PUT /users/{u}/roles into prefs["custom_roles"]; deps.py PUBLIC_API_PATHS +2 enroll paths (pending-token trust model, same as /auth/mfa/verify).
+- Tests: new tests/test_mfa_mandate_and_user_fields.py (16) + extensions to test_mfa_login_flow/test_rbac_users/test_account_profile/test_route_auth_coverage; targeted suites 108 passed; sweep -k "mfa or user or rbac or role or session or auth" 531 passed / 0 failed.
+- Status: done (backend half).
+- Next: webui half (wave 3) against the documented wire contracts; orchestrator full gate.
+
+### 2026-08-22 19:00Z — docs agent — Round-11 operator-doc sync (enrichment 38, trends API, mandated MFA, CDC rename)
+- Context: bring ENVIRONMENT/USAGE/HANDOFF + Settings search in sync with the Round-11 branch commits (8413648, b6cfe60, 1deed08, f875246).
+- Did: ENVIRONMENT.md — 19→38 provider claim, §2.7 Round-11 paragraph (keyless-on circl_hashlookup/dshield/onionoo; keyless-off spamhaus/cymru_mhr/robtex/crt_sh; 12 keyed-off) + Round-11 env-var table row + corrected the stale compose-passthrough note (both compose files map all enrichment/cloud-LLM keys; only LITELLM_API_KEY is manual). USAGE.md — §19 38-provider enumeration + provider-card setup_steps/example guidance; §0 GET /api/metrics/trends semantics (metrics:view, 1..720 clamp, 60/180/360/1440-min bucket ladder, shared ~5s cache) + §32 curl; §24 admin-mandated MFA enrolment (mfa_required → enroll-setup/enroll-confirm inside login) and user create/update display_name/email/phone/custom_roles. HANDOFF.md — current-state dashboard name → Cyber Defence Center (round-history lines untouched) + enrichment/ layout entry 19→38. webui settings-sections-meta.ts — 21 Round-11 provider search keywords (keywords only).
+- Tests: settings-sections 17/17, settings suite 83/83, palette 13/13, command-palette/redirects/bundle 50/50; eslint clean on the touched file.
+- Status: done.
+
+### 2026-08-22 19:15Z — webui agent (Round 11, requests 4-6) — Mandated-MFA login enrollment + richer create-user + role-permission visibility
+- Context: webui half of Round-11 requests 4 (MFA mandated-but-unenrolled must enroll IN the login), 5 (create-user profile fields + compulsory-MFA toggle), 6 (see every role's permissions at creation + fine-grain further); backend contracts landed in f875246.
+- Did: types.ts/api.ts additive — User {mfa_enabled,mfa_required,display_name,email,phone,prefs}, LoginResult.mfa_enrollment_required, UserCreateOptions options-object create, auth.mfa.enrollSetup/enrollConfirm. MfaSetupCard pendingToken mode (auto-start, enroll-endpoint rerouting, no mid-flow Cancel, "Verify & sign in", onComplete=login-complete, onPendingExpired). Login.tsx 'mfa-enroll-required' mode (branch before requires_mfa; no skip; expired pending → password step with plain message). Users.tsx: redesigned AddUserDialog (identity/contact grid, live RolePermissionSummary per selected role, custom-role chips + always-visible "Adjust permissions…" inline RoleMatrixEditor seeded inherits:[base] with transparent fresh-auth step-up, Require-MFA switch), new EditUserDialog (mandate both ways), table MFA column + plain-text name·email line. New components/RolePermissionSummary.tsx (wildcard explosion vs RESOURCE_ACTIONS, honest unknown-resource fallback, full-access collapse). Roles.api.ts drift fix: +runbooks/system_updates/rules (also repairs the role-editor grid). No per-user grant mechanism invented — custom roles remain the override path. #9 held (all operator text plain).
+- Tests: +17 new webui tests; tsc clean; eslint 0/0; gate-grep clean; npm run test:strict exit 0 — 304 files / 2,071 passed, zero console output.
+- Status: done (webui).
+- Next: consider a Settings editor for Preferences.mfa.enforce_for_roles (still type-only in webui).
+
+### 2026-08-23 17:25Z — backend sub-agent — Fix privilege escalation via self-service prefs custom_roles
+- Context: adversarial review found PUT /api/account/me persisted body.prefs verbatim; deps._assigned_custom_roles unions User.prefs["custom_roles"] into every RBAC decision → any authenticated user could self-assign any existing custom role, bypassing the users:manage + fresh-auth PUT /api/users/{u}/roles path. Pre-existing on Testing; fixed here because Round 11 extends the custom-roles surface.
+- Did: update_account_me now treats prefs["custom_roles"] as a RESERVED admin-owned key — the currently stored value is carried forward verbatim (absent → stripped) on every self-service prefs write; the rest of the bag keeps full-replacement semantics, no 4xx. Swept every User.prefs writer (account/avatar/MFA/SSO/create_user/update_user/routes_roles/routes_setup/OOBE seed): update_account_me was the only ordinary-user-reachable writer. New tests: backend/tests/test_account_prefs_custom_roles_guard.py (self-grant blocked end-to-end incl. same-403 on a gated endpoint before/after; admin-assigned roles survive prefs updates incl. an explicit clear attempt; admin assign/remove path unchanged).
+- Tests: new file 3/3; targeted suite 93 passed; sweep -k "account or prefs or role or rbac" 288 passed / 0 failed.
+- Status: done (commit d632973).
+- Next: none — enforcement path unchanged; only the writers are now all validated surfaces.
+
+### 2026-08-23 17:40Z — webui sub-agent — Round-11 adversarial-review fixes (7 findings + touch access)
+- Context: fix the 7 dual-verified webui findings from this round's adversarial review + the touch-access gap on hover trendlines.
+- Did: truthful inline-custom-role toast/description (Users.tsx); explodeActions keeps the 'all actions' chip beside literals for unknown-vocab wildcard mixes (RolePermissionSummary); MTTA/MTTR trend wrappers focusable={false} — keyboard path verified: HelpTip-button focus bubbles to the Radix trigger and opens the card (pinned by test); mfa-enroll-required now focuses the mode heading (tabIndex=-1 + aria-describedby reads the mandate) and the confirm-input autoFocus is suppressed in pendingToken mode (Login.tsx/MfaSetupCard); a required "I have saved my recovery codes" checkbox gates Verify & sign in (pendingToken mode only); Users MFA column conveys the mandate as visible text (On · required / On / Required / Off, titles kept as supplements); the grant-list scroller is a named tabIndex=0 focus stop with the standard ring; MetricHoverTrend gained a controlled-open press toggle (toggleOnClick, default=focusable; pointer-down records pre-press state so tap-close survives the dismiss-layer race; interactive descendants and navigating tiles excluded) and the Overview footnote is device-honest via [@media(hover:hover)] Tailwind variants (emitted CSS verified in a vite build).
+- Tests: targeted vitest 21 files / 190 tests green with zero stderr (incl. new MetricHoverTrend.tap.test.tsx); tsc --noEmit clean; eslint --max-warnings=0 clean; gate-grep clean.
+- Status: done (commit 5bb42a9; webui only).
+- Next: orchestrator runs the authoritative full gates and closes the round.
+
+### 2026-08-23 18:00Z — orchestrator (remote session) — Round-11 complete: all 10 operator requests shipped, adversarially reviewed, PR to Testing
+- Context: close-out of the session opened 2026-08-22 17:55Z. All 10 requests landed: (1) Cyber Defence Center rename, (2) hover/focus/tap trendlines on every landing metric with an honest series, (3) FP%/auto-closed slowness fixed at the root (5-endpoint ×5,000-doc fan-out → one shared 5s single-flight scan + count push-down + stale-while-revalidate), (4) admin-mandated MFA enforced inside the login phase, (5) richer user creation (full name/email/phone/require-MFA), (6) live role-permission summary + inline custom-role fine-graining at creation, (7) 19 new enrichment providers (38 total) with per-provider setup guides, (8) the TOTP QR made ISO/IEC 18004-conformant (scannable), (9) FP-rate compare-chip removed, (10) token-only Overview design pass.
+- Did: 13 commits on claude/dashboard-user-management-improvements-av091r (57951df QR encoder · 8413648 enrichment · b6cfe60 metrics cache/trends · 1deed08 Overview · f875246 users/MFA backend · ca8178d + a3c22ac docs/CHANGELOG/AGENTS sync · dadec24 users/MFA webui · fb783b8 OpenAPI regen · fc61e69 Onionoo prefix-match + sent_to_human once-count · d632973 prefs custom_roles escalation guard · 5bb42a9 seven UX/a11y review fixes · this Journal close-out). Verification: every group built by its own sub-agent against a research map, then a 6-lens adversarial-review Workflow with independent dual-skeptic verification (75 agents total across both passes) — 11 findings confirmed and ALL fixed, including a pre-existing HIGH privilege escalation (any authenticated user could self-assign custom roles via PUT /api/account/me prefs) and an Onionoo prefix-match false-Tor-tag; the remainder refuted with recorded reasoning. One split-verdict nit accepted and recorded: posture-derived secondary widgets briefly show retained stale data during a window change while the primary tiles carry the explicit "Loading Nh" stale indicator.
+- Tests (final tree, authoritative): backend pytest 2,801 passed / 4 skipped / 0 failed (exit 0; proxy-injected AWS env vars unset); webui `npm run test:strict` 2,082 passed / 0 failed (exit 0, zero stderr/console); eslint --max-warnings=0 clean; all five design gates pass; full docs+app `npm run build` clean and `docs:check` consistent (app 0.1.13 / docs 0.1); `gen:types` no OpenAPI drift; ruff fatal checks (E9,F63,F7,F82 over backend/app backend/tests scripts) clean; `decide()`/`risk.py`/`signatures.py` byte-identical vs origin/Testing (#3); every new endpoint permission-gated and audited (#2); zero new webui runtime deps.
+- Status: complete; pushed; PR opened against Testing from this branch.
+- Next: PR review + the fail-closed `CI passed` aggregate on the exact candidate; follow-ups recorded in sub-agent entries (Preferences.mfa.enforce_for_roles Settings editor, NoiseFunnel alerts-ingested hover, optional AbortSignal on remaining dashboard api methods, real-phone QR scan on the next live run).
+
+### 2026-08-23 18:40Z — orchestrator (remote session) — CI fix: frozen updater base restored, Round-11 keys moved to an overlay
+- Context: PR #98's first CI run failed three lanes (Repository & version contracts, Validate Help Center, Deploy & updater contracts) with one root cause — the Round-11 enrichment commit added 12 env passthrough lines to deploy/docker-compose.agnostic.yml, whose bytes are frozen by deploy/update-base-v1.sha256 (the supervised-update v1 contract; editing it strands installed hosts, and both check_version.py and build_upgrade_plan.py fail closed on the hash).
+- Did: reverted deploy/docker-compose.agnostic.yml byte-for-byte to the pinned baseline (hash verified against the pin); shipped the 12 mappings as a NEW additive overlay deploy/docker-compose.enrichment-keys.yml (`./scripts/agentic-soc-compose.sh -f deploy/docker-compose.enrichment-keys.yml up -d` — the launcher forwards extra Compose flags and compose_lifecycle_guard already skips -f/--file pairs when classifying commands); corrected docs/ENVIRONMENT.md (compose note + Round-11 env-table row) and .env.example to document the overlay path. docker-compose.tlsoc.yml is not updater-frozen and keeps its direct mappings.
+- Tests: scripts/check_version.py consistent; overlay YAML valid; updater test_updater suite 77/77 OK locally incl. the two previously failing ContractTests; base hash == pin re-verified.
+- Status: pushed; CI re-running on the new head.
+- Next: watch the re-run; the armed hourly check-in re-verifies mergeability/CI.
+
+### 2026-08-24 12:05Z — orchestrator (remote session) — Round 12: Human vs AI, Critical-only, KPI shares, funnel percentages, demo indicator, log-browse contract
+- Context: six follow-up operator requests after the Round-11 merge (PR #98) — (1) replace the Active Risk Index with a "Human vs AI" trendline of cases closed by human vs agent in counts and percentages, (2) Critical-only instead of Critical/High, (3) a number AND its percentage on every landing metric, (4) percentages in the Sankey/funnel Simple view as in Detailed, (5) move "Demo mode active" out of the dashboard into the nav bar, (6) lay groundwork for browsing a source's logs — plus a landing-dashboard UI/UX cleanup. Branch reconciled onto the squash-merged Testing (tree identical) rather than stacking on merged history; force-push is blocked in this environment, so the remote branch was recreated by merge and the PR diff still shows Round-12 work only.
+- Did: 5 research agents mapped each area to disk, then 5 implementation agents on disjoint files, then a 5-lens adversarial review (57 agents, dual-skeptic verification of every finding) and 3 fix agents.
+  * Dashboard: Active Risk Index removed from the landing page (component untouched for other consumers); new HumanVsAiCard — agent/human/system counts + shares over MultiSeriesTrend, denominator quality.terminal_cases, the unattributed residual as its own visible band, largest-remainder rounding to exactly 100, em dash with a named reason whenever the partition does not reconcile; help text discloses that decision_by is last-writer. Critical/High → Critical with a severity deep-link. New KpiTile.secondary plain-text slot carries each metric's share against a population-matched denominator. Cleanup: duplicate autonomy fold-out and a 2-point decorative spark removed, KPI hairlines fixed, page-size artifact copy replaced.
+  * Backend: trend_metrics buckets and quality_metrics gained human_closed/system_closed partitioning closed exactly (agent+analyst+residual), policy closes still excluded; docstrings state the last-writer caveat.
+  * Funnel: Simple view shows each stage's share of its flow parent on chips and flow labels, denominator named in the accessible label, em dash for the baseline and any absent denominator; the rail was brought onto the same rule so the stated rule is true at every width.
+  * Demo: DemoBanner retired; a compact warning pill sits in the top bar on every viewport with a popover keeping Reset / Exit-and-clear behind demo:manage; Chat's frame math corrected; single live region.
+  * Logs: browsing already shipped end to end, so the work was contract completion — server-authoritative can_browse on GET /api/sources, an optional source_id scope on GET /api/logs, per-source mode, and one shared truncation rule across both routes (a coherent total answers exactly; only an unknown total falls back to the saturation heuristic). Pagination, filters, sort, columns, deep links and export deliberately deferred and documented.
+- Review: 26 findings raised, 15 confirmed by two independent skeptics and ALL fixed, 11 refuted with recorded reasoning. Most significant: the page suppressed the Human-vs-AI shares as unmeasurable on a truncated sample while the KPI strip published shares from that same payload; the Escalated share divided an unwindowed cap-2000 numerator by its own cap; the funnel's stated share rule was false below 38rem; /api/logs could never report truncation for a single source; demo sources were labelled a volatile buffer although their reads honour filters. Two pre-existing AA contrast failures were fixed in passing.
+- Tests: backend 2,815 passed / 4 skipped / 0 failed (exit 0, proxy AWS vars unset); webui test:strict 309 files / 2,139 passed, zero console; eslint 0/0; all design gates; full docs+app build clean; docs bundle consistent (app 0.1.13 / docs 0.1); check:types no drift. Two timing tests (netguard fast-fail, SQL lease convergence) flaked once each under concurrent load and pass in isolation — both outside this diff (no files under enrichment/, tools/, stores/ or jobs.py are touched). #3 decide()/risk/signatures untouched, #6 no new LLM path, #9 browsed rows and _raw stay plain text and never reach a model.
+- Status: complete; pushed; PR opened against Testing.
+- Next: PR review + the CI passed aggregate. Deferred follow-ups: log pagination/filters/columns, the noise_counters vs clustering_explain human-closed predicate drift, and a per-severity server-side count so the Critical tile could carry a non-sample share.
+
+### 2026-08-24 12:50Z — orchestrator — Session start: GSAP-style shine sign-in button + light/dark toggle
+- Context: operator request — port the "Buttons That Shine" treatment from gsap.com/ui onto the
+  console sign-in CTA, and the "Light mode / Dark mode" pill toggle, re-implemented in our own
+  code with **zero new dependencies** (GSAP is not and will not be a dependency).
+- Did: reverse-engineered both gsap.com/ui blocks from the live page (inline CSS + the site's
+  own JS bundle) — the shine is a blurred rotated gradient halo that un-rotates on hover plus a
+  gradient blob swept across the face; the toggle is a gradient pill with a moon/sun scale-swap,
+  a nudging label, and two large radial "flair" glows that slide ±124px and rotate ±180°.
+  Recorded the mechanism as a working note (scratchpad, not committed). Started a parallel
+  understand pass over Login.tsx, the token system, and the webui test/lint contract.
+- Tests: not yet run (webui deps installing).
+- Status: in-progress
+- Next: implement both as token-driven CSS/React components, then full gate (pytest / build /
+  test:strict / lint).
+
+### 2026-08-24 13:55Z — orchestrator — GSAP-style shine sign-in CTA + Light/Dark pill (zero new deps)
+- Context: operator request — bring the "Buttons That Shine" treatment from gsap.com/ui to the
+  console sign-in CTA, and the Light mode / Dark mode toggle, re-implemented in our own code.
+  No new dependencies; GSAP is not and will not be one.
+- Did:
+  - Reverse-engineered both gsap.com/ui blocks from the live page's inline CSS and its own JS
+    bundle (the site is not a CodePen — the demos are `ui-button` / `ui-toggle` blocks). The
+    shine is a blurred rotated halo that un-rotates on hover plus a gradient blob swept across
+    the face on `mouseenter`; the toggle is a gradient pill with a moon/sun scale-swap, a
+    nudging label, and paired radial glows that slide ±124px and rotate ±180°.
+  - Re-implemented both as pure CSS in `theme.css`, scoped to `.login-auth-canvas`, plus two
+    components in `webui/src/soc/components/auth/`: `ShineButton.tsx` and `ThemeModePill.tsx`.
+    No animation library; neither component is on a lazy chunk, and the entry chunk moved
+    390.11 → 390.13 kB.
+  - `Login.tsx`: both sign-in-flow CTAs are now `ShineButton` at the page's existing
+    full-width 48px primary geometry; `LoginThemeControl` is the pill plus a round
+    *Use system theme* reset, so all three theme modes stay reachable.
+  - COLOUR IS MEASURED. The reference face renders near-white text at 2.9–4.6:1, which fails
+    AA at control text sizes, so every ramp here was derived by solving for the composite —
+    face + sweep at peak keyframe opacity + overlay tint — against both label stops. New gate
+    `webui/scripts/gate-login-accents.mjs` re-derives that worst case from `theme.css` on every
+    run (362 composites, worst 4.61:1), wired into `npm run gates` and `design-gates.test.ts`.
+  - Fixed defects an adversarial review surfaced, each verified before fixing: the login
+    `--ring` was 1.84:1 (WCAG 2.4.11 fail) → 4.74:1 light / 5.65:1 dark; the pill had no
+    `border-radius` of its own so the focus ring drew a rectangle; the two pill ramps have
+    different stop counts, so `transition: background` was discrete and briefly paired each ink
+    with the wrong ramp — ink and track now swap instantly while the motion stays; the gate's
+    pill zone did not model the ±0.375rem label slide, and once it did it caught a real 4.47:1
+    light-state failure. Named the states "Dark mode" (the operator's wording, and the repo's
+    documented vocabulary) rather than the reference's "Night mode". Removed the
+    `.login-auth-canvas button.bg-foreground` rules and their eight `--login-button*` tokens,
+    dead once both CTAs stopped using that hook.
+  - Verified in a real browser, not just jsdom: light/dark, 390px, `forced-colors: active`
+    (both controls fall back to the system palette and the clipped label is un-clipped — it
+    would otherwise vanish), keyboard focus, disabled, and a live sample of the sweep's
+    computed animation showing `login-shine-sweep` at opacity 0.18 under normal motion and
+    `animation: none` at opacity 0 under `prefers-reduced-motion: reduce`.
+  - Docs: `docs/development/ui-standard.md` gained an *Identity accents* section. The standard
+    previously banned a gradient or glow on this exact surface, so shipping without amending it
+    would have left the repo contradicting itself; the exception is now explicit, scoped, and
+    conditioned on the rules that keep it safe.
+- Tests: webui **310 files / 2151 passed**, zero stderr (was 309 / 2131 + 9 skipped — the skips
+  were bundle guards that only run with a built `dist/`); eslint 0 errors/0 warnings;
+  `npm run gates` 6/6 including the new lane; full docs+app build clean, docs bundle consistent
+  (app 0.1.13 ↔ docs 0.1). Backend untouched (`git diff HEAD -- backend/` empty): 2819 collected,
+  3 failures, all environmental in this sandbox — `test_enrich`/`test_round3_wave1_enrichment`/
+  `test_round3_wave2b_netguard` assume no outbound network, but the keyless providers reach the
+  internet through the agent proxy here and return a real score for 8.8.8.8. Two further
+  failures appear unless `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` are unset, because the
+  proxy injects them and `Secrets` picks them up.
+- Status: done
+- Next: nothing outstanding. The `login accents` gate is the guard if anyone revisits the ramps.
+
+### 2026-08-24 15:40Z — orchestrator — Adversarial review of the shine/pill diff: 3 confirmed defects fixed
+- Context: second adversarial pass over `3a6e5d2` (5 review dimensions, every finding
+  independently refuted-or-confirmed against the real files). 3 confirmed, the rest refuted
+  as already-handled or as readings of the pre-diff blob.
+- Did:
+  - **forced-colors, pill (high).** `forced-color-adjust: none` opts an element out of the
+    UA's correction, so `[data-appearance='dark']` (0,2,0) outranked the fallback's bare
+    `.login-theme-pill` (0,1,0) and the dark-state label kept its navy ink. Measured live:
+    `rgb(6,61,73)` where `ButtonText` was required — invisible on a dark high-contrast theme.
+  - **forced-colors, disabled CTA (high).** Same mechanism: `:disabled .face` (0,3,0) kept
+    `--login-soft` and `--login-text-muted`. That is the RESTING state of the password step,
+    so it was the default rendering. Both fallbacks are now scoped and `!important`, with
+    `GrayText` for the genuinely inert state.
+  - **Focus ring paint order (high).** An element's outer box-shadow paints before its
+    descendants, so the Tailwind `focusRing` on the button sat *under* the halo — on exactly
+    the state that shows the ring. Verified live: ring present but washed to a faint lavender
+    line. Moved to the opaque child (face / track) with a 2px opaque offset, so the indicator
+    contrast is measured against the slab or canvas rather than the glow.
+  - Also, from the same pass: busy is no longer styled as inert (the CTA is `disabled` both
+    while empty and while submitting — clicking it used to flatten it to grey); the sweep
+    guard honours `[aria-disabled]` like its four siblings; reduced-transparency now drops
+    the translucent tint too; the pill's duplicate `title` is gone; and the system-reset chip
+    inverts when pressed instead of relying on a ~1.1:1 `bg-muted` (WCAG 1.4.11).
+  - **Every accent rule is now scoped under `.login-auth-canvas`.** Off-canvas the controls
+    degrade to a plain legible button instead of an invisible one, and the "no Console page
+    may adopt either" rule is structural rather than advisory.
+  - **Gate hardening, and a real bug it caught in itself.** Scoping the selectors silently
+    broke the gate's `.dark …__face::after` lookup, so the dark tint stopped being modelled
+    and the gate reported HIGHER ratios while still passing — the vacuous-pass failure mode.
+    Fixed, plus: `customProperty` now honours the cascade (last declaration wins) and strips
+    comments; the pill geometry is parsed OUT of the CSS instead of mirrored in a constant;
+    and unreadable layer opacities now fail loudly instead of defaulting to 0. Two new
+    regression tests pin both behaviours.
+- Tests: webui **310 files / 2154 passed**, zero stderr; eslint 0/0; tsc clean; `npm run gates`
+  6/6 (362 composites, worst 4.61:1); full docs+app build clean. Re-verified all three fixes in
+  real Chromium: FC dark pill label now `ButtonText`, FC disabled CTA now `ButtonFace`/`GrayText`,
+  focus ring now a crisp ring above the halo, busy keeps the gradient.
+- Status: done
+- Next: nothing outstanding.
+
+### 2026-08-24 16:12Z — orchestrator — Review round 2 closeout: test-quality findings
+- Context: the review workflow settled (38 agents, 3 confirmed defects — all fixed in `8ebc5c1`).
+  One verify agent died on an API error, so I evaluated its dimension's findings myself rather
+  than treating silence as a pass. Five were about MY OWN tests being weaker than they read.
+- Did:
+  - **The layer-model test could not detect a dropped layer.** `min(sweep+tint) < min(bare)`
+    holds even if either layer is zeroed. The reviewer demonstrated it with two live mutations
+    (renaming the sweep keyframe; moving the tint opacity behind a var). Both are already caught
+    by the fail-loudly guard added in `8ebc5c1` — verified by re-running both mutations — but the
+    test itself is now non-vacuous: it compares `sweep+tint` against sweep-only AND bare+tint
+    separately, so each layer must be contributing, and asserts the extracted opacities directly
+    via a new `layers` field rather than inferring them from a ratio.
+  - **The gate now verifies the premise its own exclusions rest on.** It excludes the halo and
+    the flair because each paints behind an opaque child — an assumption about z-index that
+    nothing read. A DOM-order test cannot cover it (an explicit z-index beats document order
+    both ways), so the gate reads both declarations and fails if the order inverts. The
+    structural test is renamed to say it pins DOM structure, not paint order.
+  - **The system reset had no test that clicked it** — the sole route back to OS-following, and
+    the thing ui-standard and the CHANGELOG both rest on. Added, and mutation-tested: changing
+    `onChange('system')` to `onChange('light')` fails it.
+  - The auth-accents test named for the sweep now actually asserts the sweep stays hidden in
+    that arrangement, instead of duplicating the bare name check.
+  - **Stale bundle figures corrected.** `bundle-first-paint.test.ts` claimed "~264 kB" against a
+    400 kB ceiling; the real entry chunk is ~390 kB, so headroom is ~10 kB, not ~136 kB.
+    `AGENTS.md` carried the same drift ("entry stays 281.44 kB"). Both now say what is true and
+    point at the artifact.
+- Tests: webui **310 files / 2156 passed**, zero stderr; eslint 0/0; tsc clean; gates 6/6
+  (364 checks — 362 contrast composites + 2 layering premises); full docs+app build clean.
+- Status: done
+- Next: nothing outstanding. Branch is 3 commits ahead of `Testing`, clean fast-forward.
+
+### 2026-08-24 17:36Z — orchestrator — Revert an accidental whole-file reformat of theme.css
+- Context: PR #100 was opened for this branch. Reviewing its diff, `webui/src/styles/theme.css`
+  showed 801 insertions / 112 deletions — far more than the accent block accounts for.
+- Did: traced it to my own `npx prettier --write src/styles/theme.css` earlier in the session.
+  There is no prettier config in `webui/`, so it ran on defaults and reformatted the WHOLE file,
+  flattening the hand-aligned token tables (the `--slate-*` / `--blue-*` column layout and its
+  aligned measured-contrast comments) to one property per line. ~500 lines of unrelated churn
+  in a feature PR, and the generated PR body had written it up as a deliberate readability
+  improvement. Rebuilt the file from the pristine `origin/Testing` blob and re-applied only the
+  three intended edits: the two `--ring` values, the removal of the dead `bg-foreground` rules
+  and `--login-button*` tokens, and the accent block. theme.css is now **597 insertions /
+  23 deletions**, and every deletion is one of those three.
+  The three NEW files prettier also touched are unaffected — no base to churn against.
+- Tests: webui 310 files / **2156 passed**, zero stderr; eslint 0/0; tsc clean; gates 6/6
+  (364 checks); full docs+app build clean. Byte-identical rendering — only whitespace was
+  restored, and the gate re-derives the same 362 composites from the rebuilt file.
+- Status: done
+- Next: PR #100 CI, and correct two inaccuracies in its generated body.

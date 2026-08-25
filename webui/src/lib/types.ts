@@ -230,6 +230,13 @@ export interface LoginResult {
   user?: AuthUser;
   /** Present (true) when the account needs a second factor before a session. */
   requires_mfa?: boolean;
+  /**
+   * Present (true) when MFA is MANDATED for the account but not yet ENROLLED: no
+   * code challenge is possible, so the client must complete enrollment at
+   * /api/auth/mfa/enroll-setup + /enroll-confirm using the same `pending_token`
+   * (confirm mints the full session). Branch on this BEFORE `requires_mfa`.
+   */
+  mfa_enrollment_required?: boolean;
   /** A short-lived half-auth token to exchange at /api/auth/mfa/verify. */
   pending_token?: string;
 }
@@ -306,6 +313,47 @@ export interface User {
   must_change_password: boolean;
   created_at: string;
   last_login_at: string | null;
+  /** Whether the user has ENROLLED a TOTP factor (self-service; admin can only force-disable). */
+  mfa_enabled?: boolean;
+  /**
+   * The admin-set MFA MANDATE (required ≠ enrolled — no secret is minted). A mandated
+   * but unenrolled user is walked through enrollment at their next sign-in.
+   */
+  mfa_required?: boolean;
+  /** Full/display name ("" when unset). Operator-entered → render as PLAIN text (#9). */
+  display_name?: string;
+  /** Contact email ("" when unset). Operator-entered → render as PLAIN text (#9). */
+  email?: string;
+  /** Contact/mobile number ("" when unset). Operator-entered → render as PLAIN text (#9). */
+  phone?: string;
+  /**
+   * Free-form per-user bag; the custom-role assignment rides here under
+   * `custom_roles` (names only — see PUT /api/users/{username}/roles).
+   */
+  prefs?: { custom_roles?: string[] } & Record<string, unknown>;
+}
+
+/**
+ * POST /api/users — the create-user request (users:manage). Everything beyond
+ * username/password/role is additive; the SERVER stays authoritative for validation
+ * (password ≥ 8, base role must be a built-in, email/phone sanity checks, and
+ * `custom_roles` must name EXISTING custom roles).
+ */
+export interface UserCreateOptions {
+  username: string;
+  password: string;
+  /** Base role — one of the six built-ins (backend default: analyst_tier1). */
+  role?: string;
+  /** Full name (≤200 chars; plain text, #9). */
+  display_name?: string;
+  /** Contact email (≤200 chars; must contain "@", no whitespace — server-validated). */
+  email?: string;
+  /** Mobile number (charset "+ 0-9 space - ( )" — server-validated). */
+  phone?: string;
+  /** Mandate MFA: they must set up an authenticator at their next sign-in. */
+  mfa_required?: boolean;
+  /** EXISTING custom roles to attach at creation (persisted like the assign endpoint). */
+  custom_roles?: string[];
 }
 
 export interface UsersResponse {
@@ -761,6 +809,12 @@ export interface SourceInstance {
   /** Source-native transport/format hints returned by compatible backends. */
   protocol?: string;
   format?: string;
+  /**
+   * Server-authoritative browse capability (GET /api/sources). It is the SAME
+   * `_source_can_browse` predicate the browse routes gate on — never re-derive it
+   * client-side from connector manifests or health. Optional only so an older
+   * backend degrades to "unknown".
+   */
   can_browse?: boolean;
   is_primary?: boolean;
   /**
@@ -899,14 +953,24 @@ export interface SourceLogRow {
 /**
  * GET /api/sources/{id}/logs — a window of recent events from a source.
  *
- * `mode:"buffer"` = a push source's in-memory live tail (the server ignores
- * from/to/query); `mode:"search"` = a scoped read against a pull source.
+ * `mode:"buffer"` = a push source's PROCESS-LOCAL, VOLATILE in-memory live tail (the
+ * server ignores from/to/query and nothing survives a restart); `mode:"search"` = a
+ * real backing read against a pull source, where from/to/query apply.
+ *
+ * BOUNDED, NOT COMPLETE: the server clamps `limit` to 1..200 and there is NO
+ * pagination. Rows are always "the most recent `count`" — render them as such.
+ * `truncated` is true when more rows demonstrably existed; false does NOT prove
+ * completeness.
  */
 export interface SourceLogsResponse {
   source_id: string;
   mode: 'buffer' | 'search' | string;
   count: number;
   total?: number;
+  /** Effective server-side row cap for this response (clamped to 1..200). */
+  limit?: number;
+  /** True when more rows existed than the cap returned. */
+  truncated?: boolean;
   query?: string | null;
   logs: SourceLogRow[];
 }
@@ -996,6 +1060,18 @@ export interface HealthResponse {
   state_backend?: 'elasticsearch' | 'postgres' | 'sqlite' | string;
   store_type?: string;
   setup_complete?: boolean;
+  /**
+   * A subsystem the product depends on is impaired while the state store itself is
+   * reachable (e.g. an empty knowledge corpus, or a provider rejecting our
+   * credentials). Additive: `status` keeps its historical state-store meaning.
+   */
+  degraded?: boolean;
+  /**
+   * Opaque, closed-vocabulary codes naming each active degradation. `/api/health` is
+   * public, so it carries no counts or source names — the authenticated
+   * `/api/diagnostics/health` surface owns that detail.
+   */
+  degraded_reasons?: string[];
 }
 
 /** Public, non-secret runtime release identity from `/api/health/build-info`. */
@@ -1256,6 +1332,7 @@ export type BackgroundJobKind =
   | 'precedent_bootstrap'
   | 'runbook_reindex'
   | 'rag_import'
+  | 'rag_rebuild'
   | 'tiered_reset'
   | 'storage_lifecycle_apply';
 
@@ -2940,7 +3017,7 @@ export interface Metrics {
   avg_risk_score: number;
   /**
    * Active Risk Index (Round-7; additive) — the canonical top-right instrument on the
-   * Security Command Center. The mean deterministic `risk_score` over NON-TERMINAL
+   * Cyber Defence Center. The mean deterministic `risk_score` over NON-TERMINAL
    * (still-open) cases only, 0..100 (0.0 when there are no open cases). Distinct from
    * `avg_risk_score` (which spans ALL cases). Advisory presentation only (never #3).
    */
@@ -2971,6 +3048,67 @@ export interface Metrics {
   /** Compact cost summary (shares the UsageSummary shape; fields optional). */
   cost: Partial<UsageSummary> & Record<string, unknown>;
   window_hours?: number;
+  [key: string]: unknown;
+}
+
+// --------------------------------------------------------------------------- //
+// Bucketed metric trends (GET /api/metrics/trends?window_hours=) — the hover-
+// trendline series behind the Overview (Cyber Defence Center) landing metrics.
+// Buckets are zero-filled across the whole window and cohort-bucketed by case
+// `created_at`; `fp_rate` mirrors the posture false-positive-rate semantics per
+// bucket (null when the bucket has no verdicted denominator) and `alerts` comes
+// from the durable noise counters (null when counters are absent). Aggregate
+// counts only — no raw log text (#9). Advisory presentation only — never #3.
+// --------------------------------------------------------------------------- //
+
+/** One zero-filled trend bucket. `t` is the bucket-start instant (UTC ISO). */
+export interface MetricsTrendBucket {
+  t: string;
+  /** Cases created in this bucket. */
+  new_cases: number;
+  /** Of this bucket's arrival cohort: now closed / auto-closed / FP-verdicted /
+   *  needs-human / escalated. */
+  closed: number;
+  auto_closed: number;
+  /**
+   * The three-way LAST-WRITER `decision_by` partition of `closed`, over the same
+   * policy-excluded graded cohort: `auto_closed` (agent) + `human_closed` (analyst) +
+   * `system_closed` (the honest residual — deterministic SYSTEM routing plus legacy
+   * records carrying no provenance) === `closed`, exactly, in every bucket. Never fold
+   * `system_closed` into either side. Optional: older backends omit both, so a consumer
+   * must treat their absence as "close attribution not reported", never as zero.
+   *
+   * HONESTY: `decision_by` records the LAST decider, not proof of who did the work — an
+   * agent-closed case a human later merely acknowledges migrates into `human_closed`.
+   */
+  human_closed?: number;
+  system_closed?: number;
+  false_positives: number;
+  needs_human: number;
+  escalated: number;
+  /** Cohort cases counted ONCE that reached a human (NEEDS_HUMAN verdict OR
+   *  escalated). `needs_human` and `escalated` overlap — never sum them;
+   *  chart this field instead. Optional: older backends omit it. */
+  sent_to_human?: number;
+  /** Percent 0-100, or null when the bucket has no verdicted denominator. */
+  fp_rate: number | null;
+  /** Raw alerts ingested (durable noise counters), or null when unavailable. */
+  alerts: number | null;
+}
+
+/**
+ * GET /api/metrics/trends — the bucketed trend payload (24-48 buckets spanning
+ * the requested window). `truncated` reports a bounded case scan honestly.
+ */
+export interface MetricsTrends {
+  window_hours: number;
+  bucket_minutes: number;
+  generated_at: string;
+  buckets: MetricsTrendBucket[];
+  /** True when the bounded case fetch could not cover the whole window. */
+  truncated: boolean;
+  store_total: number;
+  fetched: number;
   [key: string]: unknown;
 }
 
@@ -3361,7 +3499,7 @@ export type Provenance = 'source' | 'ai' | 'code';
 // A durable "total raw alerts by severity → what the AI reduced it to" funnel: the
 // `ingested`/`clustered` stages come from durable noise counters (by severity band),
 // the `cases` + outcome stages from a live tally of the case store. Powers the
-// "Noise reduced by N%" headline on the Security Command Center. Every value is an
+// "Noise reduced by N%" headline on the Cyber Defence Center. Every value is an
 // aggregate count / label (no raw log text). Advisory presentation only — never #3.
 // --------------------------------------------------------------------------- //
 /**
