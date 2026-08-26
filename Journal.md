@@ -10705,3 +10705,8 @@
 - Acceptance: Dependency & Supply Chain Security run `32941205711` succeeded without a configured token, proving that Snyk remains explicitly unavailable without breaking the required scanner web or being counted as active coverage.
 - Activation dependency: A repository owner must enroll the fork/project with Snyk and add the `SNYK_TOKEN` Actions secret before real SCA/Code SARIF can be validated.
 - Safety: No Snyk monitoring upload, fix, patch, PR, Issue, upstream, application, production, or deployment mutation occurred.
+
+### 2026-08-26 — Codex — Hybrid local/Actions pipeline and upstream sync started
+- Objective: Provide one custom enterprise-grade scan/normalize/validate/publish contract that runs consistently in GitHub Actions and on the future QA VM, while synchronizing the fork development branch with the original repository safely.
+- Safety: Fetch and compare upstream read-only; merge only into the fork development branch; never push to `upstream`, production, or application deployment targets.
+- Research: Validate current official GitHub Actions runner/artifact guidance and container/service operational boundaries before implementation.
