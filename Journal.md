@@ -11079,6 +11079,14 @@
   real Snyk SARIF passed the repository normalizer.
 - Status: Snyk partially validated; restart required before CodeRabbit CLI activation.
 
+## 2026-08-26 — Fork Snyk Actions credential configured
+- Repository-owner evidence confirms the fork now has a repository-level
+  `SNYK_TOKEN` Actions secret. The value was neither displayed nor stored locally.
+- The latest dependency workflow predated the secret, so its success does not prove
+  Snyk execution. A documentation-only activation commit will trigger the first
+  post-secret fork scan; retained status/SARIF must be inspected before verification.
+- Safety: the secret is scoped to the fork; no upstream or production setting changed.
+
 ## 2026-08-26 — Required external and dynamic analysis activation started
 - Scope: prepare a least-authority CodeRabbit advisory configuration, complete
   structured Schemathesis ingestion, and document/verify the credential or admin

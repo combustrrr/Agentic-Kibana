@@ -37,6 +37,11 @@ Owner action:
 4. Confirm `snyk-open-source.sarif` and `snyk-code.sarif` are retained and parse.
 5. Measure unique detection value before making Snyk a required channel.
 
+Fork status: the repository-level `SNYK_TOKEN` Actions secret was added on
+2026-08-26. The first post-secret workflow run must still prove authentication,
+per-surface status, retained evidence, and normalizer visibility; secret presence
+alone is not treated as successful analysis.
+
 Local validation on 2026-08-26 used the same pinned CLI version as CI. OAuth succeeded
 and SCA emitted parseable SARIF for both npm projects, with no vulnerable paths found.
 Three Python manifests were unresolved because their dependency environments were not
