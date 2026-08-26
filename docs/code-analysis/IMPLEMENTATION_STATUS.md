@@ -82,9 +82,10 @@ infrastructure.
 
 ### Pushes and internally mirrored branches
 
-Pushes to every fork branch run the four full-codebase scanner workflows. Pull requests
-analyze the exact PR head commit rather than the synthetic merge ref, and manual
-dispatches analyze the selected ref:
+Pushes run the four full-codebase scanner workflows when the pushed branch contains the
+approved workflow definitions. Pull requests do the same when the base branch contains
+them and analyze the exact PR head rather than the synthetic merge ref. Clean mirror
+branches such as `Testing` currently use the manual cross-branch orchestrator:
 
 1. `01-code-quality.yml`
 2. `02-security-sast.yml`

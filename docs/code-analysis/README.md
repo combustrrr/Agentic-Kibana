@@ -11,6 +11,7 @@
 
 | Need | Read |
 |---|---|
+| Start a fresh chat from the latest operational state | [`SESSION_HANDOFF_2026-08-26.md`](SESSION_HANDOFF_2026-08-26.md) |
 | What the platform is and how it works | [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) |
 | What has actually been completed | [`WORK_COMPLETED.md`](WORK_COMPLETED.md) |
 | Why the architecture uses these boundaries | [`ADRS.md`](ADRS.md) |
@@ -36,11 +37,14 @@ The required-channel manifest spans semantic and pattern SAST, Python and TypeSc
 quality/types, dependencies, secrets, containers, IaC, complexity, dead code, and
 coverage evidence. No single scanner is treated as sufficient.
 
-Every fork branch is monitored. Each push runs the four scanner workflows. Eligible
-pull requests analyze the exact PR head rather than GitHub's synthetic merge ref, and
-manual dispatch analyzes the selected workflow ref. When the final code-health workflow succeeds, one default-branch dispatcher gathers the
+Analysis-branch pushes and eligible pull requests run the four scanner workflows. Pull
+requests analyze the exact PR head rather than GitHub's synthetic merge ref. The manual
+orchestrator can analyze any selected fork branch head using approved default-branch
+workflow/tooling definitions. When the final code-health workflow succeeds, one default-branch dispatcher gathers the
 successful **same-commit** artifacts from all four workflows and publishes one unified
-snapshot. Pull requests targeting `claude/main` or `Testing` use the same contract.
+snapshot. Automatic push/PR execution requires the relevant branch to contain the
+workflow definitions; the manual orchestrator is the current safe cross-branch path for
+clean mirror branches such as `Testing`.
 
 The current required web contains 16 structured channels:
 
@@ -108,8 +112,9 @@ branch's current GitHub head, so a slower older run cannot become the latest das
 
 ### Automatic and manual operation
 
-- **Automatic:** every fork branch push runs all four scanners; an eligible PR update
-  analyzes its exact head; successful exact-commit evidence triggers dashboard aggregation.
+- **Automatic where workflow definitions exist:** a branch push runs all four scanners;
+  an eligible PR update analyzes its exact head; successful exact-commit evidence
+  triggers dashboard aggregation.
 - **Manual full scan:** Actions → **Full Code Analysis (Manual)** → **Run workflow**.
   Select the workflow ref, optionally enter any fork `scan_branch`, and press the green
   **Run workflow** button. The orchestrator locks the branch's latest commit, dispatches

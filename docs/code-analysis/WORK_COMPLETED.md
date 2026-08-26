@@ -70,7 +70,9 @@ This proves only the checked-in canary contract, not a universal detection perce
 
 ## 5. Exact-commit aggregation
 
-- Pushes to every fork branch execute the scanner workflows.
+- Pushes on branches containing the approved workflow definitions execute the scanner
+  workflows; the manual orchestrator provides exact-head analysis for clean mirror
+  branches that intentionally do not contain those files.
 - PRs use the same scanner web against the exact PR head; Dependency Review
   remains PR-only.
 - Manual workflows support controlled re-analysis.

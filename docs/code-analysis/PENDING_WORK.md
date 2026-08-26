@@ -13,8 +13,10 @@ approved hosting belongs in the near-term backlog.
 
 **Current state:** workflow security, immutable dependencies, least privilege, branch
 coverage, advisory Check semantics, deployment hardening, and the executable workflow
-policy are implemented locally. Remote exact-commit verification follows the final
-validated fork push.
+policy are implemented locally. Manual `Testing` runs #1/#2 exposed and drove fixes for
+checkout-free CLI repository context, default-branch workflow definitions, separate
+trusted `.analysis-tooling`, and manual run identity. Commit `14874b1` is on the fork
+analysis/default branches; a new end-to-end cloud rerun is the immediate acceptance gate.
 
 **Exit criteria:**
 

@@ -26,8 +26,8 @@ corroboration and never gains patch, commit, blocking-check, or remediation auth
 
 ## Automated and manual operation
 
-- Every fork branch push and eligible PR head starts the four required scanner
-  workflows, whose outputs map to 16 required structured channels.
+- Every push/eligible PR on a branch carrying the approved definitions starts the four
+  required scanner workflows, whose outputs map to 16 required structured channels.
 - The dispatcher accepts only successful same-repository runs, uses the analyzed
   `head_sha`, verifies every required artifact/hash, reconciles normalized counts, and
   publishes only a complete snapshot.

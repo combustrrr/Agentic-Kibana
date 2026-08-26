@@ -130,7 +130,8 @@ normalization, and validation. [`ACKNOWLEDGED_GAPS.md`](ACKNOWLEDGED_GAPS.md) re
 Phase 3 was explicitly approved for monitoring-only work. Its original PR-only policy
 has since been superseded by the accepted current-snapshot trigger contract:
 
-- run full scanner workflows on every fork branch push;
+- run full scanner workflows on pushes where the branch carries the approved definitions;
+- use the exact-head manual orchestrator for clean mirror branches without those files;
 - run them against the exact head of every eligible pull request;
 - provide one-click **Full Code Analysis (Manual)** for a selected branch head and
   retain individual/manual dashboard dispatches for diagnosis or rebuild;
