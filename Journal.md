@@ -10670,3 +10670,13 @@
 - Safety: No Issue, PR comment, application mutation, patch, autofix, deployment, branch-protection change, DefectDojo request, upstream push, or production mutation occurred.
 - Remaining environment work: Install/enable WSL2 with Windows Administrator privileges and reboot, then validate the same loopback-only nginx Compose image locally; deploy that image to the company QA VM once provisioned and protected by VPN/OIDC.
 - Status: Current snapshot scanner, normalization, deduplication, visualization, and fork-only automatic publication are implemented and accepted. Additional non-redundant scanners and an approved AI-advisory lane remain later extensions.
+
+### 2026-08-26 — Codex — Current-findings dashboard UX refinement started
+- Objective: Improve the hosted findings dashboard before presenting it, emphasizing rapid severity scanning, compound filtering, bounded rendering, clear provenance, and complete evidence drill-down.
+- Boundary: Presentation-only work in the external read-only analysis dashboard; no Agentic SOC application UI, findings, scanner evidence, upstream, or production state is modified.
+
+### 2026-08-26 — Codex — Current-findings dashboard UX refined and rendered
+- UX: Reorganized the static portal into a calm engineering console with snapshot trust/provenance, severity totals, deterministic/AI segmentation, a persistent compound-filter rail, severity-prioritized findings, direct exact-commit source links, responsive layouts, keyboard-accessible row drill-down, and complete per-scanner evidence details.
+- Scale preview: Rendered 10,000 canonical findings and 13,000 observations into the standalone dashboard in 12.17 seconds at 109.62 MiB peak allocation; the page mounts at most 250 finding rows.
+- Verification: All 17 monitoring tests pass, Python compilation passes, and Microsoft Edge headless rendered the generated standalone dashboard successfully at 1600x1000.
+- Boundary: The preview uses deterministic synthetic scale data; the next fork workflow publication will apply the identical UI to the real exact-commit scanner snapshot.

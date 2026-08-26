@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Deterministic 10k-finding MVP scale gate."""
 from __future__ import annotations
-import json, tempfile, time, tracemalloc
+import argparse, json, tempfile, time, tracemalloc
 from pathlib import Path
-from dashboard import generate
+from dashboard import generate, write_dashboard
 from monitoring import build_snapshot, canonicalize
 
 def main() -> None:
+    parser=argparse.ArgumentParser();parser.add_argument("--preview-dir",type=Path);args=parser.parse_args()
     manifest=json.loads(Path("config/code-analysis/required-channels.json").read_text())
     run={"commit_sha":"benchmark","branch":"benchmark","workflow_run_id":"benchmark","generated_at":"2026-08-25T00:00:00Z"}
     tools=[(x["scanner_family"],x["channel"]) for x in manifest["required_static_channels"]]
@@ -21,6 +22,8 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as directory:
         output=Path(directory)/"index.html";generate(result,output);html=output.read_text(encoding="utf-8")
         if "slice((page-1)*size,page*size)" not in html or "<option>250</option>" not in html: raise SystemExit("dashboard is not DOM-bounded")
+    if args.preview_dir:
+        write_dashboard(result,args.preview_dir)
     elapsed=time.perf_counter()-started;_,peak=tracemalloc.get_traced_memory();tracemalloc.stop()
     print(f"findings={len(base['findings'])} observations={len(base['observations'])} seconds={elapsed:.2f} peak_mib={peak/1024/1024:.2f}")
     if elapsed>30 or peak>512*1024*1024: raise SystemExit("10k scale gate failed")
