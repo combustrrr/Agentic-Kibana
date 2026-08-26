@@ -10680,3 +10680,10 @@
 - Scale preview: Rendered 10,000 canonical findings and 13,000 observations into the standalone dashboard in 12.17 seconds at 109.62 MiB peak allocation; the page mounts at most 250 finding rows.
 - Verification: All 17 monitoring tests pass, Python compilation passes, and Microsoft Edge headless rendered the generated standalone dashboard successfully at 1600x1000.
 - Boundary: The preview uses deterministic synthetic scale data; the next fork workflow publication will apply the identical UI to the real exact-commit scanner snapshot.
+
+### 2026-08-26 — Codex — Improved real findings dashboard published
+- Commit: `c1692ff` was pushed only to `origin/feature/static-code-analysis` with the reviewed static dashboard template and benchmark preview option.
+- Acceptance: Code Quality, Security/SAST, Dependency & Supply Chain, Code Health, and the 10/10 canary workflow all succeeded for the exact commit.
+- Output: Code Analysis Dashboard run `32940124398` succeeded and published artifact `current-findings-dashboard-32940124398` containing the improved UI over the real current scanner snapshot.
+- Safety: Publication remained fork-only and read-only; no upstream, production, application, Issue, PR comment, patch, autofix, deployment, or branch-protection mutation occurred.
+- Status: UI/UX refinement and real-snapshot publication complete. VM hosting remains pending infrastructure provisioning and VPN/OIDC configuration.
