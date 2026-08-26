@@ -11087,6 +11087,17 @@
   post-secret fork scan; retained status/SARIF must be inspected before verification.
 - Safety: the secret is scoped to the fork; no upstream or production setting changed.
 
+## 2026-08-26 — Fork Snyk SCA and Code activation verified
+- Post-secret push run `32965286130` completed successfully at exact fork commit
+  `e8caba62ab40893f05c7e6101a856001c1e78832`.
+- The unconfigured path was skipped; pinned CLI installation, Open Source SCA,
+  Snyk Code, configured-status generation, and structured artifact upload all passed.
+- Artifact `snyk-results` (`9605455800`) was retained. Its metadata is public, while
+  archive download correctly requires authenticated repository access.
+- This proves the fork Actions credential and both optional Snyk surfaces execute;
+  Snyk remains optional until its exported evidence is measured for unique value.
+- Safety: scan-only commands ran; no monitor/report/fix/patch/PR operation occurred.
+
 ## 2026-08-26 — Required external and dynamic analysis activation started
 - Scope: prepare a least-authority CodeRabbit advisory configuration, complete
   structured Schemathesis ingestion, and document/verify the credential or admin
