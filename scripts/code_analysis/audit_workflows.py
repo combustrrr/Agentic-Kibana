@@ -2,6 +2,7 @@
 """Fail closed on unsafe or non-reproducible code-analysis workflow changes."""
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,17 @@ ANALYSIS_WORKFLOWS = {f"0{number}-" for number in range(1, 10)}
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 USES = re.compile(r"^([^@]+)@(.+)$")
 UNTRUSTED_INLINE = re.compile(r"\$\{\{\s*(?:github\.event|inputs\.)")
+SERVICE_LAYERS = {
+    "contracts",
+    "ingestion_adapters",
+    "domain",
+    "application",
+    "presentation",
+    "infrastructure_adapters",
+    "verification",
+    "compatibility_entrypoints",
+}
+APPLICATION_IMPORT = re.compile(r"^\s*(?:from|import)\s+(?:backend|app|webui)(?:\.|\s|$)", re.MULTILINE)
 
 
 def _walk_steps(document: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
@@ -24,8 +36,53 @@ def _walk_steps(document: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     return rows
 
 
-def audit() -> list[str]:
+def audit_service_layout() -> list[str]:
+    """Validate the external-service ownership and application isolation contract."""
     errors: list[str] = []
+    relative = "config/code-analysis/service-layout.json"
+    path = ROOT / relative
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"{relative}: invalid or unreadable service layout: {exc}"]
+    if document.get("schema_version") != "1":
+        errors.append(f"{relative}: unsupported schema_version")
+    if document.get("boundary") != "read-only-external":
+        errors.append(f"{relative}: service boundary must remain read-only-external")
+    layers = document.get("layers")
+    if not isinstance(layers, dict):
+        return [*errors, f"{relative}: layers must be an object"]
+    unknown = set(layers) - SERVICE_LAYERS
+    missing = SERVICE_LAYERS - set(layers)
+    if unknown:
+        errors.append(f"{relative}: unknown layers: {', '.join(sorted(unknown))}")
+    if missing:
+        errors.append(f"{relative}: missing layers: {', '.join(sorted(missing))}")
+    declared: set[str] = set()
+    for layer, entries in layers.items():
+        if not isinstance(entries, list) or not entries:
+            errors.append(f"{relative}: layer {layer} must declare at least one file")
+            continue
+        for entry in entries:
+            if not isinstance(entry, str) or Path(entry).is_absolute() or ".." in Path(entry).parts:
+                errors.append(f"{relative}: layer {layer} contains unsafe path {entry!r}")
+                continue
+            target = ROOT / entry
+            if not target.is_file():
+                errors.append(f"{relative}: layer {layer} references missing file {entry}")
+                continue
+            if layer != "compatibility_entrypoints":
+                declared.add(entry)
+    for entry in sorted(declared):
+        if not entry.endswith(".py"):
+            continue
+        if APPLICATION_IMPORT.search((ROOT / entry).read_text(encoding="utf-8")):
+            errors.append(f"{entry}: external analysis service imports application runtime code")
+    return errors
+
+
+def audit() -> list[str]:
+    errors = audit_service_layout()
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         relative = path.relative_to(ROOT).as_posix()
         try:
@@ -78,7 +135,10 @@ def main() -> None:
     errors = audit()
     if errors:
         raise SystemExit("workflow policy violations:\n- " + "\n- ".join(errors))
-    print("Workflow policy passed: immutable actions, bounded jobs, safe shell inputs, read-only analysis.")
+    print(
+        "Service policy passed: architecture boundary, immutable actions, bounded jobs, "
+        "safe shell inputs, and read-only analysis."
+    )
 
 
 if __name__ == "__main__":

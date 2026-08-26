@@ -195,3 +195,21 @@ for automatic confirmation or enforcement.
 broaden discovery and explain candidate attack paths, but human review is required
 before an AI candidate is treated as a confirmed security issue. No AI lane can patch,
 commit, block, suppress, or remediate code in this phase.
+
+## ADR-CA-015 — Explicit external-service package boundary
+
+**Status:** Accepted
+
+**Decision:** Model the analysis implementation as contracts, ingestion adapters,
+domain, application orchestration, presentation, infrastructure adapters, and
+verification. Keep the existing `scripts/code_analysis/*.py` paths as stable workflow
+entry points while enforcing ownership through `service-layout.json`.
+
+**Reason:** Moving every active entry point at once would create avoidable workflow and
+QA-worker deployment risk. An executable ownership contract gives new work a clean
+destination and permits incremental internal extraction without breaking automation.
+
+**Consequence:** CI fails on missing declared files, unknown layers, unsafe layout
+paths, a weakened external boundary, or imports of Agentic SOC runtime packages from
+the analysis service. The service can be deployed, versioned, and tested independently
+of the application.

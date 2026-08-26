@@ -107,6 +107,11 @@ class MonitoringTests(unittest.TestCase):
         self.assertTrue(all(row["artifact_patterns"] for row in channels))
     def test_enterprise_workflow_policy_and_advisory_check_contract(self):
         self.assertEqual(audit_workflows(),[])
+        layout=json.loads((Path(__file__).resolve().parents[2]/"config/code-analysis/service-layout.json").read_text(encoding="utf-8"))
+        self.assertEqual(layout["boundary"],"read-only-external")
+        self.assertIn("domain",layout["layers"])
+        self.assertIn("presentation",layout["layers"])
+        self.assertIn("infrastructure_adapters",layout["layers"])
         aggregation=(Path(__file__).resolve().parents[2]/".github/workflows/05-issue-aggregation.yml").read_text(encoding="utf-8")
         self.assertIn('conclusion="neutral"',aggregation)
         self.assertIn("if-no-files-found: error",aggregation)
