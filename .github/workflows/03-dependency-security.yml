@@ -35,28 +35,67 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Record configuration status
+      - name: Record unconfigured status
+        if: env.SNYK_TOKEN == ''
         shell: bash
         run: |
-          if [[ -z "$SNYK_TOKEN" ]]; then
-            printf '%s\n' '{"schema_version":"1","scanner_family":"Snyk","status":"NOT_CONFIGURED","reason":"SNYK_TOKEN is not configured"}' > snyk-status.json
-          else
-            printf '%s\n' '{"schema_version":"1","scanner_family":"Snyk","status":"CONFIGURED"}' > snyk-status.json
-          fi
+          printf '%s\n' '{"schema_version":"1","scanner_family":"Snyk","status":"NOT_CONFIGURED","reason":"SNYK_TOKEN is not configured"}' > snyk-status.json
 
       - name: Install pinned Snyk CLI
         if: env.SNYK_TOKEN != ''
         run: npm install --global snyk@1.1306.4
 
       - name: Scan open-source dependencies
+        id: snyk-sca
         if: env.SNYK_TOKEN != ''
         continue-on-error: true
-        run: snyk test --all-projects --sarif-file-output=snyk-open-source.sarif
+        shell: bash
+        run: |
+          set +e
+          snyk test --all-projects --sarif-file-output=snyk-open-source.sarif 2>&1 | tee snyk-open-source.log
+          scan_exit=${PIPESTATUS[0]}
+          set -e
+          # Snyk can exit zero after testing only some discovered projects. A partial
+          # dependency graph is evidence, but it is never a complete SCA result.
+          if grep -Eq 'potential projects failed|Missing required packages' snyk-open-source.log; then
+            exit 2
+          fi
+          # Exit 1 means a valid scan found vulnerabilities; this lane is advisory.
+          [[ "$scan_exit" -le 1 ]] || exit "$scan_exit"
 
       - name: Scan source code
+        id: snyk-code
         if: env.SNYK_TOKEN != ''
         continue-on-error: true
-        run: snyk code test --sarif-file-output=snyk-code.sarif
+        shell: bash
+        run: |
+          set +e
+          snyk code test --sarif-file-output=snyk-code.sarif 2>&1 | tee snyk-code.log
+          scan_exit=${PIPESTATUS[0]}
+          set -e
+          # Exit 1 means findings. Exit 2+ means unavailable/invalid analysis.
+          [[ "$scan_exit" -le 1 ]] || exit "$scan_exit"
+
+      - name: Record configured scan status
+        if: always() && env.SNYK_TOKEN != ''
+        env:
+          SCA_OUTCOME: ${{ steps.snyk-sca.outcome }}
+          CODE_OUTCOME: ${{ steps.snyk-code.outcome }}
+        shell: bash
+        run: |
+          status=CONFIGURED_COMPLETE
+          reason=""
+          if [[ "$SCA_OUTCOME" != success || "$CODE_OUTCOME" != success ]]; then
+            status=CONFIGURED_PARTIAL
+            reason="One or more Snyk analysis surfaces were unavailable or incomplete; inspect the retained logs"
+          fi
+          jq -n \
+            --arg status "$status" \
+            --arg reason "$reason" \
+            --arg sca "$SCA_OUTCOME" \
+            --arg code "$CODE_OUTCOME" \
+            '{schema_version:"1",scanner_family:"Snyk",status:$status,reason:$reason,surfaces:{sca:$sca,code:$code}}' \
+            > snyk-status.json
 
       - name: Upload structured Snyk evidence
         if: always()
@@ -67,6 +106,8 @@ jobs:
             snyk-status.json
             snyk-open-source.sarif
             snyk-code.sarif
+            snyk-open-source.log
+            snyk-code.log
           if-no-files-found: error
 
   # ─────────────────────────────────────────────

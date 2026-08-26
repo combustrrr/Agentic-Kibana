@@ -11053,6 +11053,32 @@
   production, Issue, PR-comment, patch, autofix, or remediation mutation occurred.
 - Status: implementation complete; remote workflow validation pending.
 
+## 2026-08-26 — Local CodeRabbit and Snyk CLI validation started
+- Scope: install and authenticate the approved CLIs for read-only fork analysis,
+  exercise their non-mutating analysis commands, and determine whether their
+  structured evidence can safely feed the current-snapshot platform.
+- Safety: no monitor/upload, fix, patch, Issue, comment, branch, upstream,
+  production, or application mutation is authorized; credentials remain outside
+  repository artifacts and logs.
+- Milestone: pinned Snyk CLI 1.1306.4 was fetched and OAuth authentication
+  completed successfully. The first scan was stopped before repository metadata
+  was transmitted because explicit cloud-payload approval is still required.
+- Initial boundary: CodeRabbit's supported Windows CLI path required an OS-level WSL
+  installation, and cloud analysis required explicit approval before execution.
+- Milestone: explicit approval was received. Snyk SCA tested both npm projects and
+  emitted valid, locally normalized SARIF with zero vulnerable paths, while three
+  Python manifests remained unresolved. Snyk Code returned `SNYK-CODE-0005` because
+  that product is disabled for the selected organization.
+- Hardening: the optional Snyk workflow now treats findings exit code 1 as valid
+  advisory evidence, detects Snyk's partial-project success text, retains per-surface
+  logs, and emits `CONFIGURED_PARTIAL` when SCA or Code is incomplete.
+- WSL: the Windows component was enabled successfully and returned restart-required
+  code 3010. Firmware virtualization is disabled, so the approved CodeRabbit path will
+  use WSL1 after restart; Ubuntu and CodeRabbit installation remain pending.
+- Verification: 31/31 analysis-service tests passed, workflow YAML parsed, and the
+  real Snyk SARIF passed the repository normalizer.
+- Status: Snyk partially validated; restart required before CodeRabbit CLI activation.
+
 ## 2026-08-26 — Required external and dynamic analysis activation started
 - Scope: prepare a least-authority CodeRabbit advisory configuration, complete
   structured Schemathesis ingestion, and document/verify the credential or admin

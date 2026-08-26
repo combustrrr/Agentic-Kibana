@@ -20,8 +20,8 @@
     {"tool": "Xenon", "state": "ACTIVE_REQUIRED", "channel": "xenon", "surface": "complexity-thresholds"},
     {"tool": "Coverage.py", "state": "ACTIVE_REQUIRED", "channel": "coverage", "surface": "runtime-evidence"},
     {"tool": "Schemathesis", "state": "ACTIVE_DYNAMIC", "channel": "schemathesis", "surface": "api-fuzzing", "note": "Manual isolated workflow; dynamic evidence is not part of the static publishability gate."},
-    {"tool": "Snyk", "state": "OPTIONAL_NOT_CONFIGURED", "channel": "snyk", "surface": "sca-and-code", "activation": "Add fork Actions secret SNYK_TOKEN; SARIF then enters the existing normalizer."},
-    {"tool": "CodeRabbit", "state": "OPTIONAL_NOT_CONFIGURED", "surface": "ai-advisory", "activation": "Safe opt-in .coderabbit.yaml is checked in; repository-owner privacy approval and fork-only GitHub App installation are still required."},
+    {"tool": "Snyk", "state": "OPTIONAL_NOT_CONFIGURED", "channel": "snyk", "surface": "sca-and-code", "activation": "Local OAuth/npm SCA is partially verified. Enable Snyk Code and add fork Actions secret SNYK_TOKEN; complete SARIF then enters the existing normalizer."},
+    {"tool": "CodeRabbit", "state": "OPTIONAL_NOT_CONFIGURED", "surface": "ai-advisory", "activation": "Safe opt-in .coderabbit.yaml is checked in and code-sharing is approved; finish WSL/CLI activation after restart and separately install the fork-only GitHub App if PR automation is desired."},
     {"tool": "CodeScene", "state": "DEFERRED_EXTERNAL", "surface": "behavioral-code-health", "activation": "Service enrollment and a stable machine-readable export are required."},
     {"tool": "SonarQube", "state": "DEFERRED_EXTERNAL", "surface": "quality-and-security", "activation": "QA VM, PostgreSQL, authenticated API export, and non-redundancy validation are required."},
     {"tool": "Atheris", "state": "DEFERRED_RESEARCH", "surface": "python-fuzzing", "activation": "Build bounded isolated harnesses for selected pure/state-machine targets before enabling CI."}

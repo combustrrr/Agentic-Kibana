@@ -187,6 +187,9 @@ class MonitoringTests(unittest.TestCase):
         self.assertNotIn("\n  push:\n",aggregator)
         dependency=Path(".github/workflows/03-dependency-security.yml").read_text(encoding="utf-8")
         self.assertIn("path: gitleaks-results.sarif",dependency)
+        self.assertIn("CONFIGURED_PARTIAL", dependency)
+        self.assertIn("potential projects failed|Missing required packages", dependency)
+        self.assertIn('[[ "$scan_exit" -le 1 ]]', dependency)
 
     def test_original_proposal_tools_are_explicitly_accounted_for(self):
         catalog=json.loads(Path("config/code-analysis/proposal-tool-catalog.json").read_text(encoding="utf-8"))

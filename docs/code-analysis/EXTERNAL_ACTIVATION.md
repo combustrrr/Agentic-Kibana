@@ -19,6 +19,11 @@ Owner action:
 4. Open a test PR against the fork and opt in with `coderabbit:review`.
 5. Confirm the output remains advisory and is not counted as deterministic evidence.
 
+The CLI's supported Windows path uses WSL. On the current evaluation workstation the
+WSL component has been enabled, but Windows restart code `3010` must be cleared before
+the Ubuntu distribution and CLI can be installed. This local prerequisite does not
+change the fork-only GitHub App boundary above.
+
 ## Snyk
 
 The scan-only jobs are already present in `03-dependency-security.yml`. They never
@@ -31,6 +36,15 @@ Owner action:
 3. Re-run Dependency & Supply Chain Security manually.
 4. Confirm `snyk-open-source.sarif` and `snyk-code.sarif` are retained and parse.
 5. Measure unique detection value before making Snyk a required channel.
+
+Local validation on 2026-08-26 used the same pinned CLI version as CI. OAuth succeeded
+and SCA emitted parseable SARIF for both npm projects, with no vulnerable paths found.
+Three Python manifests were unresolved because their dependency environments were not
+installed, so this is explicitly **partial evidence**, not a clean repository result.
+Snyk Code returned `SNYK-CODE-0005` because Code analysis is not enabled for the
+selected organization. The workflow records these states as `CONFIGURED_PARTIAL`
+instead of silently reporting a complete scan. Enable Snyk Code and provide the fork
+Actions secret before expecting both optional surfaces in an aggregated snapshot.
 
 ## GitHub secret scanning and push protection
 
@@ -50,4 +64,3 @@ Owner action:
 `07-api-fuzzing.yml` remains manual and isolated. Its JUnit failures now normalize
 to structured `DYNAMIC` findings. Automatic per-commit execution remains deferred
 until the backend test service is stable, bounded, and approved for the extra CI cost.
-
