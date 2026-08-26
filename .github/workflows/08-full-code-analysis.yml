@@ -1,0 +1,81 @@
+name: Full Code Analysis (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      scan_branch:
+        description: "Fork branch to scan; blank uses the branch selected in Run workflow"
+        required: false
+        type: string
+
+# Dispatches only the four read-only scanner workflows. Code Health completion then
+# activates the existing exact-commit dashboard workflow_run handoff.
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: manual-code-analysis-${{ inputs.scan_branch || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Start all scanners for one branch head
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve and validate the selected fork branch
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_BRANCH: ${{ inputs.scan_branch }}
+          SELECTED_REF: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="${REQUESTED_BRANCH:-$SELECTED_REF}"
+          if [[ -z "$branch" || "$branch" == refs/* || "$branch" == *$'\n'* || "$branch" == *$'\r'* ]]; then
+            echo "Invalid branch name" >&2
+            exit 1
+          fi
+          encoded="$(jq -rn --arg value "$branch" '$value|@uri')"
+          payload="$(gh api "repos/${GITHUB_REPOSITORY}/branches/${encoded}")"
+          sha="$(jq -r '.commit.sha // empty' <<<"$payload")"
+          if [[ ! "$sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "The selected branch has no valid head commit" >&2
+            exit 1
+          fi
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "sha=${sha,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch all required full-codebase scanners
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCAN_BRANCH: ${{ steps.target.outputs.branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for workflow in \
+            01-code-quality.yml \
+            02-security-sast.yml \
+            03-dependency-security.yml \
+            04-code-health.yml
+          do
+            gh workflow run "$workflow" --ref "$SCAN_BRANCH"
+          done
+
+      - name: Publish dispatch summary
+        env:
+          SCAN_BRANCH: ${{ steps.target.outputs.branch }}
+          SCAN_SHA: ${{ steps.target.outputs.sha }}
+        shell: bash
+        run: |
+          {
+            echo "## Full code analysis dispatched"
+            echo
+            echo "- Branch: \`$SCAN_BRANCH\`"
+            echo "- Exact head commit: \`$SCAN_SHA\`"
+            echo "- Scanner workflows: \`4\`"
+            echo "- Dashboard: generated automatically after the exact-commit scanner set succeeds"
+            echo "- Mutation mode: \`read-only analysis\`"
+          } >> "$GITHUB_STEP_SUMMARY"

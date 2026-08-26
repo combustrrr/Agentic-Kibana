@@ -98,6 +98,17 @@ complete searchable artifact. Branches never share artifact identities or Checks
 outbound QA worker only publishes a snapshot when its analyzed SHA equals the selected
 branch's current GitHub head, so a slower older run cannot become the latest dashboard.
 
+### Automatic and manual operation
+
+- **Automatic:** every fork branch push runs all four scanners; an eligible PR update
+  analyzes its exact head; successful exact-commit evidence triggers dashboard aggregation.
+- **Manual full scan:** Actions → **Full Code Analysis (Manual)** → **Run workflow**.
+  Select the branch in GitHub or enter `scan_branch`; the orchestrator validates its
+  current head and dispatches all four scanners. The dashboard then builds automatically.
+- **Manual dashboard-only rebuild:** Actions → **Code Analysis Dashboard** → **Run
+  workflow**, with the exact `scan_branch` and `scan_sha`. This reuses existing scanner
+  evidence and fails closed if a required exact-commit run is unavailable.
+
 ## Safety
 
 The platform is external and read-only. It cannot create Issues or PR comments, generate

@@ -132,7 +132,8 @@ has since been superseded by the accepted current-snapshot trigger contract:
 
 - run full scanner workflows on every fork branch push;
 - run them against the exact head of every eligible pull request;
-- retain manual `workflow_dispatch` for exact-commit analysis;
+- provide one-click **Full Code Analysis (Manual)** for a selected branch head and
+  retain individual/manual dashboard dispatches for diagnosis or rebuild;
 - aggregate only successful same-commit artifacts using `workflow_run.head_sha`;
 - keep schedules disabled and keep API fuzzing isolated/manual;
 - keep GitHub Issues read-only and retain only a dry-run plan;

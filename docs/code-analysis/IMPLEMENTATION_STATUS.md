@@ -89,16 +89,19 @@ snapshot. It never uses the dispatcher's own SHA as the analyzed commit.
 
 ### Pull requests
 
-Pull requests targeting `claude/main` or `Testing` run the same scanner families.
+Pull requests targeting any fork branch run the same scanner families against the exact
+PR head SHA.
 Dependency Review is PR-only. The dashboard remains advisory and is separate from
 GitHub's native SARIF/code-scanning lifecycle.
 
 ### Manual analysis
 
-Each scanner workflow and the dashboard dispatcher supports `workflow_dispatch`.
-Manual dashboard builds may specify an exact `scan_sha` and branch, but publication
-still requires same-commit artifacts and all required channels. Canary and API fuzzing
-workflows remain isolated from the required static snapshot gate.
+**Full Code Analysis (Manual)** provides the one-click path: it validates the selected
+fork branch head and dispatches all four scanners, after which Code Health activates the
+normal exact-commit dashboard handoff. Individual scanner dispatches remain available
+for diagnosis. Manual dashboard-only builds may specify an exact `scan_sha` and branch,
+but publication still requires same-commit artifacts and all required channels. Canary
+and API fuzzing workflows remain isolated from the required static snapshot gate.
 
 ### QA VM and local analysis
 
