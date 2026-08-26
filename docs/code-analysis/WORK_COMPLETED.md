@@ -14,8 +14,9 @@ reported finding is a true positive or has been remediated.
   `combustrrr/Agentic-Kibana` fork.
 - Added `ARYDESTROYER/Agentic-Kibana` as read-only upstream context and kept production
   and the company repository outside mutation scope.
-- Synchronized the fork default `claude/main` with the accepted analysis branch so
-  default-branch `workflow_run` dispatch uses the approved workflow definition.
+- Mirrored the fork default `claude/main` to the accepted analysis-branch commit so
+  default-branch `workflow_run` dispatch uses the approved workflow definition. This
+  records internal fork workflow alignment, not synchronization with upstream `main`.
 - Preserved the existing application CI and implemented analysis as additive external
   workflows and services.
 

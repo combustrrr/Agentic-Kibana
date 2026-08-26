@@ -62,8 +62,15 @@ infrastructure.
 ## 3. Repository and safety boundary
 
 - All implementation and testing occurs in the fork.
-- The fork analysis and default branches are intentionally synchronized so the
-  default-branch `workflow_run` dispatcher uses the approved definition.
+- The fork analysis branch and fork default branch are intentionally mirrored at the
+  accepted analysis commit so the default-branch `workflow_run` dispatcher uses the
+  approved definition. This is an internal fork invariant; it does **not** mean the
+  analysis branch already contains every current commit from upstream `main`.
+- Upstream synchronization is a separate, controlled operation. As verified on
+  2026-08-26, fork `Testing` matched upstream `Testing`, while upstream `main` and the
+  fork's analysis/default line had diverged. Upstream changes must be integrated into
+  the development branch deliberately and revalidated before the fork default is
+  advanced.
 - The upstream company repository and live site are not modified.
 - The analysis service does not become an Agentic SOC runtime dependency.
 - Active workflows do not create Issues or PR comments, apply fixes, push branches,
@@ -73,7 +80,7 @@ infrastructure.
 
 ## 4. How analysis runs
 
-### Pushes and synchronized branches
+### Pushes and internally mirrored branches
 
 Pushes to every fork branch run the four full-codebase scanner workflows. Pull requests
 analyze the exact PR head commit rather than the synthetic merge ref, and manual
