@@ -12,6 +12,10 @@ during the code-analysis working sessions. It deliberately separates the current
 system from the broader 2026 proposal so that candidate tools, scaffolds, and future
 automation are not mistaken for working coverage.
 
+Companion records: [`WORK_COMPLETED.md`](WORK_COMPLETED.md) inventories delivered work,
+[`ADRS.md`](ADRS.md) records the accepted decisions, and
+[`PENDING_WORK.md`](PENDING_WORK.md) defines the prioritized remaining work and exit criteria.
+
 ## 1. Final objective
 
 The primary product is a current, complete, searchable view of issues detected in the

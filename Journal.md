@@ -11053,6 +11053,28 @@
   production, Issue, PR-comment, patch, autofix, or remediation mutation occurred.
 - Status: implementation complete; remote workflow validation pending.
 
+## 2026-08-26 — Code-analysis work ledger and ADR package started
+- Scope: add concise completed-work, architectural-decision, and pending-work documents
+  under `docs/code-analysis`, grounded in verified repository/workflow evidence and the
+  current detection-and-visualization objective.
+- Added `WORK_COMPLETED.md` with repository isolation, scanner web, canary,
+  normalization, exact-commit aggregation, dashboard, hosting, Snyk, native GitHub,
+  verification, and key-commit evidence.
+- Added `ADRS.md` with 12 accepted/deferred decisions covering fork isolation,
+  current-snapshot scope, manifest channels, evidence-preserving deduplication,
+  fail-closed publication, custom visualization, shared QA pipeline, AI separation,
+  advisory operation, Snyk optionality, DefectDojo deferral, and internal docs.
+- Added `PENDING_WORK.md` with P0/P1/P2 tasks and measurable exit criteria for the
+  expanded real-data board, CodeRabbit, QA VM, Snyk uniqueness, SonarQube/CodeScene,
+  project-specific rules, secret posture, and bounded dynamic analysis.
+- Linked the package from the code-analysis overview and implementation handoff.
+- Verification: public documentation gate passed for 79 pages, analysis tests passed
+  31/31, the internal document map resolved, and diff validation passed.
+- Remote status: dashboard-expansion commit `6f0adfc` has three completed scanner
+  families while Code Health remains in progress; automatic aggregation is therefore
+  accurately retained as P0 pending rather than claimed complete.
+- Status: documentation package complete.
+
 ## 2026-08-26 — Dashboard scanner-channel expansion started
 - Scope: surface newly activated and planned scanner lanes in the current-findings UI,
   including verified optional Snyk evidence and clearly separated CodeRabbit AI status,

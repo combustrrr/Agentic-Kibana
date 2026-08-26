@@ -1,0 +1,131 @@
+# Code Analysis — Pending Work
+
+> **Prioritization date:** 2026-08-26  
+> **Primary objective:** improve issue detection and the unified current-findings view  
+> **Not an active objective:** fixing findings or reducing the count to zero
+
+Only work that advances trustworthy detection, evidence ingestion, visualization, or
+approved hosting belongs in the near-term backlog.
+
+## P0 — Finish current platform delivery
+
+### P0.1 Publish and verify the expanded real-data board
+
+**Current state:** commit `6f0adfc` is pushed. Code Quality, Security/SAST, and
+Dependency/Supply Chain completed successfully; Code Health was still running when this
+document was written, so the automatic dashboard run had not started.
+
+**Exit criteria:**
+
+- all four scanner workflows succeed for the exact commit;
+- aggregation publishes a snapshot containing `additional_channels`;
+- Snyk displays its actual current status and evidence counts;
+- CodeRabbit displays `PENDING_ACTIVATION` and `AI_ADVISORY`;
+- required completion remains 16/16 and optional lanes do not affect publishability;
+- the Check links to the new real-data artifact.
+
+### P0.2 Complete CodeRabbit CLI evaluation
+
+**Current state:** privacy/code-sharing approval received; safe opt-in config exists;
+Windows WSL component enabled with restart-required code 3010; firmware virtualization
+is disabled, so WSL1 is planned. Ubuntu, CLI installation/authentication, and review
+output validation remain incomplete. The GitHub App is not installed.
+
+**Exit criteria:**
+
+- restart Windows and finish Ubuntu/WSL1 initialization;
+- install CodeRabbit through its official WSL installer and authenticate;
+- run one read-only review of fork changes with structured `--agent` output;
+- preserve output as `AI_ADVISORY` without deterministic corroboration;
+- determine whether it adds non-redundant findings;
+- only then decide whether to install the GitHub App on this fork.
+
+### P0.3 Deploy the dashboard to the company QA VM
+
+**Dependency:** company-provided Ubuntu LTS VM.
+
+**Exit criteria:**
+
+- 8 vCPU / 16 GiB RAM / 200 GiB SSD or measured equivalent;
+- outbound GitHub HTTPS and no inbound GitHub webhook requirement;
+- repository-scoped read credential loaded from a protected file/systemd credential;
+- pull worker verifies and atomically publishes an exact-commit artifact;
+- container binds `127.0.0.1` and runs read-only with dropped capabilities;
+- company VPN/OIDC protects developer access;
+- restart test proves the current snapshot remains available;
+- failed refresh test proves the prior snapshot remains served.
+
+## P1 — Improve detection breadth and evidence quality
+
+### P1.1 Measure Snyk's unique contribution
+
+- Download the authenticated `snyk-results` artifact from a verified run.
+- Reconcile Snyk observations/canonical findings in the custom dashboard.
+- Measure overlap with OSV, CodeQL, Semgrep, and other existing families.
+- Keep Snyk optional unless unique value and acceptable reliability are demonstrated.
+
+### P1.2 Evaluate SonarQube
+
+- Use the QA VM only after core hosting is stable.
+- Configure read-only analysis and authenticated machine-readable issue export.
+- Ingest into the normalizer rather than making SonarQube a competing canonical UI.
+- Retain only if it adds useful issues not already represented.
+
+### P1.3 Evaluate CodeScene
+
+- Confirm OSS eligibility/license and a stable export API/file.
+- Prioritize behavioral hotspots/health signals that static scanners do not provide.
+- Do not scrape the visual UI or count non-exportable scores as canonical findings.
+
+### P1.4 Expand project-specific detection
+
+- Continue reviewing `AGENTS.md`, auth/RBAC, agent tools, LLM boundaries, Elasticsearch
+  query construction, state reset, connectors, and middleware for narrowly testable rules.
+- Add every new claimed concept to the canary contract with retained tool/rule/location
+  evidence and false-positive fixtures.
+- Prefer meaningful new surfaces over redundant scanner count.
+
+### P1.5 Verify GitHub-native secret posture
+
+- Confirm secret-scanning alerts and push-protection state on the fork.
+- Keep Gitleaks as retained cross-platform evidence.
+- Do not expose detected secret values in dashboard artifacts.
+
+## P2 — Optional dynamic and contextual discovery
+
+### P2.1 Schemathesis operational evaluation
+
+- Boot the bounded test backend in an isolated environment.
+- Run the existing manual workflow and verify `DYNAMIC` dashboard visibility.
+- Measure duration/flakiness before considering scheduled or per-commit execution.
+
+### P2.2 Atheris harness research
+
+- Select pure parsers/state-machine functions with bounded inputs and no external side
+  effects.
+- Add corpus, time/memory limits, crash artifact sanitization, and reproducibility.
+- Keep outside the static publishability gate.
+
+### P2.3 Other AI review tools
+
+- Consider Qodo or PR-Agent only if CodeRabbit is unavailable or a measured comparison
+  is approved.
+- Keep all output advisory and separate from deterministic evidence.
+
+## Deferred — Requires a new objective and approval
+
+- DefectDojo deployment, persistent finding lifecycle, SLA, or triage history.
+- Historical trends, commit ancestry, `NEW/MOVED/NOT_OBSERVED` as the primary product.
+- GitHub Issue synchronization or Projects boards.
+- Autofix, patches, dependency auto-merge, Copilot Autofix invocation, or AI remediation.
+- Blocking branch protection or required custom Checks.
+- Upstream/company repository integration or production deployment.
+
+## Explicit non-goals
+
+- Do not hide old findings to make totals look smaller.
+- Do not define success as zero issues.
+- Do not claim the application is secure.
+- Do not publish unsupported vulnerability-detection percentages.
+- Do not treat an optional/deferred tool as completed coverage because its config exists.
+

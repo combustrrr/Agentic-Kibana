@@ -7,6 +7,19 @@
 > trigger, tool-status, hosting, safety, and verified-evidence handoff from the 2026-08-26
 > implementation discussions.
 
+## Engineering document map
+
+| Need | Read |
+|---|---|
+| What the platform is and how it works | [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) |
+| What has actually been completed | [`WORK_COMPLETED.md`](WORK_COMPLETED.md) |
+| Why the architecture uses these boundaries | [`ADRS.md`](ADRS.md) |
+| What remains, in priority order | [`PENDING_WORK.md`](PENDING_WORK.md) |
+| Authoritative phase/status table | [`EXECUTION_PLAN.md`](EXECUTION_PLAN.md) |
+| Where and how the dashboard is viewed | [`MONITORING_UI.md`](MONITORING_UI.md) |
+| Local and company VM hosting contract | [`QA_VM.md`](QA_VM.md) |
+| External service activation state | [`EXTERNAL_ACTIVATION.md`](EXTERNAL_ACTIVATION.md) |
+
 ## Objective
 
 ```text
