@@ -1,6 +1,6 @@
 # Static Code Analysis — Execution Plan
 
-> **Current phase:** Current-findings snapshot platform implemented locally; web acceptance pending
+> **Current phase:** Current-findings snapshot platform accepted on the fork; QA-VM hosting pending
 > **Branch:** `feature/static-code-analysis`
 > **Operating mode:** fork-only, read-only full-codebase detection and visualization
 > **Last updated:** 2026-08-26
@@ -18,8 +18,8 @@ channels; it does not mean every shortlisted proposal tool is installed.
 | 1 — Manual baseline and diagnosis service | **Complete for collection; remediation deferred** | All four scanner families manually exercised; raw artifacts retained; recursive normalizer repaired; file+line+concept fingerprints; 298+ overlaps proven; searchable all-findings dashboard; 14/14 configured channels; 81.16% parent-process runtime coverage; bounded dry-run issue plan; review-only Ruff patch. | False-positive classification and application finding fixes remain intentionally out of scope. Shortlisted services not yet implemented are tracked below, not counted as Phase 1 coverage. |
 | 2 — Canary validation | **Complete with 3 acknowledged gaps** | Manual-only canary repaired and measured: 7/10 expectations, 202 normalized findings, eight contributing tools. SQL injection, path traversal, and React XSS remain visible failures with concrete next actions in `ACKNOWLEDGED_GAPS.md`. | Do not represent 7/10 as full coverage. Close the three gaps in a later monitoring-coverage iteration. |
 | 3 — Selective advisory activation | **Complete** | Fork PR [#1](https://github.com/combustrrr/Agentic-Kibana/pull/1) verified all four exact-commit scanner families. Fork PR [#2](https://github.com/combustrrr/Agentic-Kibana/pull/2) verified one neutral, idempotent commit check with bounded rollups and an explicit full-artifact link. Dashboard run `32578162932` produced 8,535 deduplicated findings, 14/14 observed channels, and 81.16% runtime coverage; rebuild `32580941289` proved the same check is updated rather than duplicated. | The lean monitoring MVP now adds manifest-driven channels, canonical observations, immutable baseline comparison, conservation, attention/backlog views, and triage. Fork acceptance remains. |
-| 4 — Current findings platform | **Implemented locally; web acceptance pending** | Added publishable `snapshot-v1` provenance and reconciliation, exact-commit artifact hashing, structured TypeScript/Xenon evidence, all-findings/evidence dashboard, bounded rendering, atomic local publication, and a localhost-only container profile. Lifecycle, baseline, triage, and DefectDojo are no longer active output requirements. | Run the fork workflows, prove every required channel and all 10 canaries, publish the generated snapshot locally, then validate the same image on the company QA VM. |
-| 5 — Additional detection surfaces | **Not started** | SonarQube, CodeScene, Snyk, CodeRabbit, Schemathesis, and Atheris remain outside the publishable snapshot. | Add each only after its output is exportable, normalized, visible, and proves non-redundant detection value. Production and upstream remain separately approved boundaries. |
+| 4 — Current findings platform | **Accepted on fork** | Added publishable `snapshot-v1` provenance and reconciliation, exact-commit artifact hashing, structured TypeScript/Xenon evidence, improved all-findings/evidence dashboard, bounded rendering, atomic publication, and a localhost-only container profile. All required workflows and 10/10 canaries passed; run `32940124398` published the improved real-data artifact. | Validate the same image on the company QA VM behind VPN/OIDC. |
+| 5 — Additional detection surfaces | **Started** | Added an explicit proposal-tool catalog and a pinned, scan-only Snyk SCA/Code SARIF lane that reports `NOT_CONFIGURED` until the fork receives `SNYK_TOKEN`. | Validate Snyk evidence after enrollment. Add SonarQube, CodeScene, CodeRabbit, Schemathesis normalization, and Atheris only after each output is exportable, visible, and proves non-redundant value. |
 
 ## Shortlisted tool implementation inventory
 
@@ -54,7 +54,7 @@ Statuses use these meanings:
 | AI review | PR-Agent | **Not implemented** | Fallback is documented only. |
 | Behavioral health | CodeScene | **Partial scaffold** | Compose draft exists; no license/configured service, scan, or dashboard integration. |
 | Finding management | DefectDojo | **Partial scaffold** | Compose draft exists; no deployed service, importer, persistence, or lifecycle sync. |
-| Supply-chain alternative | Snyk | **Not implemented** | Mentioned as an optional future service; no enrollment/workflow/output. |
+| Supply-chain alternative | Snyk | **Implemented; not configured** | Pinned CLI scan-only lane emits separate SCA/Code SARIF after `SNYK_TOKEN` is configured; no monitor, fix, patch, or PR command exists. |
 | Optional evaluator | Qodana | **Not selected / not implemented** | Appears in evaluation/parser compatibility only; it is not an active shortlisted lane. |
 | GitHub native | Dependency Review | **Partial** | Configured PR-only; manual dispatch cannot exercise it and no PR trigger is active. |
 

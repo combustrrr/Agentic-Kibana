@@ -23,6 +23,52 @@ permissions:
   pull-requests: read
 
 jobs:
+  # Snyk is an optional external source until the fork receives SNYK_TOKEN.
+  # It is advisory and scan-only: no monitor, fix, patch, or PR commands run.
+  snyk:
+    name: Snyk (Optional SCA + Code)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Record configuration status
+        shell: bash
+        run: |
+          if [[ -z "$SNYK_TOKEN" ]]; then
+            printf '%s\n' '{"schema_version":"1","scanner_family":"Snyk","status":"NOT_CONFIGURED","reason":"SNYK_TOKEN is not configured"}' > snyk-status.json
+          else
+            printf '%s\n' '{"schema_version":"1","scanner_family":"Snyk","status":"CONFIGURED"}' > snyk-status.json
+          fi
+
+      - name: Install pinned Snyk CLI
+        if: env.SNYK_TOKEN != ''
+        run: npm install --global snyk@1.1306.4
+
+      - name: Scan open-source dependencies
+        if: env.SNYK_TOKEN != ''
+        continue-on-error: true
+        run: snyk test --all-projects --sarif-file-output=snyk-open-source.sarif
+
+      - name: Scan source code
+        if: env.SNYK_TOKEN != ''
+        continue-on-error: true
+        run: snyk code test --sarif-file-output=snyk-code.sarif
+
+      - name: Upload structured Snyk evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: snyk-results
+          path: |
+            snyk-status.json
+            snyk-open-source.sarif
+            snyk-code.sarif
+          if-no-files-found: error
+
   # ─────────────────────────────────────────────
   # OSV-Scanner — dependency CVE scanning
   # Python (requirements.txt/pyproject.toml)

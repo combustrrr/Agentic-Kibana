@@ -1,0 +1,29 @@
+{
+  "schema_version": "1",
+  "authority": "The original proposal is the candidate-tool roadmap; the current-findings execution plan controls activation.",
+  "states": ["ACTIVE_REQUIRED", "ACTIVE_DYNAMIC", "OPTIONAL_NOT_CONFIGURED", "DEFERRED_EXTERNAL", "DEFERRED_RESEARCH"],
+  "tools": [
+    {"tool": "CodeQL", "state": "ACTIVE_REQUIRED", "channel": "codeql", "surface": "semantic-sast"},
+    {"tool": "Semgrep", "state": "ACTIVE_REQUIRED", "channel": "semgrep", "surface": "pattern-sast"},
+    {"tool": "Bandit", "state": "ACTIVE_REQUIRED", "channel": "bandit", "surface": "python-security"},
+    {"tool": "Ruff", "state": "ACTIVE_REQUIRED", "channel": "ruff", "surface": "python-quality"},
+    {"tool": "Pyright", "state": "ACTIVE_REQUIRED", "channel": "pyright", "surface": "python-types"},
+    {"tool": "ESLint", "state": "ACTIVE_REQUIRED", "channel": "eslint", "surface": "typescript-quality"},
+    {"tool": "TypeScript", "state": "ACTIVE_REQUIRED", "channel": "typescript", "surface": "typescript-types"},
+    {"tool": "OSV-Scanner", "state": "ACTIVE_REQUIRED", "channel": "osv", "surface": "dependency"},
+    {"tool": "Gitleaks", "state": "ACTIVE_REQUIRED", "channel": "gitleaks", "surface": "secrets"},
+    {"tool": "Trivy", "state": "ACTIVE_REQUIRED", "channel": "trivy", "surface": "dependency-container"},
+    {"tool": "Checkov", "state": "ACTIVE_REQUIRED", "channel": "checkov", "surface": "iac"},
+    {"tool": "Hadolint", "state": "ACTIVE_REQUIRED", "channel": "hadolint", "surface": "dockerfile"},
+    {"tool": "Vulture", "state": "ACTIVE_REQUIRED", "channel": "vulture", "surface": "dead-code"},
+    {"tool": "Radon", "state": "ACTIVE_REQUIRED", "channel": "radon", "surface": "complexity-metrics"},
+    {"tool": "Xenon", "state": "ACTIVE_REQUIRED", "channel": "xenon", "surface": "complexity-thresholds"},
+    {"tool": "Coverage.py", "state": "ACTIVE_REQUIRED", "channel": "coverage", "surface": "runtime-evidence"},
+    {"tool": "Schemathesis", "state": "ACTIVE_DYNAMIC", "channel": "schemathesis", "surface": "api-fuzzing", "note": "Manual isolated workflow; dynamic evidence is not part of the static publishability gate."},
+    {"tool": "Snyk", "state": "OPTIONAL_NOT_CONFIGURED", "channel": "snyk", "surface": "sca-and-code", "activation": "Add fork Actions secret SNYK_TOKEN; SARIF then enters the existing normalizer."},
+    {"tool": "CodeRabbit", "state": "DEFERRED_EXTERNAL", "surface": "ai-advisory", "activation": "Repository-owner approval, privacy review, and GitHub App installation are required."},
+    {"tool": "CodeScene", "state": "DEFERRED_EXTERNAL", "surface": "behavioral-code-health", "activation": "Service enrollment and a stable machine-readable export are required."},
+    {"tool": "SonarQube", "state": "DEFERRED_EXTERNAL", "surface": "quality-and-security", "activation": "QA VM, PostgreSQL, authenticated API export, and non-redundancy validation are required."},
+    {"tool": "Atheris", "state": "DEFERRED_RESEARCH", "surface": "python-fuzzing", "activation": "Build bounded isolated harnesses for selected pure/state-machine targets before enabling CI."}
+  ]
+}

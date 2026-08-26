@@ -10687,3 +10687,15 @@
 - Output: Code Analysis Dashboard run `32940124398` succeeded and published artifact `current-findings-dashboard-32940124398` containing the improved UI over the real current scanner snapshot.
 - Safety: Publication remained fork-only and read-only; no upstream, production, application, Issue, PR comment, patch, autofix, deployment, or branch-protection mutation occurred.
 - Status: UI/UX refinement and real-snapshot publication complete. VM hosting remains pending infrastructure provisioning and VPN/OIDC configuration.
+
+### 2026-08-26 — Codex — Proposal scanner-web reconciliation started
+- Objective: Ensure every selected tool in the original proposal is explicitly active, safely optional, or deferred with a concrete activation boundary instead of being silently omitted.
+- Deployment decision: Keep scanning outside Agentic SOC startup. GitHub Actions or a dedicated QA worker builds exact-commit evidence; the VM continuously serves the last validated snapshot and receives atomic replacements.
+- Current finding: Sixteen deterministic channels are active and required; Schemathesis is isolated/manual; Snyk, CodeRabbit, CodeScene, SonarQube, and Atheris require distinct follow-up boundaries.
+
+### 2026-08-26 — Codex — Proposal scanner-web reconciliation implemented
+- Catalog: Added `config/code-analysis/proposal-tool-catalog.json`, accounting for every originally selected scanner/reviewer as active-required, active-dynamic, optional-not-configured, or explicitly deferred.
+- Snyk: Added pinned CLI `1.1306.4` as an optional scan-only SCA and Code lane. It exports separate SARIF artifacts only when `SNYK_TOKEN` is configured and otherwise emits an explicit `NOT_CONFIGURED` status. No `monitor`, fix, patch, PR, or repository mutation command is present.
+- Guard: Added a test requiring all selected proposal tools to remain represented and every `ACTIVE_REQUIRED` catalog channel to exist in the required-channel manifest.
+- Verification: 18 monitoring tests pass; workflow YAML and catalog JSON parse; `git diff --check` passes apart from Windows line-ending notices.
+- Next: Validate the unconfigured Snyk workflow path on the fork, then activate and validate actual Snyk evidence only after repository-owner enrollment. Prepare the QA-VM pull/serve profile; keep SonarQube, CodeScene, CodeRabbit, and Atheris deferred until their prerequisites are approved.

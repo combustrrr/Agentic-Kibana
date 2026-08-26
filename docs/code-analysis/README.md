@@ -40,8 +40,16 @@ See [`MONITORING_UI.md`](MONITORING_UI.md) for local and future QA-VM hosting.
 - Deterministic findings are the primary canonical table.
 - Optional AI output is labelled `AI_ADVISORY` and never counts as deterministic
   corroboration.
-- SonarQube, CodeScene, Snyk, and additional tools enter only after an exportable,
+- Snyk has a scan-only, token-gated SARIF lane. Until `SNYK_TOKEN` is configured it
+  reports `NOT_CONFIGURED`, is not required, and cannot make the snapshot look complete.
+- SonarQube, CodeScene, CodeRabbit, and additional tools enter only after an exportable,
   non-redundant detection contribution is verified.
+- [`proposal-tool-catalog.json`](../../config/code-analysis/proposal-tool-catalog.json)
+  accounts explicitly for every selected proposal tool and its activation boundary.
+
+Scanners run in GitHub Actions or a dedicated QA worker, not in the Agentic SOC
+application startup path. The VM serves the last validated snapshot continuously while
+new evidence is built separately and published atomically.
 
 ## Safety
 

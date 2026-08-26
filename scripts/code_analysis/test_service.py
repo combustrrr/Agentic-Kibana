@@ -97,4 +97,14 @@ class MonitoringTests(unittest.TestCase):
             self.assertEqual(TscParser().parse(tsc)[0].rule_id,"TS2322")
             self.assertEqual(XenonParser().parse(xenon)[0].source_tool,"Xenon")
 
+    def test_original_proposal_tools_are_explicitly_accounted_for(self):
+        catalog=json.loads(Path("config/code-analysis/proposal-tool-catalog.json").read_text(encoding="utf-8"))
+        tools={row["tool"]:row for row in catalog["tools"]}
+        selected={"CodeRabbit","CodeQL","Semgrep","Bandit","Ruff","Pyright","ESLint","TypeScript","OSV-Scanner","Snyk","Gitleaks","Trivy","CodeScene","Schemathesis","Atheris"}
+        self.assertTrue(selected.issubset(tools))
+        required=json.loads(Path("config/code-analysis/required-channels.json").read_text(encoding="utf-8"))
+        channels={row["channel"] for row in required["required_static_channels"]}
+        for row in tools.values():
+            if row["state"] == "ACTIVE_REQUIRED": self.assertIn(row["channel"],channels)
+
 if __name__=="__main__": unittest.main()
