@@ -23,7 +23,8 @@ The VM token requires Actions **read** access only. Prefer a repository-scoped G
 App installation token; a fine-grained machine-user token is the fallback. Never use a
 classic personal access token.
 
-Example timer command:
+Example interactive command (the supplied systemd unit uses `LoadCredential`
+instead, so the token is not exposed in its environment):
 
 ```bash
 GH_TOKEN_FILE=/etc/agentic-soc-findings/github-token

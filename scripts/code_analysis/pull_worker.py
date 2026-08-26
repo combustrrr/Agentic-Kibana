@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import tempfile
 import urllib.parse
 import urllib.request
@@ -22,6 +23,9 @@ except ModuleNotFoundError:  # package import in repository tests
 
 
 API = "https://api.github.com"
+MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
+MAX_EXTRACTED_BYTES = 250 * 1024 * 1024
+MAX_ARCHIVE_FILES = 10_000
 
 
 def request_json(url: str, token: str) -> dict:
@@ -41,18 +45,39 @@ def download(url: str, token: str, destination: Path) -> None:
         "User-Agent": "agentic-soc-findings-pull-worker/1",
     })
     with urllib.request.urlopen(request, timeout=120) as response, destination.open("wb") as output:
+        declared = int(response.headers.get("Content-Length", "0") or 0)
+        if declared > MAX_ARCHIVE_BYTES:
+            raise ValueError("dashboard artifact exceeds the download limit")
+        received = 0
         while chunk := response.read(1024 * 1024):
+            received += len(chunk)
+            if received > MAX_ARCHIVE_BYTES:
+                raise ValueError("dashboard artifact exceeds the download limit")
             output.write(chunk)
 
 
 def safe_extract(archive: Path, destination: Path) -> None:
     root = destination.resolve()
     with zipfile.ZipFile(archive) as bundle:
-        for member in bundle.infolist():
-            target = (destination / member.filename).resolve()
+        members = bundle.infolist()
+        if len(members) > MAX_ARCHIVE_FILES:
+            raise ValueError("dashboard artifact contains too many files")
+        if sum(member.file_size for member in members) > MAX_EXTRACTED_BYTES:
+            raise ValueError("dashboard artifact exceeds the extraction limit")
+        for member in members:
+            unix_mode = member.external_attr >> 16
+            if unix_mode and (unix_mode & 0o170000) == 0o120000:
+                raise ValueError(f"dashboard artifact contains a symlink: {member.filename}")
+            normalized = member.filename.replace("\\", "/")
+            target = (destination / normalized).resolve()
             if target != root and root not in target.parents:
                 raise ValueError(f"unsafe artifact path: {member.filename}")
-        bundle.extractall(destination)
+            if member.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with bundle.open(member) as source, target.open("wb") as output:
+                    shutil.copyfileobj(source, output, length=1024 * 1024)
 
 
 def select_artifact(repository: str, branch: str, token: str) -> tuple[dict, dict]:
@@ -111,7 +136,7 @@ def main() -> None:
         download(artifact["archive_download_url"], token, archive)
         safe_extract(archive, extracted)
         dashboard = extracted / "dashboard"
-        publish(dashboard, args.publication_root)
+        publish(dashboard, args.publication_root, args.repository, run["head_sha"])
     write_state(args.state_file, {"schema_version": "1", "repository": args.repository,
                                   "branch": args.branch, "run_id": run["id"],
                                   "commit_sha": run["head_sha"], "artifact_id": artifact["id"],

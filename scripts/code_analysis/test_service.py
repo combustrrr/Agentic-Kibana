@@ -2,6 +2,7 @@ import json, os, tempfile, unittest, zipfile
 from argparse import Namespace
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 from scripts.code_analysis.channel_status import build as build_channel_status
 from scripts.code_analysis.dashboard import generate, github_summary, validate_snapshot, write_dashboard
 from scripts.code_analysis.monitoring import EvidenceError, build_snapshot, canonicalize, check_key, compare, defectdojo_fixture, effective_triage, stable_id
@@ -59,6 +60,7 @@ class MonitoringTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             output=Path(d)/"index.html";generate(result,output);page=output.read_text()
             self.assertIn("All canonical findings",page);self.assertIn("slice((page-1)*size,page*size)",page)
+            self.assertIn("searchIndex.get(x.stable_id)",page)
             self.assertIn("Raw observations",page);self.assertIn("Current Code Quality",github_summary(result))
     def test_invalid_current_fails_closed(self):
         base=evidence([]);base["baseline_id"]="base";bad=evidence([]);bad["schema_version"]="future"
@@ -72,6 +74,14 @@ class MonitoringTests(unittest.TestCase):
         permissions=text.split("permissions:",1)[1].split("jobs:",1)[0]
         self.assertIn("checks: write",permissions);self.assertIn("contents: read",permissions);self.assertIn("actions: read",permissions)
         self.assertNotIn("issues: write",text);self.assertNotIn("pull-requests: write",text);self.assertNotIn("contents: write",text)
+
+    def test_qa_vm_profile_is_loopback_read_only_and_credential_scoped(self):
+        compose=Path("deploy/code-analysis-dashboard/compose.yml").read_text(encoding="utf-8")
+        unit=Path("deploy/code-analysis-dashboard/agentic-findings-pull.service").read_text(encoding="utf-8")
+        self.assertIn('127.0.0.1:8787:8080',compose);self.assertIn("read_only: true",compose)
+        self.assertIn("cap_drop:\n      - ALL",compose);self.assertIn("/healthz",compose)
+        self.assertIn("LoadCredential=github-token:",unit);self.assertIn("NoNewPrivileges=true",unit)
+        self.assertNotIn("GH_TOKEN=",unit);self.assertNotIn("github-token",unit.split("ExecStart=",1)[1].splitlines()[0])
 
     def test_snapshot_reconciles_findings_and_observations(self):
         result=snapshot([raw("CodeQL"),raw("Semgrep")])
@@ -91,6 +101,9 @@ class MonitoringTests(unittest.TestCase):
             self.assertTrue((published/"current"/"index.html").is_file())
             bad=root/"bad";bad.mkdir();(bad/"current-snapshot.json").write_text("{}")
             with self.assertRaises(ValueError): publish(bad,published)
+            self.assertTrue((published/"current"/"index.html").is_file())
+            with self.assertRaisesRegex(ValueError,"repository"):
+                publish(first,published,"wrong/repository","abc")
             self.assertTrue((published/"current"/"index.html").is_file())
 
     def test_tsc_and_xenon_are_structured(self):
@@ -128,6 +141,18 @@ class MonitoringTests(unittest.TestCase):
             root=Path(d);archive=root/"bad.zip";destination=root/"out";destination.mkdir()
             with zipfile.ZipFile(archive,"w") as bundle: bundle.writestr("../escape.txt","bad")
             with self.assertRaises(ValueError): safe_extract(archive,destination)
+
+    def test_pull_worker_rejects_symlink_and_archive_limit(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);destination=root/"out";destination.mkdir()
+            symlink=root/"link.zip"
+            with zipfile.ZipFile(symlink,"w") as bundle:
+                entry=zipfile.ZipInfo("dashboard/link");entry.create_system=3
+                entry.external_attr=(0o120777 << 16);bundle.writestr(entry,"target")
+            with self.assertRaisesRegex(ValueError,"symlink"): safe_extract(symlink,destination)
+            with patch("scripts.code_analysis.pull_worker.MAX_ARCHIVE_FILES",0):
+                with self.assertRaisesRegex(ValueError,"too many files"):
+                    safe_extract(symlink,destination)
 
     def test_pull_worker_reads_protected_token_file(self):
         with tempfile.TemporaryDirectory() as d:

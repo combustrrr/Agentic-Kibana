@@ -7,14 +7,20 @@ Agentic SOC application.
    `agentic-findings` service account.
 2. Create `/var/lib/agentic-soc-findings` and
    `/opt/agentic-soc-findings/repo/var/code-analysis`, owned by that account.
-3. Install `worker.env.example` as `/etc/agentic-soc-findings/worker.env`, mode `0600`.
-   Write the Actions-read-only token to the referenced root-owned credential file,
-   also mode `0600`; do not place it in the repository or process arguments.
+3. Write the Actions-read-only token to
+   `/etc/agentic-soc-findings/github-token`, owned by root and mode `0600`.
+   The service exposes it through systemd's protected credentials directory; the
+   token never appears in the repository, unit environment, or process arguments.
 4. Copy the `.service` and `.timer` units to `/etc/systemd/system/`, run
    `systemctl daemon-reload`, and enable the timer.
 5. Start `docker compose up -d` from this directory. The server binds only to
    `127.0.0.1:8787`.
 6. Put the company HTTPS/VPN/OIDC reverse proxy in front of the loopback endpoint.
+
+The container exposes `GET /healthz` on the loopback listener and Compose verifies it
+every 30 seconds. HTML and snapshot responses use `Cache-Control: no-store`, so atomic
+refreshes are visible immediately. The container runs as an unprivileged user with all
+Linux capabilities dropped.
 
 The worker makes outbound HTTPS requests only. It downloads a successful dashboard
 artifact, validates safe extraction and snapshot contents, and atomically swaps the

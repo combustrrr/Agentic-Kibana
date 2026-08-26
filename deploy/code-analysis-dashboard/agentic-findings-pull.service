@@ -8,8 +8,10 @@ Type=oneshot
 User=agentic-findings
 Group=agentic-findings
 WorkingDirectory=/opt/agentic-soc-findings/repo
-EnvironmentFile=/etc/agentic-soc-findings/worker.env
+LoadCredential=github-token:/etc/agentic-soc-findings/github-token
+Environment=GH_TOKEN_FILE=%d/github-token
 ExecStart=/usr/bin/python3 scripts/code_analysis/pull_worker.py --repository combustrrr/Agentic-Kibana --branch feature/static-code-analysis --publication-root /opt/agentic-soc-findings/repo/var/code-analysis --state-file /var/lib/agentic-soc-findings/pull-state.json
+UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
@@ -22,4 +24,3 @@ LockPersonality=true
 CapabilityBoundingSet=
 RestrictAddressFamilies=AF_INET AF_INET6
 ReadWritePaths=/opt/agentic-soc-findings/repo/var/code-analysis /var/lib/agentic-soc-findings
-ReadOnlyPaths=/etc/agentic-soc-findings

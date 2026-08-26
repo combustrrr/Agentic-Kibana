@@ -10953,3 +10953,34 @@
   rate limits prevented a complete final status poll during this session.
 - No push was made to `upstream`; the original repository and production remain unchanged.
 - Status: complete.
+
+## 2026-08-26 — Findings service smoothing and hardening started
+- Scope: audit and refine the custom current-findings pipeline, outbound QA-VM pull
+  worker, static dashboard container, GitHub Actions handoff, and operator contract.
+- Constraints: fork-only changes; no application, upstream, production, remediation,
+  Issue, PR-comment, or branch-protection mutation.
+- Status: in progress.
+
+## 2026-08-26 — Findings service smoothing and hardening completed
+- Hardened artifact ingestion with bounded download/extraction sizes, bounded file
+  count, path traversal rejection, symlink rejection, and manual extraction.
+- Bound every pulled dashboard to the selected GitHub repository and exact workflow
+  commit before publication; finding and observation counts are reconciled again at
+  the publication boundary.
+- Reworked atomic publication as a recoverable transaction: the prior `current`
+  snapshot is restored if promotion fails, then retained as the sole rollback copy.
+- Moved the GitHub token into systemd `LoadCredential`, set a restrictive service
+  umask, and removed the plaintext environment-file template.
+- Hardened the container with an unprivileged UID, no capabilities, read-only root,
+  loopback-only exposure, security headers, no-store snapshot responses, and a
+  Compose health check on `/healthz`.
+- Optimized dashboard filtering by building the searchable finding index once rather
+  than repeatedly serializing every finding on each keystroke.
+- Verification: **23/23** analysis-service tests passed; production pipeline scripts
+  compile and pass Ruff; all workflow/Compose YAML parses; diff check is clean.
+  The 10,000-finding / 13,000-observation benchmark completed in **11.78 seconds**
+  with **77.32 MiB** peak Python allocation. Docker/WSL runtime validation is pending
+  on the Ubuntu QA VM because neither runtime is installed on this Windows host.
+- Safety: no application, upstream, production, Issue, PR-comment, branch-protection,
+  patch, autofix, or remediation mutation occurred.
+- Status: complete.
