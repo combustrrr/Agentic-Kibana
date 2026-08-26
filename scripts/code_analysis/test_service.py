@@ -341,6 +341,9 @@ class MonitoringTests(unittest.TestCase):
         self.assertIn("GH_REPO: ${{ github.repository }}",workflow)
         self.assertNotIn("uses: actions/checkout@",workflow)
         self.assertIn('gh api "repos/${GITHUB_REPOSITORY}/branches/${encoded}"',workflow)
+        self.assertIn("WORKFLOW_REF: ${{ github.event.repository.default_branch }}",workflow)
+        self.assertIn('gh workflow run "$workflow" --ref "$WORKFLOW_REF"',workflow)
+        self.assertNotIn('gh workflow run "$workflow" --ref "$SCAN_BRANCH"',workflow)
         for name in ("01-code-quality.yml","02-security-sast.yml",
                      "03-dependency-security.yml","04-code-health.yml"):
             self.assertIn(name,workflow)

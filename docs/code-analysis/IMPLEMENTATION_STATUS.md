@@ -106,7 +106,8 @@ GitHub's native SARIF/code-scanning lifecycle.
 ### Manual analysis
 
 **Full Code Analysis (Manual)** provides the one-click path: it validates the selected
-fork branch head, pins that exact SHA into all scanner checkouts, waits for all four
+fork branch head, runs the approved workflow definitions from the fork default branch,
+pins the selected branch's exact SHA into all scanner checkouts, waits for all four
 scanner groups, dispatches one exact-commit dashboard build, waits for publication, and
 returns direct run/artifact links. Individual scanner dispatches remain available for
 diagnosis. Manual dashboard-only builds may specify an exact `scan_sha` and branch, but

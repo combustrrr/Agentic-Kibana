@@ -58,6 +58,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SCAN_BRANCH: ${{ steps.target.outputs.branch }}
           SCAN_SHA: ${{ steps.target.outputs.sha }}
+          WORKFLOW_REF: ${{ github.event.repository.default_branch }}
         shell: bash
         run: |
           set -euo pipefail
@@ -84,7 +85,10 @@ jobs:
               echo "Branch moved from $SCAN_SHA to $current_sha before $workflow dispatch; refusing a mixed-commit scan" >&2
               exit 1
             fi
-            gh workflow run "$workflow" --ref "$SCAN_BRANCH" \
+            # The selected target branch need not contain the analysis workflows.
+            # Execute the approved default-branch definition; inputs pin checkout to
+            # the exact selected branch head.
+            gh workflow run "$workflow" --ref "$WORKFLOW_REF" \
               -f scan_sha="$SCAN_SHA" \
               -f scan_branch="$SCAN_BRANCH"
           done
