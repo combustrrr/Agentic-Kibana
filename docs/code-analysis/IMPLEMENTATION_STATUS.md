@@ -127,6 +127,11 @@ defines 16 required structured channels. The number is data, not hard-coded logi
 | Dead code and complexity | Vulture, Radon, Xenon | Verified structured ingestion |
 | Runtime coverage evidence | Coverage.py | Verified; parent-process scope is labelled |
 
+Workflow ownership is explicit in the manifest and dashboard: Code Quality owns five
+channels, Security/SAST owns two, Dependency/Supply Chain owns five, and Code Health
+owns four. The dashboard's integrity panel links the exact contributing workflow runs
+and exposes retained artifact names and hashes, so channel completeness is auditable.
+
 Additional lanes:
 
 - **Snyk Open Source + Snyk Code:** optional, scan-only, and now verified in fork
@@ -134,8 +139,10 @@ Additional lanes:
   publishability gate.
 - **Schemathesis:** manual dynamic lane; JUnit failures normalize as `DYNAMIC`, including
   explicit API-500 classification. It is not static coverage.
-- **CodeRabbit:** opt-in configuration is checked in; CLI/GitHub App activation remains
-  incomplete. Its future output is advisory only.
+- **CodeRabbit:** automatic/incremental cloud-review configuration, exact-head GitHub
+  review evidence collection, and dashboard refresh are implemented. Findings remain
+  a separate `AI_ADVISORY` lane and do not corroborate deterministic results. Repository
+  owner GitHub App authorization and first live review remain externally pending.
 - **SonarQube and CodeScene:** deferred until a stable machine-readable export proves
   useful findings not already represented.
 - **Atheris:** deferred research; no bounded production-relevant fuzz harness is active.

@@ -42,13 +42,17 @@ snapshot. Pull requests targeting `claude/main` or `Testing` use the same contra
 
 The current required web contains 16 structured channels:
 
-| Surface | Tools represented in the unified dashboard |
+| Cloud workflow | Required channels represented in the unified dashboard |
 |---|---|
-| Quality and types | Ruff, Pyright, ESLint, TypeScript |
-| SAST | CodeQL, Semgrep, Bandit |
-| Supply chain and secrets | OSV-Scanner, Gitleaks, Trivy |
-| Container and IaC | Trivy, Hadolint, Checkov |
-| Health signals | Vulture, Radon, Xenon, Coverage.py |
+| `01-code-quality.yml` | Ruff, Pyright, ESLint, TypeScript, Bandit |
+| `02-security-sast.yml` | CodeQL, Semgrep |
+| `03-dependency-security.yml` | OSV-Scanner, Gitleaks, Trivy, Hadolint, Checkov |
+| `04-code-health.yml` | Vulture, Radon, Xenon, Coverage.py |
+
+The dashboard exposes this mapping per channel together with its completion state,
+finding count, retained artifact names, workflow-run references, scanner versions,
+and SHA-256 artifact proof. A green `16/16` therefore means structured evidence from
+all 16 required channels was validated, not merely that four workflow shells ran.
 
 An artifact is not enough by itself: malformed scanner output now fails normalization
 and cannot publish a dashboard. Radon complexity blocks and Coverage.py file-level

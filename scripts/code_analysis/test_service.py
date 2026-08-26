@@ -90,7 +90,16 @@ class MonitoringTests(unittest.TestCase):
             output=Path(d)/"index.html";generate(result,output);page=output.read_text()
             self.assertIn("All canonical findings",page);self.assertIn("slice((page-1)*size,page*size)",page)
             self.assertIn("searchIndex.get(x.stable_id)",page)
-            self.assertIn("Raw observations",page);self.assertIn("Current Code Quality",github_summary(result))
+            self.assertIn("Raw evidence records",page);self.assertIn("Current Code Quality",github_summary(result))
+            self.assertIn("Snapshot integrity and source proof",page)
+            self.assertIn("artifactHashes",page)
+    def test_required_manifest_maps_sixteen_channels_to_four_workflows(self):
+        root=Path(__file__).resolve().parents[2]
+        manifest=json.loads((root/"config/code-analysis/required-channels.json").read_text(encoding="utf-8"))
+        channels=manifest["required_static_channels"]
+        self.assertEqual(len(channels),16)
+        self.assertEqual({row["workflow"] for row in channels},{"01-code-quality.yml","02-security-sast.yml","03-dependency-security.yml","04-code-health.yml"})
+        self.assertTrue(all(row["artifact_patterns"] for row in channels))
     def test_invalid_current_fails_closed(self):
         base=evidence([]);base["baseline_id"]="base";bad=evidence([]);bad["schema_version"]="future"
         with self.assertRaises(EvidenceError): compare(bad,base,None,status(),{"decisions":[]})
