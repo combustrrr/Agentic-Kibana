@@ -14,6 +14,8 @@ automation are not mistaken for working coverage.
 
 Companion records: [`WORK_COMPLETED.md`](WORK_COMPLETED.md) inventories delivered work,
 [`ADRS.md`](ADRS.md) records the accepted decisions, and
+[`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) records the external-service
+security and deployment gates, while
 [`PENDING_WORK.md`](PENDING_WORK.md) defines the prioritized remaining work and exit criteria.
 
 ## 1. Final objective
@@ -235,8 +237,8 @@ and publishes atomically.
 - Snyk activation: run `32965286130` at commit `e8caba62...` passed installation,
   Open Source SCA, Snyk Code, configured-status generation, and artifact upload;
   artifact `snyk-results` ID `9605455800` was retained.
-- Analysis-service regression suite: 31/31 tests passed after Snyk partial-result and
-  conservative-identity hardening.
+- Analysis-service regression suite: 37/37 tests passed after enterprise workflow
+  policy, Snyk partial-result, and conservative-identity hardening.
 
 These prove configured pipeline behavior and the defined canary set. They do not prove
 that the application is secure or establish a universal vulnerability-detection rate.

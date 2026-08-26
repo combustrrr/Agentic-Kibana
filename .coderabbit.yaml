@@ -19,8 +19,6 @@ reviews:
     auto_pause_after_reviewed_commits: 0
     drafts: false
     description_keyword: ""
-    base_branches:
-      - "Testing"
     ignore_usernames:
       - "dependabot[bot]"
       - "github-actions[bot]"

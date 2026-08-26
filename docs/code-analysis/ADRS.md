@@ -160,3 +160,19 @@ and private QA-hosting guidance rather than end-user Agentic SOC documentation.
 **Consequence:** The root repository README and engineering handoff link here, while the
 bundled public Help Center excludes this directory.
 
+## ADR-CA-013 — Workflow policy is executable and fail-closed
+
+**Status:** Accepted
+
+**Decision:** Every code-analysis change is checked by
+`scripts/code_analysis/audit_workflows.py`. Third-party Actions require immutable
+40-character commit references, every runner job requires a timeout, event/input data
+cannot be interpolated directly into shell scripts, analysis workflows cannot receive
+repository-content or collaboration write permissions, and external portal profiles
+cannot use `latest` images or public default port bindings.
+
+**Reason:** A written security boundary is insufficient if routine workflow edits can
+silently weaken it.
+
+**Consequence:** Unsafe workflow changes fail the normal Code Quality workflow before
+they can become the accepted analysis-service definition.

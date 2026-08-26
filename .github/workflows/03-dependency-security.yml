@@ -1,6 +1,6 @@
 # ============================================================
 # Layer 3: Dependency, Supply Chain & Secrets — Workflow
-# Kavach-AgenticSOC Code Intelligence System
+# Agentic SOC external code-analysis service
 # Tools: OSV-Scanner, Trivy, Gitleaks, Hadolint, Checkov,
 #        GitHub Secret Scanning (native), GitHub Dependency Review
 # ============================================================
@@ -18,7 +18,6 @@ on:
   # Fork-only monitoring: analysis-branch pushes exercise upstream syncs automatically.
 permissions:
   contents: read
-  security-events: write
   pull-requests: read
 
 jobs:
@@ -121,6 +120,9 @@ jobs:
     name:  OSV-Scanner (Dependency CVEs)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
 
     steps:
       - name: Checkout
@@ -187,6 +189,10 @@ jobs:
     name:  Gitleaks (Secrets Detection)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+      security-events: write
 
     steps:
       - name: Checkout (full history for historical scan)
@@ -232,6 +238,9 @@ jobs:
     name:  Trivy (Filesystem & Container Security)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
 
     steps:
       - name: Checkout
@@ -288,6 +297,9 @@ jobs:
     name:  Hadolint (Dockerfile Lint)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
 
     steps:
       - name: Checkout
@@ -325,6 +337,9 @@ jobs:
     name:  Checkov (IaC Security)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
 
     steps:
       - name: Checkout
@@ -338,7 +353,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install Checkov
-        run: pip install checkov
+        run: pip install "checkov==3.2.468"
 
       - name: Run Checkov
         run: |

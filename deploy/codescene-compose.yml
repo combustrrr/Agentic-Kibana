@@ -2,7 +2,7 @@ version: "3.8"
 
 # ============================================================
 # CodeScene On-Premises Docker Compose
-# Kavach-AgenticSOC Code Intelligence System
+# Agentic SOC external code-analysis environment (deferred optional specialist)
 #
 # CodeScene is a behavioral hotspot analysis tool that identifies
 # technical debt trends and complexity hotspots using Git history.
@@ -16,25 +16,25 @@ version: "3.8"
 
 services:
   codescene:
-    image: empear/codescene:latest
+    image: ${CODESCENE_IMAGE:?Pin CODESCENE_IMAGE to an immutable image digest}
     container_name: codescene
     restart: unless-stopped
     ports:
-      - "3003:3003"
+      - "127.0.0.1:3003:3003"
     environment:
       # License
-      - CODESCENE_LICENSE_KEY=${CODESCENE_LICENSE_KEY}
+      - CODESCENE_LICENSE_KEY=${CODESCENE_LICENSE_KEY:?Set CODESCENE_LICENSE_KEY}
       # Database
       - CODESCENE_DB_TYPE=postgres
       - CODESCENE_DB_HOST=codescene-db
       - CODESCENE_DB_PORT=5432
       - CODESCENE_DB_NAME=codescene
       - CODESCENE_DB_USER=codescene
-      - CODESCENE_DB_PASSWORD=${CODESCENE_DB_PASSWORD}
+      - CODESCENE_DB_PASSWORD=${CODESCENE_DB_PASSWORD:?Set CODESCENE_DB_PASSWORD}
       # Application
       - CODESCENE_HOST=0.0.0.0
       - CODESCENE_PORT=3003
-      - CODESCENE_SECRET_KEY=${CODESCENE_SECRET_KEY}
+      - CODESCENE_SECRET_KEY=${CODESCENE_SECRET_KEY:?Set CODESCENE_SECRET_KEY}
       # GitHub integration (for repo access)
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
     volumes:
@@ -51,13 +51,13 @@ services:
       retries: 5
 
   codescene-db:
-    image: postgres:15-alpine
+    image: ${CODESCENE_POSTGRES_IMAGE:?Pin CODESCENE_POSTGRES_IMAGE to an immutable digest}
     container_name: codescene-db
     restart: unless-stopped
     environment:
       - POSTGRES_DB=codescene
       - POSTGRES_USER=codescene
-      - POSTGRES_PASSWORD=${CODESCENE_DB_PASSWORD}
+      - POSTGRES_PASSWORD=${CODESCENE_DB_PASSWORD:?Set CODESCENE_DB_PASSWORD}
     volumes:
       - codescene-postgres:/var/lib/postgresql/data
     networks:

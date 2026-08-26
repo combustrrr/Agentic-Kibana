@@ -14,6 +14,7 @@
 | What the platform is and how it works | [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) |
 | What has actually been completed | [`WORK_COMPLETED.md`](WORK_COMPLETED.md) |
 | Why the architecture uses these boundaries | [`ADRS.md`](ADRS.md) |
+| Production/QA-VM security and deployment gates | [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) |
 | What remains, in priority order | [`PENDING_WORK.md`](PENDING_WORK.md) |
 | Authoritative phase/status table | [`EXECUTION_PLAN.md`](EXECUTION_PLAN.md) |
 | Where and how the dashboard is viewed | [`MONITORING_UI.md`](MONITORING_UI.md) |

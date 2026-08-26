@@ -1,6 +1,6 @@
 # ============================================================
 # Layer 5: Code Health & Technical Debt — Workflow
-# Kavach-AgenticSOC Code Intelligence System
+# Agentic SOC external code-analysis service
 # Tools: Radon + Xenon (complexity), Vulture (dead code),
 #        Coverage.py (test coverage), CodeScene (hotspots)
 # ============================================================

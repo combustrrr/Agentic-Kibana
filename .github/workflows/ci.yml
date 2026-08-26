@@ -7,7 +7,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, Testing]
+    branches: [main, Testing, "claude/main"]
     tags: ["v*"]
 
 concurrency:

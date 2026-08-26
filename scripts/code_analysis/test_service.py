@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 from click.testing import CliRunner
+from scripts.code_analysis.audit_workflows import audit as audit_workflows
 from scripts.code_analysis.channel_status import build as build_channel_status
 from scripts.code_analysis.collect_coderabbit import collect as collect_coderabbit
 from scripts.code_analysis.dashboard import generate, github_summary, validate_snapshot, write_dashboard
@@ -100,6 +101,13 @@ class MonitoringTests(unittest.TestCase):
         self.assertEqual(len(channels),16)
         self.assertEqual({row["workflow"] for row in channels},{"01-code-quality.yml","02-security-sast.yml","03-dependency-security.yml","04-code-health.yml"})
         self.assertTrue(all(row["artifact_patterns"] for row in channels))
+    def test_enterprise_workflow_policy_and_advisory_check_contract(self):
+        self.assertEqual(audit_workflows(),[])
+        aggregation=(Path(__file__).resolve().parents[2]/".github/workflows/05-issue-aggregation.yml").read_text(encoding="utf-8")
+        self.assertIn('conclusion="neutral"',aggregation)
+        self.assertIn("if-no-files-found: error",aggregation)
+        coderabbit=(Path(__file__).resolve().parents[2]/".coderabbit.yaml").read_text(encoding="utf-8")
+        self.assertNotIn("base_branches:",coderabbit)
     def test_invalid_current_fails_closed(self):
         base=evidence([]);base["baseline_id"]="base";bad=evidence([]);bad["schema_version"]="future"
         with self.assertRaises(EvidenceError): compare(bad,base,None,status(),{"decisions":[]})

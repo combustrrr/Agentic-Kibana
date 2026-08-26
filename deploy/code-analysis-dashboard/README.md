@@ -20,7 +20,8 @@ Agentic SOC application.
 The container exposes `GET /healthz` on the loopback listener and Compose verifies it
 every 30 seconds. HTML and snapshot responses use `Cache-Control: no-store`, so atomic
 refreshes are visible immediately. The container runs as an unprivileged user with all
-Linux capabilities dropped.
+Linux capabilities dropped. CPU, memory, PID count, log size, and shutdown time are
+bounded; non-read methods and dotfile paths are denied.
 
 The worker makes outbound HTTPS requests only. It downloads a successful dashboard
 artifact, validates safe extraction and snapshot contents, and atomically swaps the

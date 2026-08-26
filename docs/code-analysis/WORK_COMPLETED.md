@@ -132,7 +132,7 @@ Copilot Autofix is not invoked by this platform.
 
 ## 10. Verification summary
 
-- Analysis-service regression suite: **31/31 passed**.
+- Analysis-service regression suite: **37/37 passed**.
 - Defined canaries: **10/10 passed**.
 - Scale gate: 10,000 canonical findings / 13,000 observations under 30 seconds and
   512 MiB; latest dashboard expansion measured 5.60 seconds / 80.20 MiB.
@@ -141,6 +141,11 @@ Copilot Autofix is not invoked by this platform.
   and whitespace validation passed.
 - No upstream, production, application, Issue, PR-comment, patch, autofix, remediation,
   deployment, branch-protection, or DefectDojo mutation occurred.
+- Added an executable enterprise workflow policy: immutable action references, bounded
+  jobs, safe event/input handling, least-privilege analysis, and private optional portal
+  profiles now fail closed in Code Quality.
+- Hardened the QA dashboard container/systemd profile with resource bounds, method and
+  dotfile denial, browser isolation headers, capability removal, and stricter sandboxing.
 
 ## 11. Key implementation commits
 

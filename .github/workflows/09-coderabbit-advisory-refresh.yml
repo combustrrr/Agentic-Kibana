@@ -39,12 +39,18 @@ jobs:
             -f scan_sha="$SCAN_SHA"
 
       - name: Publish refresh summary
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
         run: |
+          set -euo pipefail
           {
             echo "## CodeRabbit advisory refresh dispatched"
             echo
-            echo "- PR: #${{ github.event.pull_request.number }}"
-            echo "- Branch: \`${{ github.event.pull_request.head.ref }}\`"
-            echo "- Exact head: \`${{ github.event.pull_request.head.sha }}\`"
+            printf '%s\n' "- PR: #${PR_NUMBER}"
+            printf '%s\n' "- Branch: \`${PR_HEAD_BRANCH}\`"
+            printf '%s\n' "- Exact head: \`${PR_HEAD_SHA}\`"
             echo "- Evidence lane: \`AI_ADVISORY\`"
           } >> "$GITHUB_STEP_SUMMARY"

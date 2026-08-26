@@ -1,5 +1,8 @@
 # QA VM deployment contract
 
+The mandatory security and release gates are maintained in
+[`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md).
+
 The QA VM is an outbound-only findings host. It is **not** an Agentic SOC runtime
 dependency and, because the fork is public, it must not be registered as a persistent
 self-hosted GitHub Actions runner.

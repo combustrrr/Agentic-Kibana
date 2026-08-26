@@ -1,6 +1,6 @@
 # ============================================================
 # Layer 1: Code Quality — GitHub Actions Workflow
-# Kavach-AgenticSOC Code Intelligence System
+# Agentic SOC external code-analysis service
 # Tools: Ruff (Python), Pyright (types), ESLint + tsc (TS/React), Bandit
 # ============================================================
 
@@ -16,7 +16,6 @@ on:
 permissions:
   contents: read
   pull-requests: read
-  security-events: write
 
 jobs:
   # ─────────────────────────────────────────────
@@ -43,6 +42,9 @@ jobs:
 
       - name: Install pinned tools
         run: python -m pip install --requirement .ci/requirements.txt
+
+      - name: Enforce code-analysis workflow policy
+        run: python scripts/code_analysis/audit_workflows.py
 
       - name: Ruff lint (default rules — matches existing python-static CI gate)
         run: python -m ruff check backend/app backend/tests --exit-zero
@@ -88,6 +90,9 @@ jobs:
     name:  Bandit (Python Security)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
 
     steps:
       - name: Checkout
@@ -180,7 +185,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
           pip install -r backend/requirements-dev.txt
-          pip install pyright
+          pip install "pyright==1.1.411"
 
       - name: Run Pyright (advisory)
         run: |

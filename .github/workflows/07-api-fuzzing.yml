@@ -1,6 +1,6 @@
 # ============================================================
 # Workflow 7: API Fuzzing & Property-Based Testing
-# Kavach-AgenticSOC Code Intelligence System
+# Agentic SOC external code-analysis service
 #
 # Runs: Weekly (Saturday) + on PRs modifying FastAPI endpoints
 # Tool: Schemathesis (OpenAPI schema fuzzer)
@@ -47,7 +47,7 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a3a30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Python 3.11
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -61,7 +61,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
           pip install -r backend/requirements-dev.txt
-          pip install schemathesis httpx
+          pip install "schemathesis==3.39.16" "httpx==0.27.2"
 
       - name: Start FastAPI Backend in Background
         run: |
@@ -71,26 +71,34 @@ jobs:
           curl -f http://localhost:8000/openapi.json > schema.json || exit 1
 
       - name: Run API Fuzzing (Schemathesis)
+        id: schemathesis
         run: |
           cd backend
           # Limit to 10 minutes to prevent infinite CI hang
+          set +e
           timeout 600 schemathesis run schema.json \
             --base-url http://localhost:8000 \
             --checks all \
             --max-response-time 5000 \
             --hypothesis-max-examples 100 \
             --junit-xml=../fuzzing-results.xml \
-            --report=../schemathesis-report.html || echo "Fuzzing completed with findings"
+            --report=../schemathesis-report.html
+          scan_exit=$?
+          set -e
+          # Exit 1 represents reproducible API findings. Timeout or execution/config
+          # failures are operational failures and must not be presented as findings.
+          [[ "$scan_exit" -le 1 ]] || exit "$scan_exit"
 
       - name: Upload Fuzzing Report
         if: always()
-        uses: actions/upload-artifact@4.5.0
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: schemathesis-report
           path: |
             fuzzing-results.xml
             schemathesis-report.html
             backend/schema.json
+          if-no-files-found: error
 
       - name: Parse Results for Aggregation
         if: always()
@@ -99,11 +107,12 @@ jobs:
           python scripts/code_analysis/normalizer.py \
             --input-dir . \
             --output-dir fuzzing-normalized \
-            --verbose || true
+            --verbose
 
       - name: Upload Normalized Findings
         if: always()
-        uses: actions/upload-artifact@4.5.0
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fuzzing-findings
           path: fuzzing-normalized/
+          if-no-files-found: error

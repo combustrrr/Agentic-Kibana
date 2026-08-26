@@ -1,6 +1,6 @@
 # ============================================================
 # CodeQL Configuration
-# Kavach-AgenticSOC — Code Intelligence System
+# Agentic SOC external code-analysis service
 # ============================================================
 
 # Path to a YAML-format config file that customizes the CodeQL CLI.

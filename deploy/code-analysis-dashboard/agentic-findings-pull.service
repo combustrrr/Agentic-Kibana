@@ -10,17 +10,26 @@ Group=agentic-findings
 WorkingDirectory=/opt/agentic-soc-findings/repo
 LoadCredential=github-token:/etc/agentic-soc-findings/github-token
 Environment=GH_TOKEN_FILE=%d/github-token
+Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/usr/bin/python3 scripts/code_analysis/pull_worker.py --repository combustrrr/Agentic-Kibana --branch feature/static-code-analysis --publication-root /opt/agentic-soc-findings/repo/var/code-analysis --state-file /var/lib/agentic-soc-findings/pull-state.json
 UMask=0077
+RuntimeMaxSec=4min
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
+ProtectClock=true
+ProtectHostname=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
+ProtectKernelLogs=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
+RestrictNamespaces=true
 LockPersonality=true
+MemoryDenyWriteExecute=true
 CapabilityBoundingSet=
+SystemCallArchitectures=native
 RestrictAddressFamilies=AF_INET AF_INET6
 ReadWritePaths=/opt/agentic-soc-findings/repo/var/code-analysis /var/lib/agentic-soc-findings

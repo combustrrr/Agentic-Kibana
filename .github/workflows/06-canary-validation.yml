@@ -1,6 +1,6 @@
 # ============================================================
 # Workflow 6: Canary Coverage Validation
-# Kavach-AgenticSOC Code Intelligence System
+# Agentic SOC external code-analysis service
 #
 # This workflow is the INTEGRATION TEST for the entire tool web.
 # It runs all scanners against the deliberately-vulnerable canary

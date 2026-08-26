@@ -4,6 +4,10 @@ services:
     user: "101:101"
     restart: unless-stopped
     init: true
+    cpus: 1.0
+    mem_limit: 256m
+    pids_limit: 100
+    stop_grace_period: 10s
     ports:
       - "127.0.0.1:8787:8080"
     volumes:
@@ -17,6 +21,11 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/healthz"]
       interval: 30s

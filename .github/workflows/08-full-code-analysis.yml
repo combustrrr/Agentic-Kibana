@@ -52,6 +52,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SCAN_BRANCH: ${{ steps.target.outputs.branch }}
+          SCAN_SHA: ${{ steps.target.outputs.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -61,8 +62,19 @@ jobs:
             03-dependency-security.yml \
             04-code-health.yml
           do
+            encoded="$(jq -rn --arg value "$SCAN_BRANCH" '$value|@uri')"
+            current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/${encoded}" --jq '.commit.sha')"
+            if [[ "${current_sha,,}" != "$SCAN_SHA" ]]; then
+              echo "Branch moved from $SCAN_SHA to $current_sha before $workflow dispatch; refusing a mixed-commit scan" >&2
+              exit 1
+            fi
             gh workflow run "$workflow" --ref "$SCAN_BRANCH"
           done
+          final_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/${encoded}" --jq '.commit.sha')"
+          if [[ "${final_sha,,}" != "$SCAN_SHA" ]]; then
+            echo "Branch moved while scanners were dispatched; no exact-set publication is authorized" >&2
+            exit 1
+          fi
 
       - name: Publish dispatch summary
         env:

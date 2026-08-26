@@ -9,11 +9,12 @@ approved hosting belongs in the near-term backlog.
 
 ## P0 — Finish current platform delivery
 
-### P0.1 Publish and verify the expanded real-data board
+### P0.1 Publish and verify the enterprise-hardened real-data board
 
-**Current state:** commit `6f0adfc` is pushed. Code Quality, Security/SAST, and
-Dependency/Supply Chain completed successfully; Code Health was still running when this
-document was written, so the automatic dashboard run had not started.
+**Current state:** workflow security, immutable dependencies, least privilege, branch
+coverage, advisory Check semantics, deployment hardening, and the executable workflow
+policy are implemented locally. Remote exact-commit verification follows the final
+validated fork push.
 
 **Exit criteria:**
 

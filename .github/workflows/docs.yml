@@ -12,7 +12,7 @@ on:
       - ".github/workflows/docs.yml"
   push:
     # Branches validate previews. Only an exact immutable release tag publishes.
-    branches: [main, Testing]
+    branches: [main, Testing, "claude/main"]
     tags: ["v*"]
     paths:
       - "docs/**"
