@@ -8,6 +8,15 @@ name: Code Quality
 
 on:
   workflow_dispatch:
+    inputs:
+      scan_sha:
+        description: "Exact branch-head commit selected by the manual orchestrator"
+        required: false
+        type: string
+      scan_branch:
+        description: "Source branch associated with the selected commit"
+        required: false
+        type: string
   pull_request:
   push:
     branches: ["**"]
@@ -30,7 +39,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Set up Python 3.11
@@ -98,7 +107,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Python 3.11
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -171,7 +180,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Python 3.11
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -216,7 +225,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Node.js 22
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4

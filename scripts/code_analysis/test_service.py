@@ -327,7 +327,7 @@ class MonitoringTests(unittest.TestCase):
             self.assertIn('branches: ["**"]',workflow)
             self.assertNotIn("branches: [claude/main, Testing]",workflow)
             self.assertEqual(workflow.count("uses: actions/checkout@"),
-                             workflow.count("ref: ${{ github.event.pull_request.head.sha || github.sha }}"))
+                             workflow.count("ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}"))
         aggregate=Path(".github/workflows/05-issue-aggregation.yml").read_text(encoding="utf-8")
         self.assertIn("github.event.workflow_run.event == 'push'",aggregate)
         self.assertIn("github.event.workflow_run.event == 'pull_request'",aggregate)
@@ -342,6 +342,11 @@ class MonitoringTests(unittest.TestCase):
         for name in ("01-code-quality.yml","02-security-sast.yml",
                      "03-dependency-security.yml","04-code-health.yml"):
             self.assertIn(name,workflow)
+        self.assertIn('-f scan_sha="$SCAN_SHA"',workflow)
+        self.assertIn('gh run watch "$run_id" --exit-status',workflow)
+        self.assertIn("05-issue-aggregation.yml",workflow)
+        self.assertIn('gh run watch "$dashboard_id" --exit-status',workflow)
+        self.assertIn("Open dashboard build and download the searchable artifact",workflow)
         self.assertNotIn("issues: write",workflow)
         self.assertNotIn("contents: write",workflow)
 

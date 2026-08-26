@@ -9,6 +9,15 @@ name: Security / SAST
 
 on:
   workflow_dispatch:
+    inputs:
+      scan_sha:
+        description: "Exact branch-head commit selected by the manual orchestrator"
+        required: false
+        type: string
+      scan_branch:
+        description: "Source branch associated with the selected commit"
+        required: false
+        type: string
   pull_request:
   push:
     branches: ["**"]
@@ -43,7 +52,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 2
 
       - name: Initialize CodeQL
@@ -99,7 +108,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Set up Python 3.11

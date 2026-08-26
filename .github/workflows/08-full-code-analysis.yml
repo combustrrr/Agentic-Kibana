@@ -1,4 +1,5 @@
 name: Full Code Analysis (Manual)
+run-name: Analyze branch · ${{ inputs.scan_branch || github.ref_name }}
 
 on:
   workflow_dispatch:
@@ -8,8 +9,8 @@ on:
         required: false
         type: string
 
-# Dispatches only the four read-only scanner workflows. Code Health completion then
-# activates the existing exact-commit dashboard workflow_run handoff.
+# One operator action pins a branch head, runs the four read-only scanner groups,
+# waits for them, and builds the exact-commit dashboard.
 permissions:
   actions: write
   contents: read
@@ -20,9 +21,9 @@ concurrency:
 
 jobs:
   dispatch:
-    name: Start all scanners for one branch head
+    name: Scan branch head and build dashboard
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 90
     steps:
       - name: Resolve and validate the selected fork branch
         id: target
@@ -56,6 +57,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          dispatched_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          : > scanner-runs.tsv
+          {
+            echo "## Full code analysis"
+            echo
+            echo "- Branch: \`$SCAN_BRANCH\`"
+            echo "- Locked head commit: \`$SCAN_SHA\`"
+            echo "- Mode: read-only security and quality diagnosis"
+            echo
+            echo "### Scanner runs"
+          } > manual-analysis-summary.md
           for workflow in \
             01-code-quality.yml \
             02-security-sast.yml \
@@ -68,26 +80,113 @@ jobs:
               echo "Branch moved from $SCAN_SHA to $current_sha before $workflow dispatch; refusing a mixed-commit scan" >&2
               exit 1
             fi
-            gh workflow run "$workflow" --ref "$SCAN_BRANCH"
+            gh workflow run "$workflow" --ref "$SCAN_BRANCH" \
+              -f scan_sha="$SCAN_SHA" \
+              -f scan_branch="$SCAN_BRANCH"
           done
           final_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/${encoded}" --jq '.commit.sha')"
           if [[ "${final_sha,,}" != "$SCAN_SHA" ]]; then
             echo "Branch moved while scanners were dispatched; no exact-set publication is authorized" >&2
             exit 1
           fi
+          for workflow in \
+            01-code-quality.yml \
+            02-security-sast.yml \
+            03-dependency-security.yml \
+            04-code-health.yml
+          do
+            run_id=""
+            run_url=""
+            for attempt in $(seq 1 30); do
+              runs="$(gh run list --workflow "$workflow" --commit "$SCAN_SHA" \
+                --event workflow_dispatch --limit 20 \
+                --json databaseId,createdAt,url)"
+              run_id="$(jq -r --arg started "$dispatched_at" \
+                '[.[] | select(.createdAt >= $started)] | sort_by(.createdAt) | last | .databaseId // empty' \
+                <<<"$runs")"
+              run_url="$(jq -r --arg started "$dispatched_at" \
+                '[.[] | select(.createdAt >= $started)] | sort_by(.createdAt) | last | .url // empty' \
+                <<<"$runs")"
+              [[ -n "$run_id" ]] && break
+              sleep 5
+            done
+            if [[ -z "$run_id" ]]; then
+              echo "::error::Could not locate the dispatched $workflow run for $SCAN_SHA"
+              exit 1
+            fi
+            printf '%s\t%s\t%s\n' "$workflow" "$run_id" "$run_url" >> scanner-runs.tsv
+            printf '%s\n' "- [$workflow]($run_url)" >> manual-analysis-summary.md
+          done
 
-      - name: Publish dispatch summary
+      - name: Wait for all scanner groups
         env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS=$'\t' read -r workflow run_id run_url; do
+            echo "Waiting for $workflow ($run_url)"
+            gh run watch "$run_id" --exit-status
+          done < scanner-runs.tsv
+          echo >> manual-analysis-summary.md
+          echo "All four scanner groups completed successfully." >> manual-analysis-summary.md
+
+      - name: Build the exact-commit dashboard
+        id: dashboard
+        env:
+          GH_TOKEN: ${{ github.token }}
           SCAN_BRANCH: ${{ steps.target.outputs.branch }}
           SCAN_SHA: ${{ steps.target.outputs.sha }}
         shell: bash
         run: |
+          set -euo pipefail
+          default_branch="$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.default_branch')"
+          dispatched_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          title="Dashboard · $SCAN_BRANCH · $SCAN_SHA"
+          gh workflow run 05-issue-aggregation.yml --ref "$default_branch" \
+            -f scan_branch="$SCAN_BRANCH" \
+            -f scan_sha="$SCAN_SHA"
+          dashboard_id=""
+          dashboard_url=""
+          for attempt in $(seq 1 30); do
+            runs="$(gh run list --workflow 05-issue-aggregation.yml \
+              --event workflow_dispatch --limit 30 \
+              --json databaseId,createdAt,displayTitle,url)"
+            dashboard_id="$(jq -r --arg started "$dispatched_at" --arg title "$title" \
+              '[.[] | select(.createdAt >= $started and .displayTitle == $title)] | sort_by(.createdAt) | last | .databaseId // empty' \
+              <<<"$runs")"
+            dashboard_url="$(jq -r --arg started "$dispatched_at" --arg title "$title" \
+              '[.[] | select(.createdAt >= $started and .displayTitle == $title)] | sort_by(.createdAt) | last | .url // empty' \
+              <<<"$runs")"
+            [[ -n "$dashboard_id" ]] && break
+            sleep 5
+          done
+          if [[ -z "$dashboard_id" ]]; then
+            echo "::error::Could not locate the exact-commit dashboard run"
+            exit 1
+          fi
+          echo "dashboard-url=$dashboard_url" >> "$GITHUB_OUTPUT"
           {
-            echo "## Full code analysis dispatched"
             echo
-            echo "- Branch: \`$SCAN_BRANCH\`"
-            echo "- Exact head commit: \`$SCAN_SHA\`"
-            echo "- Scanner workflows: \`4\`"
-            echo "- Dashboard: generated automatically after the exact-commit scanner set succeeds"
-            echo "- Mutation mode: \`read-only analysis\`"
+            echo "### Dashboard"
+            echo "- [Open dashboard build and download the searchable artifact]($dashboard_url)"
+          } >> manual-analysis-summary.md
+          gh run watch "$dashboard_id" --exit-status
+
+      - name: Publish operator summary
+        if: always()
+        env:
+          DASHBOARD_URL: ${{ steps.dashboard.outputs.dashboard-url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f manual-analysis-summary.md ]]; then
+            cat manual-analysis-summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Full code analysis did not initialize" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          {
+            echo
+            echo "- Final dashboard URL: ${DASHBOARD_URL:-not published}"
+            echo "- Source, Issue, PR-comment, patch, autofix, and deployment writes: disabled"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -111,8 +111,11 @@ branch's current GitHub head, so a slower older run cannot become the latest das
 - **Automatic:** every fork branch push runs all four scanners; an eligible PR update
   analyzes its exact head; successful exact-commit evidence triggers dashboard aggregation.
 - **Manual full scan:** Actions → **Full Code Analysis (Manual)** → **Run workflow**.
-  Select the branch in GitHub or enter `scan_branch`; the orchestrator validates its
-  current head and dispatches all four scanners. The dashboard then builds automatically.
+  Select the workflow ref, optionally enter any fork `scan_branch`, and press the green
+  **Run workflow** button. The orchestrator locks the branch's latest commit, dispatches
+  and waits for all four scanner groups, builds the exact-commit dashboard, and returns
+  direct scanner and dashboard/download links in one operator summary. A failed scanner
+  or incomplete snapshot stops the flow without replacing the last valid dashboard.
 - **Manual dashboard-only rebuild:** Actions → **Code Analysis Dashboard** → **Run
   workflow**, with the exact `scan_branch` and `scan_sha`. This reuses existing scanner
   evidence and fails closed if a required exact-commit run is unavailable.

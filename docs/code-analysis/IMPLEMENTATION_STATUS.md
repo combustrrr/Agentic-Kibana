@@ -99,11 +99,12 @@ GitHub's native SARIF/code-scanning lifecycle.
 ### Manual analysis
 
 **Full Code Analysis (Manual)** provides the one-click path: it validates the selected
-fork branch head and dispatches all four scanners, after which Code Health activates the
-normal exact-commit dashboard handoff. Individual scanner dispatches remain available
-for diagnosis. Manual dashboard-only builds may specify an exact `scan_sha` and branch,
-but publication still requires same-commit artifacts and all required channels. Canary
-and API fuzzing workflows remain isolated from the required static snapshot gate.
+fork branch head, pins that exact SHA into all scanner checkouts, waits for all four
+scanner groups, dispatches one exact-commit dashboard build, waits for publication, and
+returns direct run/artifact links. Individual scanner dispatches remain available for
+diagnosis. Manual dashboard-only builds may specify an exact `scan_sha` and branch, but
+publication still requires same-commit artifacts and all required channels. Canary and
+API fuzzing workflows remain isolated from the required static snapshot gate.
 
 ### QA VM and local analysis
 
