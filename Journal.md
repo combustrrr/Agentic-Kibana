@@ -10699,3 +10699,9 @@
 - Guard: Added a test requiring all selected proposal tools to remain represented and every `ACTIVE_REQUIRED` catalog channel to exist in the required-channel manifest.
 - Verification: 18 monitoring tests pass; workflow YAML and catalog JSON parse; `git diff --check` passes apart from Windows line-ending notices.
 - Next: Validate the unconfigured Snyk workflow path on the fork, then activate and validate actual Snyk evidence only after repository-owner enrollment. Prepare the QA-VM pull/serve profile; keep SonarQube, CodeScene, CodeRabbit, and Atheris deferred until their prerequisites are approved.
+
+### 2026-08-26 — Codex — Optional Snyk boundary accepted on fork
+- Commit: `9ff3a03` was pushed only to `origin/feature/static-code-analysis`.
+- Acceptance: Dependency & Supply Chain Security run `32941205711` succeeded without a configured token, proving that Snyk remains explicitly unavailable without breaking the required scanner web or being counted as active coverage.
+- Activation dependency: A repository owner must enroll the fork/project with Snyk and add the `SNYK_TOKEN` Actions secret before real SCA/Code SARIF can be validated.
+- Safety: No Snyk monitoring upload, fix, patch, PR, Issue, upstream, application, production, or deployment mutation occurred.
