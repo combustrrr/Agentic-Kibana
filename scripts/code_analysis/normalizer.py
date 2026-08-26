@@ -251,6 +251,13 @@ class Finding:
     pr_number: str = ""
     branch: str = ""
 
+    # Native scanner provenance retained by the current-snapshot platform.
+    native_result_id: str = ""
+    analysis_category: str = ""
+    tool_version: str = ""
+    ruleset_version: str = ""
+    raw_artifact: str = ""
+
     # Analysis metadata
     reachability: str = ""
     exploitability: str = ""
@@ -440,6 +447,9 @@ class SarifParser:
                     owasp=owasps,
                     tags=tags,
                     rule_concept="dependency-vuln" if tool_name == "OSV-Scanner" else "",
+                    native_result_id=str(result.get("guid") or result.get("fingerprints", {}).get("primaryLocationLineHash") or ""),
+                    analysis_category=str(run.get("automationDetails", {}).get("id") or ""),
+                    tool_version=str(driver.get("semanticVersion") or driver.get("version") or ""),
                 )
                 findings.append(finding)
 
@@ -635,6 +645,54 @@ class EslintParser:
                 ))
         return findings
 
+
+class TscParser:
+    """Parse stable ``tsc --pretty false`` diagnostics."""
+
+    _PATTERN = re.compile(r"^(.*)\((\d+),(\d+)\):\s+(error|warning)\s+(TS\d+):\s+(.*)$")
+
+    def parse(self, path: Path) -> list[Finding]:
+        findings: list[Finding] = []
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            match = self._PATTERN.match(line.strip())
+            if not match:
+                continue
+            file_name, row, column, level, rule, message = match.groups()
+            findings.append(Finding(
+                source_tool="TypeScript", category="QUALITY",
+                severity="HIGH" if level == "error" else "MEDIUM", confidence="HIGH",
+                file=file_name, start_line=int(row), end_line=int(row), start_col=int(column),
+                rule_id=rule, rule_name="TypeScript compiler diagnostic", message=message,
+                tags=["quality", "type-checking"],
+            ))
+        return findings
+
+
+class XenonParser:
+    """Parse Xenon's stable advisory text into structured complexity findings."""
+
+    _LOCATION = re.compile(r"(?P<file>[^\s:'\"]+\.py)(?::(?P<line>\d+))?")
+
+    def parse(self, path: Path) -> list[Finding]:
+        findings: list[Finding] = []
+        for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw_line.strip()
+            if "xenon" not in line.lower() or not any(word in line.lower() for word in ("error", "warning")):
+                continue
+            location = self._LOCATION.search(line)
+            file_name = location.group("file") if location else "backend"
+            row = int(location.group("line") or 0) if location else 0
+            rank = re.search(r"rank\s+([A-F])|grade\s+([A-F])|\b([D-F])\b", line, re.IGNORECASE)
+            grade = next((value for value in rank.groups() if value), "C").upper() if rank else "C"
+            severity = "HIGH" if grade in {"E", "F"} else "MEDIUM"
+            findings.append(Finding(
+                source_tool="Xenon", category="COMPLEXITY", severity=severity, confidence="HIGH",
+                file=file_name, start_line=row, end_line=row, rule_id=f"xenon-rank-{grade.lower()}",
+                rule_name="Cyclomatic complexity threshold", message=line,
+                tags=["complexity", "maintainability"],
+            ))
+        return findings
+
 # ─────────────────────────────────────────────────────────────
 # Deduplication
 # ─────────────────────────────────────────────────────────────
@@ -798,10 +856,19 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
     semgrep_parser = SemgrepParser()
     pyright_parser = PyrightParser()
     eslint_parser = EslintParser()
+    tsc_parser = TscParser()
+    xenon_parser = XenonParser()
     deduplicator = FindingDeduplicator()
     exporter = SarifExporter()
 
     all_findings: list[Finding] = []
+
+    def retain(findings: list[Finding], artifact: Path) -> None:
+        reference = artifact.relative_to(input_path).as_posix()
+        for finding in findings:
+            finding.raw_artifact = reference
+            finding.native_result_id = finding.native_result_id or finding.id
+        all_findings.extend(findings)
 
     # ── Parse SARIF files ────────────────────────────────────
     parsed_files: set[Path] = set()
@@ -809,7 +876,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
         try:
             tool_hint = sarif_file.stem.split("-")[0]
             findings = sarif_parser.parse(sarif_file, tool_hint=tool_hint)
-            all_findings.extend(findings)
+            retain(findings, sarif_file)
             parsed_files.add(sarif_file)
             if verbose:
                 print(f"[SARIF] {sarif_file.name}: {len(findings)} findings")
@@ -821,7 +888,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
     for bandit_file in (p for p in json_files if "bandit" in p.name.lower()):
         try:
             findings = bandit_parser.parse(bandit_file)
-            all_findings.extend(findings)
+            retain(findings, bandit_file)
             parsed_files.add(bandit_file)
             if verbose:
                 print(f"[Bandit] {bandit_file.name}: {len(findings)} findings")
@@ -832,7 +899,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
     for ruff_file in (p for p in json_files if "ruff" in p.name.lower()):
         try:
             findings = ruff_parser.parse(ruff_file)
-            all_findings.extend(findings)
+            retain(findings, ruff_file)
             parsed_files.add(ruff_file)
             if verbose:
                 print(f"[Ruff] {ruff_file.name}: {len(findings)} findings")
@@ -842,7 +909,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
     for semgrep_file in (p for p in json_files if "semgrep" in p.name.lower()):
         try:
             findings = semgrep_parser.parse(semgrep_file)
-            all_findings.extend(findings)
+            retain(findings, semgrep_file)
             parsed_files.add(semgrep_file)
             if verbose:
                 print(f"[Semgrep] {semgrep_file.name}: {len(findings)} findings")
@@ -852,7 +919,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
     for pyright_file in (p for p in json_files if "pyright" in p.name.lower()):
         try:
             findings = pyright_parser.parse(pyright_file)
-            all_findings.extend(findings)
+            retain(findings, pyright_file)
             parsed_files.add(pyright_file)
             if verbose:
                 print(f"[Pyright] {pyright_file.name}: {len(findings)} findings")
@@ -862,7 +929,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
     for eslint_file in (p for p in json_files if "eslint" in p.name.lower()):
         try:
             findings = eslint_parser.parse(eslint_file)
-            all_findings.extend(findings)
+            retain(findings, eslint_file)
             parsed_files.add(eslint_file)
             if verbose:
                 print(f"[ESLint] {eslint_file.name}: {len(findings)} findings")
@@ -873,7 +940,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
     for vulture_file in (p for p in json_files if "vulture" in p.name.lower()):
         try:
             findings = vulture_parser.parse(vulture_file)
-            all_findings.extend(findings)
+            retain(findings, vulture_file)
             parsed_files.add(vulture_file)
             if verbose:
                 print(f"[Vulture] {vulture_file.name}: {len(findings)} findings")
@@ -883,12 +950,32 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
     for vulture_file in (p for p in input_path.rglob("*.txt") if "vulture" in p.name.lower()):
         try:
             findings = vulture_parser.parse_text(vulture_file)
-            all_findings.extend(findings)
+            retain(findings, vulture_file)
             parsed_files.add(vulture_file)
             if verbose:
                 print(f"[Vulture] {vulture_file.name}: {len(findings)} findings")
         except Exception as e:
             print(f"[WARN] Failed to parse {vulture_file}: {e}", file=sys.stderr)
+
+    for tsc_file in (p for p in input_path.rglob("*.txt") if "tsc" in p.name.lower()):
+        try:
+            findings = tsc_parser.parse(tsc_file)
+            retain(findings, tsc_file)
+            parsed_files.add(tsc_file)
+            if verbose:
+                print(f"[TypeScript] {tsc_file.name}: {len(findings)} findings")
+        except Exception as e:
+            print(f"[WARN] Failed to parse {tsc_file}: {e}", file=sys.stderr)
+
+    for xenon_file in (p for p in input_path.rglob("*.txt") if "xenon" in p.name.lower()):
+        try:
+            findings = xenon_parser.parse(xenon_file)
+            retain(findings, xenon_file)
+            parsed_files.add(xenon_file)
+            if verbose:
+                print(f"[Xenon] {xenon_file.name}: {len(findings)} findings")
+        except Exception as e:
+            print(f"[WARN] Failed to parse {xenon_file}: {e}", file=sys.stderr)
 
     print(f"\n Parsed input files: {len(parsed_files)}")
     print(f" Total raw findings: {len(all_findings)}")

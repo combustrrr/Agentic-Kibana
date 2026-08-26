@@ -1,51 +1,43 @@
-# Where to View Code-Analysis Findings
+# Current Findings Dashboard
 
-The monitoring service deliberately does **not** create one GitHub Issue per finding.
-At the current baseline that would create thousands of repository Issues, obscure human
-work, and duplicate alerts reported by more than one scanner.
+The code-analysis product is one read-only, full-codebase snapshot. It does not create
+one GitHub Issue per scanner result and it does not use baseline or lifecycle state to
+hide older findings.
 
-## GitHub web entry point
+## Snapshot contract
 
-For a pull request into the fork's `claude/main` branch:
+The header identifies the exact commit, generation time, and required-channel status.
+A snapshot is published only when every required scanner workflow succeeded, retained
+artifacts match the same commit, hashes validate, normalization succeeds, and canonical
+finding/observation counts reconcile. A failed refresh leaves the last publishable
+snapshot active.
 
-1. Open the pull request's **Checks** tab.
-2. Select the single neutral **Code Analysis Dashboard** check for the commit.
-3. Review the bounded lifecycle, severity, scanner-health, and attention totals directly
-   in GitHub.
-4. Use **Download the full searchable dashboard artifact** inside that check summary,
-   extract it, and open `dashboard/index.html` for every normalized finding.
+The main table contains one row per canonical issue. Opening **Evidence** shows every
+contributing scanner family, rule, native result, message, location, version, and raw
+artifact reference. Deduplication collapses presentation, never evidence.
 
-The full HTML view opens on **Attention only** and explains why each item was surfaced.
-It is searchable and filtered by lifecycle, severity, human triage, concept, component,
-location, and scanner evidence. It renders 100 rows at a time (selectable 50/100/250),
-so a 10,000-finding baseline does not create 10,000 browser table nodes at once.
+The browser mounts at most 250 rows and supports search plus severity, category,
+component, and scanner filters. Separate downloads expose the complete snapshot and raw
+observation collection.
 
-The same summary and artifact link are available under **Actions → Code Analysis
-Dashboard → latest run → Summary**. Artifacts are retained for 30 days.
+## Local hosting
 
-## What the single check means
+After generating `dashboard/`, publish and serve it with:
 
-- `neutral` means trustworthy analysis found attention items; `success` means the required
-  scanner web completed with no attention items. `failure` means no trustworthy comparison
-  could be produced, not that a vulnerability was necessarily found.
-- One check is recovered and updated per internal repository/commit/name/namespace key;
-  failed/restarted runs do not intentionally duplicate it. Findings do not create
-  GitHub Issues or individual check annotations.
-- The HTML artifact contains the full current scan. The GitHub check contains bounded
-  rollups so the repository UI stays usable.
-- Versioned stable identities and immutable observations collapse overlapping scanner
-  evidence while preserving its independent families and native result identity.
+```bash
+python scripts/code_analysis/publish_snapshot.py \
+  --source dashboard \
+  --publication-root var/code-analysis
+docker compose -f deploy/code-analysis-dashboard/compose.yml up --build -d
+```
 
-## Why this is not GitHub Pages
+Open <http://127.0.0.1:8787>. The container is read-only and binds only to localhost.
+The future QA VM uses the same image behind company-approved OIDC/VPN access.
 
-This fork is public, and the repository's Pages design is reserved for versioned product
-documentation. Publishing the consolidated vulnerability inventory to Pages would make a
-security-focused index openly browsable and could collide with the existing documentation
-release workflow. The authenticated Actions artifact is therefore the current full-data
-surface.
+## GitHub output
 
-## Future compatibility
+Until the QA VM exists, Actions retains `current-findings-dashboard-<run-id>` as immutable
+evidence. The custom Check describes snapshot validity and links to that artifact. The
+hosted dashboard, not the artifact ZIP, is the intended daily developer surface.
 
-The artifact contains a small deterministic DefectDojo-compatible fixture for future
-evaluation. No DefectDojo request or deployment occurs in this MVP. The existing Compose
-file remains evaluation-only and is not production-safe.
+DefectDojo, history, triage analytics, Issues, remediation, and autofix are deferred.

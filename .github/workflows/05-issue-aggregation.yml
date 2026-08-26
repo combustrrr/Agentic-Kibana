@@ -1,6 +1,8 @@
 name: Code Analysis Dashboard
 
 on:
+  push:
+    branches: [feature/static-code-analysis]
   workflow_dispatch:
     inputs:
       scan_branch:
@@ -29,10 +31,9 @@ jobs:
     name: Build one advisory findings dashboard
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref_name == 'feature/static-code-analysis') ||
       (github.event.workflow_run.head_repository.full_name == github.repository &&
-       (github.event.workflow_run.event == 'pull_request' ||
-        (github.event.workflow_run.event == 'push' &&
-         github.event.workflow_run.head_branch == 'feature/static-code-analysis')))
+       github.event.workflow_run.event == 'pull_request')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -54,19 +55,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SCAN_BRANCH: ${{ inputs.scan_branch || github.event.workflow_run.head_branch || github.ref_name }}
           SCAN_SHA: ${{ inputs.scan_sha || github.event.workflow_run.head_sha || github.sha }}
-          AUTOMATIC_RUN: ${{ github.event_name == 'workflow_run' }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p scan-artifacts
+          : > scanner-run-ids.txt
           for workflow in 01-code-quality.yml 02-security-sast.yml 03-dependency-security.yml 04-code-health.yml; do
             run_id=""
             for attempt in $(seq 1 40); do
-              if [[ "$AUTOMATIC_RUN" == "true" ]]; then
-                run_id="$(gh run list --workflow "$workflow" --commit "$SCAN_SHA" --status completed --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
-              else
-                run_id="$(gh run list --workflow "$workflow" --branch "$SCAN_BRANCH" --status completed --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
-              fi
+              run_id="$(gh run list --workflow "$workflow" --commit "$SCAN_SHA" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
               [[ -n "$run_id" ]] && break
               sleep 30
             done
@@ -76,7 +73,22 @@ jobs:
             fi
             mkdir -p "scan-artifacts/$workflow"
             gh run download "$run_id" --dir "scan-artifacts/$workflow"
+            printf '%s\n' "$run_id" >> scanner-run-ids.txt
           done
+
+      - name: Build exact-commit artifact provenance
+        env:
+          SCAN_SHA: ${{ inputs.scan_sha || github.event.workflow_run.head_sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          while IFS= read -r run_id; do args+=(--workflow-run-id "$run_id"); done < scanner-run-ids.txt
+          python scripts/code_analysis/provenance.py \
+            --artifacts scan-artifacts \
+            --commit "$SCAN_SHA" \
+            "${args[@]}" \
+            --output snapshot-provenance.json
 
       - name: Normalize and deduplicate by repository file, line, and concept
         run: python scripts/code_analysis/normalizer.py --input-dir scan-artifacts --output-dir normalized --verbose
@@ -89,94 +101,43 @@ jobs:
           --findings normalized/unified-findings.json
           --output channel-status.json
 
-      - name: Recover the immutable accepted baseline
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -f config/code-analysis/baseline-index.json ]]; then
-            cp config/code-analysis/baseline-index.json baseline-index.json
-            exit 0
-          fi
-          mkdir -p accepted-baseline
-          expected_sha="$(jq -r .baseline_commit_sha config/code-analysis/baseline-manifest.json)"
-          accepted_sha="$(gh run view 32578162932 --json headSha --jq .headSha)"
-          [[ "$accepted_sha" == "$expected_sha" ]] || { echo "::error::Accepted baseline run/commit mismatch"; exit 1; }
-          gh run download 32578162932 \
-            --name advisory-finding-aggregation-32578162932 \
-            --dir accepted-baseline
-          python scripts/code_analysis/baseline_builder.py \
-            --raw-findings accepted-baseline/normalized/unified-findings.json \
-            --manifest config/code-analysis/baseline-manifest.json \
-            --channel-manifest config/code-analysis/required-channels.json \
-            --repository "$GITHUB_REPOSITORY" \
-            --output baseline-index.json
-
-      - name: Recover a lineage-compatible previous monitoring run when available
-        id: previous
-        env:
-          GH_TOKEN: ${{ github.token }}
-          MONITORED_SHA: ${{ inputs.scan_sha || github.event.workflow_run.head_sha || github.sha }}
-          MONITORED_BRANCH: ${{ inputs.scan_branch || github.event.workflow_run.head_branch || github.ref_name }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p previous-run
-          previous_id="$(gh run list --workflow 05-issue-aggregation.yml --branch "$MONITORED_BRANCH" --status success --limit 20 --json databaseId,headSha | \
-            jq -r --arg sha "$MONITORED_SHA" '[.[] | select(.headSha != $sha)] | first | .databaseId // empty')"
-          if [[ -n "$previous_id" ]] && git merge-base --is-ancestor "$(gh run view "$previous_id" --json headSha --jq .headSha)" "$MONITORED_SHA"; then
-            artifact="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${previous_id}/artifacts" --jq '[.artifacts[] | select(.name | startswith("advisory-finding-aggregation-"))] | first | .name // empty')"
-            if [[ -n "$artifact" ]]; then
-              gh run download "$previous_id" --name "$artifact" --dir previous-run
-              if [[ -f previous-run/normalized/canonical-findings.json ]]; then
-                cp previous-run/normalized/canonical-findings.json previous-run.json
-                echo "available=true" >> "$GITHUB_OUTPUT"
-              fi
-            fi
-          fi
-          [[ -f previous-run.json ]] || echo "available=false" >> "$GITHUB_OUTPUT"
-
-      - name: Build canonical evidence and compare with history
+      - name: Build and reconcile the current full-codebase snapshot
         env:
           MONITORED_SHA: ${{ inputs.scan_sha || github.event.workflow_run.head_sha || github.sha }}
           MONITORED_BRANCH: ${{ inputs.scan_branch || github.event.workflow_run.head_branch || github.ref_name }}
         shell: bash
         run: |
           set -euo pipefail
-          previous=()
-          [[ -f previous-run.json ]] && previous=(--previous previous-run.json)
-          python scripts/code_analysis/monitoring.py \
+          run_args=()
+          while IFS= read -r run_id; do run_args+=(--workflow-run-id "$run_id"); done < scanner-run-ids.txt
+          python scripts/code_analysis/snapshot.py \
             --raw-findings normalized/unified-findings.json \
             --repository "$GITHUB_REPOSITORY" \
             --commit "$MONITORED_SHA" \
             --branch "$MONITORED_BRANCH" \
-            --workflow-run-id "$GITHUB_RUN_ID" \
+            "${run_args[@]}" \
             --channel-manifest config/code-analysis/required-channels.json \
             --channel-status channel-status.json \
-            --baseline baseline-index.json \
-            "${previous[@]}" \
-            --triage config/code-analysis/triage-registry.json \
-            --output-dir normalized
+            --provenance snapshot-provenance.json \
+            --output normalized/current-snapshot.json
 
-      - name: Build searchable attention and backlog dashboard
+      - name: Build searchable current-findings dashboard
         run: >-
           python scripts/code_analysis/dashboard.py
-          --comparison normalized/comparison.json
-          --channel-status channel-status.json
+          --snapshot normalized/current-snapshot.json
           --output-dir dashboard
 
-      - name: Upload complete advisory analysis
+      - name: Upload complete current snapshot
         id: analysis-artifact
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: advisory-finding-aggregation-${{ github.run_id }}
+          name: current-findings-dashboard-${{ github.run_id }}
           path: |
             normalized/
             dashboard/
             channel-status.json
-            baseline-index.json
+            snapshot-provenance.json
           if-no-files-found: warn
           retention-days: 30
 
@@ -190,22 +151,20 @@ jobs:
         run: |
           set -euo pipefail
           check_name="Code Analysis Dashboard"
-          check_namespace="agentic-soc-static-monitoring-v1"
+          check_namespace="agentic-soc-current-findings-v1"
           check_key="${GITHUB_REPOSITORY}:${MONITORED_SHA}:${check_name}:${check_namespace}"
           external_id="$(printf '%s' "$check_key" | sha256sum | cut -d' ' -f1)"
           mkdir -p dashboard
           if [[ ! -f dashboard/github-summary.md ]]; then
-            printf '## Static Analysis Monitoring\n\nA trustworthy comparison could not be produced. Inspect the workflow logs and retained evidence.\n' > dashboard/github-summary.md
+            printf '## Current Code Quality & Security Snapshot\n\nA publishable snapshot could not be produced. The previous hosted snapshot must remain active.\n' > dashboard/github-summary.md
           fi
           printf '\n[Download the full searchable dashboard artifact](%s)\n' "$ARTIFACT_URL" >> dashboard/github-summary.md
           existing="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${MONITORED_SHA}/check-runs?filter=latest&per_page=100")"
           check_id="$(jq -r --arg name "$check_name" --arg external "$external_id" \
             '[.check_runs[] | select(.name == $name and .external_id == $external)] | first | .id // empty' <<<"$existing")"
           conclusion="failure"
-          if [[ -f normalized/comparison.json ]]; then
-            conclusion="neutral"
-            attention="$(jq '[.findings[] | select(.lifecycle == "NEW" or .lifecycle == "MOVED" or .lifecycle == "INDETERMINATE")] | length' normalized/comparison.json)"
-            [[ "$attention" == "0" ]] && conclusion="success"
+          if [[ -f normalized/current-snapshot.json ]] && [[ "$(jq -r .publishable normalized/current-snapshot.json)" == "true" ]]; then
+            conclusion="success"
           fi
           jq -n \
             --arg name "$check_name" \
@@ -214,7 +173,7 @@ jobs:
             --arg url "$ARTIFACT_URL" \
             --arg conclusion "$conclusion" \
             --rawfile summary dashboard/github-summary.md \
-            '{name:$name, head_sha:$sha, external_id:$external, status:"completed", conclusion:$conclusion, details_url:$url, output:{title:"Advisory findings are ready", summary:$summary}}' \
+            '{name:$name, head_sha:$sha, external_id:$external, status:"completed", conclusion:$conclusion, details_url:$url, output:{title:"Current findings snapshot", summary:$summary}}' \
             > check-run.json
           if [[ -n "$check_id" ]]; then
             gh api --method PATCH "repos/${GITHUB_REPOSITORY}/check-runs/${check_id}" --input check-run.json >/dev/null

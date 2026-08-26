@@ -218,8 +218,11 @@ jobs:
         run: npm ci
 
       - name: TypeScript type check
-        continue-on-error: true
-        run: npx tsc --noEmit
+        shell: bash
+        run: |
+          set +e
+          npx tsc --noEmit --pretty false 2>&1 | tee tsc-results.txt
+          exit 0
 
       - name: ESLint lint (human-readable advisory output)
         run: npx eslint "src/**/*.{ts,tsx}" --format stylish || true
@@ -239,3 +242,10 @@ jobs:
         with:
           name: eslint-results
           path: webui/eslint-results.json
+
+      - name: Upload TypeScript results artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tsc-results
+          path: webui/tsc-results.txt

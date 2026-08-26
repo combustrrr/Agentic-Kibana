@@ -14,18 +14,20 @@ name: Canary Coverage Validation
 
 on:
   workflow_dispatch:
-  # Phase 3: intentionally manual while the three acknowledged gaps remain visible.
-  # To activate, uncomment the triggers below:
+  # Fork-development validation only. This never runs on upstream or production refs.
+  push:
+    branches:
+      - feature/static-code-analysis
+    paths:
+      - ".github/semgrep-rules/**"
+      - ".github/codeql/**"
+      - ".github/workflows/02-security-sast.yml"
+      - ".github/workflows/03-dependency-security.yml"
+      - ".github/workflows/06-canary-validation.yml"
+      - "scripts/code_analysis/**"
+      - "tests/security_canary/**"
   # schedule:
   #   - cron: "0 5 * * 0"    # Sunday 05:00 UTC
-  # push:
-  #   paths:
-  #     - ".github/semgrep-rules/**"
-  #     - "backend/pyproject.toml"
-  #     - ".gitleaks.toml"
-  #     - ".github/workflows/02-security-sast.yml"
-  #     - ".github/workflows/03-dependency-security.yml"
-  #     - "tests/security_canary/**"
 permissions:
   contents: read
 

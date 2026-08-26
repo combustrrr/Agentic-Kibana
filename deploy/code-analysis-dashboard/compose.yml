@@ -1,0 +1,17 @@
+services:
+  current-findings-dashboard:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8080"
+    volumes:
+      - ../../var/code-analysis:/srv:ro
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

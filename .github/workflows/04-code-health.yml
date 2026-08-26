@@ -64,7 +64,7 @@ jobs:
             --max-average B \
             --max-modules B \
             --max-absolute C \
-            backend/ || true
+            backend/ 2>&1 | tee xenon-results.txt || true
 
       - name: Upload Radon reports
         if: always()
@@ -74,6 +74,7 @@ jobs:
           path: |
             radon-cc.json
             radon-mi.json
+            xenon-results.txt
 
   # ─────────────────────────────────────────────
   # Vulture — Python dead code detection

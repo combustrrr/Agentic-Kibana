@@ -10648,3 +10648,16 @@
 - Automatic path: All four scanner workflows now run on pushes only to `feature/static-code-analysis`; the dashboard follows the completed same-repository Code Health push and gathers exact-commit artifacts. PR monitoring into the fork default remains available. No schedule, upstream push, or production trigger was added.
 - Local verification after merge: 13 monitoring tests passed; the 10,000-finding benchmark completed in 5.20 seconds at 78.49 MiB peak; all five workflow YAML files parsed; `git diff --check` passed.
 - Visualization boundary: The active developer surface is the custom Attention + searchable backlog HTML artifact and one advisory Check. DefectDojo remains an offline fixture only, not a deployed visualization.
+
+### 2026-08-26 — Codex — Current-findings platform implementation started
+- Objective: Replace the lifecycle-first artifact experience with an external, read-only, latest-snapshot dashboard showing every normalized canonical issue and all underlying scanner evidence.
+- Boundaries: Work remains on `feature/static-code-analysis`; no application, upstream, production, Issue, PR-comment, autofix, patch, or branch-protection mutation is authorized.
+- Planned verification: snapshot integrity and publication gates, structured TypeScript/Xenon evidence, canary coverage, bounded 10,000-finding rendering, and a localhost-only hosting profile.
+
+### 2026-08-26 — Codex — Current-findings platform implementation verified locally
+- Scope: Replaced the lifecycle-oriented artifact view with a read-only current full-codebase snapshot pipeline and standalone hosted dashboard package.
+- Work: Added exact-commit provenance and artifact hashing, fail-closed snapshot reconciliation, atomic current/rollback publication, canonical-finding and raw-observation downloads, bounded searchable dashboard rendering, structured TypeScript/Xenon ingestion, a 16-channel manifest, and fork-branch automatic aggregation/canary triggers. Added a loopback-only hardened nginx Compose profile for local/QA-VM hosting.
+- Safety: No application runtime, upstream ref, production system, Issue, PR comment, patch, autofix, deployment, or DefectDojo integration was changed. GitHub publication remains an advisory Check plus immutable Actions artifacts.
+- Verification: 17 unit/integration tests passed; 10,000 canonical findings and 13,000 observations completed in 6.97 seconds with 112.41 MiB peak Python allocation; workflow/Compose YAML parsed; `git diff --check` passed apart from Windows line-ending notices.
+- Blocker: WSL2/container runtime validation requires an Administrator-enabled WSL installation and reboot on this Windows host; the current tool session does not hold that Windows administrator token.
+- Next: Commit and push only to the fork development branch, then verify the scanner web, 10/10 canary workflow, and current-findings dashboard workflow on GitHub Actions.

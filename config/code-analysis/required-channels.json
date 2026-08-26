@@ -4,6 +4,7 @@
     {"channel": "ruff", "scanner_family": "Ruff", "surface": "python-quality", "artifact_patterns": ["*ruff*.json"]},
     {"channel": "pyright", "scanner_family": "Pyright", "surface": "python-types", "artifact_patterns": ["*pyright*.json"]},
     {"channel": "eslint", "scanner_family": "ESLint", "surface": "typescript-quality", "artifact_patterns": ["*eslint*.json"]},
+    {"channel": "typescript", "scanner_family": "TypeScript", "surface": "typescript-types", "artifact_patterns": ["*tsc*.txt"]},
     {"channel": "codeql", "scanner_family": "CodeQL", "surface": "semantic-sast", "artifact_patterns": ["*codeql*.sarif"]},
     {"channel": "semgrep", "scanner_family": "Semgrep", "surface": "pattern-sast", "artifact_patterns": ["*semgrep*.sarif", "*semgrep*.json"]},
     {"channel": "bandit", "scanner_family": "Bandit", "surface": "python-security", "artifact_patterns": ["*bandit*.json"]},
@@ -13,7 +14,8 @@
     {"channel": "checkov", "scanner_family": "Checkov", "surface": "iac", "artifact_patterns": ["*checkov*.sarif"]},
     {"channel": "hadolint", "scanner_family": "Hadolint", "surface": "dockerfile", "artifact_patterns": ["*hadolint*.sarif"]},
     {"channel": "vulture", "scanner_family": "Vulture", "surface": "dead-code", "artifact_patterns": ["*vulture*.txt", "*vulture*.json"]},
-    {"channel": "radon-xenon", "scanner_family": "Radon", "surface": "complexity", "artifact_patterns": ["*radon*.json"]},
+    {"channel": "radon", "scanner_family": "Radon", "surface": "complexity-metrics", "artifact_patterns": ["*radon*.json"]},
+    {"channel": "xenon", "scanner_family": "Xenon", "surface": "complexity-thresholds", "artifact_patterns": ["*xenon*.txt"]},
     {"channel": "coverage", "scanner_family": "Coverage.py", "surface": "runtime-evidence", "artifact_patterns": ["*coverage.json"]}
   ],
   "dynamic_channels": ["schemathesis", "atheris"],

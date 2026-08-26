@@ -131,6 +131,8 @@ def canonicalize(raw_findings: list[dict[str, Any]], repository: str, run: dict[
                 "tool_version": str(member.get("tool_version") or "<NONE>"),
                 "ruleset_version": str(member.get("ruleset_version") or "<NONE>"),
                 "raw_artifact": str(member.get("raw_artifact") or "<NONE>"),
+                "message": str(member.get("message") or member.get("description") or ""),
+                "severity": str(member.get("severity") or "MEDIUM"),
             }
             observation["observation_id"] = observation_id(sid, run, observation)
             member_observations.append(observation)
@@ -165,6 +167,69 @@ def canonicalize(raw_findings: list[dict[str, Any]], repository: str, run: dict[
         "run": run,
         "findings": findings,
         "observations": observations,
+    }
+
+
+def build_snapshot(current: dict[str, Any], channel_status: dict[str, Any],
+                   provenance: dict[str, Any]) -> dict[str, Any]:
+    """Build the one current, publishable findings snapshot.
+
+    This deliberately has no baseline, lifecycle, or triage semantics.  A snapshot is
+    publishable only when its exact-commit provenance and required scanner evidence
+    reconcile with the canonical evidence document.
+    """
+    repository = str(current.get("repository_identity") or "")
+    if validate_evidence(current, repository) != "VALID":
+        raise EvidenceError("canonical evidence is invalid")
+    channels = channel_status.get("channels")
+    if not isinstance(channels, list) or not channels:
+        raise EvidenceError("channel status is missing")
+    incomplete = [str(row.get("channel")) for row in channels if row.get("status") != "COMPLETED"]
+    if incomplete:
+        raise EvidenceError("required scanner channels incomplete: " + ", ".join(incomplete))
+    run = current.get("run") or {}
+    commit = str(run.get("commit_sha") or "")
+    if not commit or str(provenance.get("commit_sha") or "") != commit:
+        raise EvidenceError("snapshot provenance commit does not match canonical evidence")
+    workflow_runs = provenance.get("workflow_run_ids")
+    artifact_hashes = provenance.get("artifact_hashes")
+    if not isinstance(workflow_runs, list) or not workflow_runs:
+        raise EvidenceError("snapshot provenance has no workflow runs")
+    if not isinstance(artifact_hashes, list) or not artifact_hashes:
+        raise EvidenceError("snapshot provenance has no artifact hashes")
+    if any(not row.get("path") or not re.fullmatch(r"[0-9a-f]{64}", str(row.get("sha256") or ""))
+           for row in artifact_hashes):
+        raise EvidenceError("snapshot provenance contains an invalid artifact hash")
+    findings = current["findings"]
+    observations = current["observations"]
+    referenced = [item for row in findings for item in row.get("observation_ids", [])]
+    observed_ids = [row.get("observation_id") for row in observations]
+    if len(referenced) != len(observations) or sorted(referenced) != sorted(observed_ids):
+        raise EvidenceError("canonical finding and observation counts do not reconcile")
+    deterministic = [row for row in findings if row.get("evidence_source") != "AI_ADVISORY"]
+    advisories = [row for row in findings if row.get("evidence_source") == "AI_ADVISORY"]
+    generated_at = str(run.get("generated_at") or datetime.now(timezone.utc).isoformat())
+    snapshot_key = "\0".join((repository, commit, str(run.get("branch") or ""), generated_at,
+                               *sorted(str(row["sha256"]) for row in artifact_hashes)))
+    return {
+        "schema_version": "snapshot-v1",
+        "snapshot_id": "snapshot-v1:" + hashlib.sha256(snapshot_key.encode("utf-8")).hexdigest(),
+        "repository_identity": repository,
+        "commit_sha": commit,
+        "branch": str(run.get("branch") or ""),
+        "generated_at": generated_at,
+        "workflow_run_ids": [str(value) for value in workflow_runs],
+        "scanner_versions": sorted({f"{row['scanner_family']}:{row['tool_version']}" for row in observations}),
+        "channel_status": channels,
+        "artifact_hashes": artifact_hashes,
+        "finding_count": len(findings),
+        "observation_count": len(observations),
+        "deterministic_finding_count": len(deterministic),
+        "ai_advisory_count": len(advisories),
+        "canonical_findings": deterministic,
+        "ai_advisories": advisories,
+        "observations": observations,
+        "publishable": True,
     }
 
 

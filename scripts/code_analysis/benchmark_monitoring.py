@@ -4,7 +4,7 @@ from __future__ import annotations
 import json, tempfile, time, tracemalloc
 from pathlib import Path
 from dashboard import generate
-from monitoring import canonicalize, compare
+from monitoring import build_snapshot, canonicalize
 
 def main() -> None:
     manifest=json.loads(Path("config/code-analysis/required-channels.json").read_text())
@@ -16,9 +16,10 @@ def main() -> None:
     # Thirty percent extra evidence intentionally duplicates canonical locations.
     raw.extend({**row,"source_tool":tools[(idx+1)%len(tools)][0]} for idx,row in enumerate(raw[:3000]))
     statuses={"schema_version":"1","channels":[{"scanner_family":family,"status":"COMPLETED","channel":channel,"surface":"benchmark","artifact_files":[]} for family,channel in tools],"analysis_change_flags":[]}
-    tracemalloc.start();started=time.perf_counter();base=canonicalize(raw,"benchmark/repo",run,manifest);base["baseline_id"]="benchmark";result=compare(base,base,None,statuses,{"decisions":[]})
+    provenance={"commit_sha":"benchmark","workflow_run_ids":["benchmark"],"artifact_hashes":[{"path":"benchmark.json","sha256":"a"*64}]}
+    tracemalloc.start();started=time.perf_counter();base=canonicalize(raw,"benchmark/repo",run,manifest);result=build_snapshot(base,statuses,provenance)
     with tempfile.TemporaryDirectory() as directory:
-        output=Path(directory)/"index.html";generate(result,statuses,output);html=output.read_text(encoding="utf-8")
+        output=Path(directory)/"index.html";generate(result,output);html=output.read_text(encoding="utf-8")
         if "slice((page-1)*size,page*size)" not in html or "<option>250</option>" not in html: raise SystemExit("dashboard is not DOM-bounded")
     elapsed=time.perf_counter()-started;_,peak=tracemalloc.get_traced_memory();tracemalloc.stop()
     print(f"findings={len(base['findings'])} observations={len(base['observations'])} seconds={elapsed:.2f} peak_mib={peak/1024/1024:.2f}")

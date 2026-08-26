@@ -2,8 +2,11 @@ import json, tempfile, unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from scripts.code_analysis.channel_status import build as build_channel_status
-from scripts.code_analysis.dashboard import generate, github_summary, is_attention
-from scripts.code_analysis.monitoring import EvidenceError, canonicalize, check_key, compare, defectdojo_fixture, effective_triage, stable_id
+from scripts.code_analysis.dashboard import generate, github_summary, validate_snapshot, write_dashboard
+from scripts.code_analysis.monitoring import EvidenceError, build_snapshot, canonicalize, check_key, compare, defectdojo_fixture, effective_triage, stable_id
+from scripts.code_analysis.normalizer import TscParser, XenonParser
+from scripts.code_analysis.provenance import build as build_provenance
+from scripts.code_analysis.publish_snapshot import publish
 
 MANIFEST={"schema_version":"1","required_static_channels":[
     {"channel":"codeql","scanner_family":"CodeQL","surface":"semantic","artifact_patterns":["*codeql*.sarif"]},
@@ -14,6 +17,10 @@ def raw(tool="CodeQL",line=10,rule="python/sql-injection",snippet="db.execute(qu
 def evidence(items): return canonicalize(items,"combustrrr/Agentic-Kibana",RUN,MANIFEST)
 def status(codeql="COMPLETED",semgrep="COMPLETED"):
     return {"schema_version":"1","channels":[{"scanner_family":"CodeQL","status":codeql},{"scanner_family":"Semgrep","status":semgrep}],"analysis_change_flags":[]}
+def snapshot(items=None, channel_state=None):
+    current=evidence(items or [raw()]);channels=channel_state or status()
+    provenance={"commit_sha":"abc","workflow_run_ids":["1","2"],"artifact_hashes":[{"path":"codeql.sarif","sha256":"a"*64}]}
+    return build_snapshot(current,channels,provenance)
 
 class MonitoringTests(unittest.TestCase):
     def test_identity_is_canonical_and_missing_symbol_explicit(self):
@@ -44,11 +51,12 @@ class MonitoringTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);(root/"codeql.sarif").write_text("{}")
             built=build_channel_status(MANIFEST,root);self.assertEqual([x["status"] for x in built["channels"]],["COMPLETED","NOT_CONFIGURED"])
-    def test_dashboard_is_bounded_and_explains_attention(self):
-        base=evidence([]);base["baseline_id"]="base";result=compare(evidence([raw()]),base,None,status(),{"decisions":[]})
+    def test_dashboard_is_bounded_and_exposes_all_current_findings(self):
+        result=snapshot([raw("CodeQL"),raw("Semgrep")])
         with tempfile.TemporaryDirectory() as d:
-            output=Path(d)/"index.html";generate(result,status(),output);page=output.read_text()
-            self.assertIn("Why surfaced",page);self.assertIn("slice((page-1)*size,page*size)",page);self.assertTrue(is_attention(result["findings"][0]));self.assertIn("attention surface",github_summary(result,status()))
+            output=Path(d)/"index.html";generate(result,output);page=output.read_text()
+            self.assertIn("All canonical findings",page);self.assertIn("slice((page-1)*size,page*size)",page)
+            self.assertIn("Raw observations",page);self.assertIn("Current Code Quality",github_summary(result))
     def test_invalid_current_fails_closed(self):
         base=evidence([]);base["baseline_id"]="base";bad=evidence([]);bad["schema_version"]="future"
         with self.assertRaises(EvidenceError): compare(bad,base,None,status(),{"decisions":[]})
@@ -61,5 +69,32 @@ class MonitoringTests(unittest.TestCase):
         permissions=text.split("permissions:",1)[1].split("jobs:",1)[0]
         self.assertIn("checks: write",permissions);self.assertIn("contents: read",permissions);self.assertIn("actions: read",permissions)
         self.assertNotIn("issues: write",text);self.assertNotIn("pull-requests: write",text);self.assertNotIn("contents: write",text)
+
+    def test_snapshot_reconciles_findings_and_observations(self):
+        result=snapshot([raw("CodeQL"),raw("Semgrep")])
+        self.assertTrue(result["publishable"]);self.assertEqual(result["finding_count"],1)
+        self.assertEqual(result["observation_count"],2);validate_snapshot(result)
+
+    def test_snapshot_rejects_incomplete_channels_and_mixed_commit(self):
+        with self.assertRaises(EvidenceError): snapshot(channel_state=status(semgrep="FAILED"))
+        current=evidence([raw()]);provenance={"commit_sha":"other","workflow_run_ids":["1"],"artifact_hashes":[{"path":"a","sha256":"a"*64}]}
+        with self.assertRaises(EvidenceError): build_snapshot(current,status(),provenance)
+
+    def test_provenance_hashes_and_publication_roll_back(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);artifacts=root/"artifacts";artifacts.mkdir();(artifacts/"a.json").write_text("one")
+            provenance=build_provenance(artifacts,"abc",["1"]);self.assertEqual(len(provenance["artifact_hashes"][0]["sha256"]),64)
+            first=root/"first";write_dashboard(snapshot(),first);published=root/"published";publish(first,published)
+            self.assertTrue((published/"current"/"index.html").is_file())
+            bad=root/"bad";bad.mkdir();(bad/"current-snapshot.json").write_text("{}")
+            with self.assertRaises(ValueError): publish(bad,published)
+            self.assertTrue((published/"current"/"index.html").is_file())
+
+    def test_tsc_and_xenon_are_structured(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);tsc=root/"tsc-results.txt";tsc.write_text("src/a.ts(4,9): error TS2322: Type 'string' is not assignable")
+            xenon=root/"xenon-results.txt";xenon.write_text('ERROR:xenon:block "backend/app/a.py:12 function" has a rank of F')
+            self.assertEqual(TscParser().parse(tsc)[0].rule_id,"TS2322")
+            self.assertEqual(XenonParser().parse(xenon)[0].source_tool,"Xenon")
 
 if __name__=="__main__": unittest.main()
