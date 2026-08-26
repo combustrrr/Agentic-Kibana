@@ -41,6 +41,12 @@ class MonitoringTests(unittest.TestCase):
         doc=evidence([left,right])
         self.assertEqual(len(doc["findings"]),2)
         self.assertEqual(len(doc["observations"]),2)
+    def test_missing_region_evidence_has_unique_conservative_identities(self):
+        left={**raw("CodeQL",snippet=""),"id":"native-left","native_result_id":"native-left"}
+        right={**raw("CodeQL",snippet=""),"id":"native-right","native_result_id":"native-right"}
+        doc=evidence([left,right])
+        self.assertEqual(len(doc["findings"]),2)
+        self.assertEqual(len({row["stable_id"] for row in doc["findings"]}),2)
     def test_exact_new_and_conservation(self):
         base=evidence([raw(line=10)]);base["baseline_id"]="base";current=evidence([raw(line=10),raw(line=30,snippet="other")])
         result=compare(current,base,None,status(),{"decisions":[]});self.assertEqual(result["counts"],{"EXISTING":1,"NEW":1})

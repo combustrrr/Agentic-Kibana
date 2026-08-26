@@ -84,6 +84,7 @@ def stable_id(repository: str, finding: dict[str, Any]) -> str:
         finding.get("rule_concept") or finding.get("rule_id"),
         finding.get("enclosing_symbol") or "<NONE>",
         normalized_anchor(finding),
+        correlation_anchor(finding),
     )
     digest = hashlib.sha256("\0".join(canonical_text(item) for item in fields).encode("utf-8")).hexdigest()
     return f"{IDENTITY_VERSION}:{digest}"

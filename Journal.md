@@ -11074,3 +11074,16 @@
 - Safety: no external app was installed, no secret was written, no repository setting
   changed, and no upstream/production/application/remediation mutation occurred.
 - Status: code-side activation work complete; explicit owner actions remain.
+
+## 2026-08-26 — Remote conservative-identity regression diagnosed
+- Remote evidence: every `91cc495` scanner workflow and canary passed, but both
+  branch-scoped dashboard aggregations failed during the shared pipeline. Public job
+  annotations confirmed no snapshot files were produced.
+- Root cause: observations without snippet/column evidence were conservatively kept
+  in separate correlation groups, but `stable_id` still used the weaker line-only
+  region fallback, producing duplicate canonical IDs and correctly failing snapshot
+  reconciliation.
+- Fix: stable identity now includes the same conservative correlation anchor used for
+  grouping; a no-region/native-ID adversarial regression test requires two unique
+  canonical identities.
+- Status: local verification and remote rerun pending.
