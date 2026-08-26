@@ -13,7 +13,8 @@ REQUIRED_FILES = {"index.html", "current-snapshot.json", "raw-observations.json"
 
 
 def validate_source(source: Path, expected_repository: str | None = None,
-                    expected_commit: str | None = None) -> dict:
+                    expected_commit: str | None = None,
+                    expected_branch: str | None = None) -> dict:
     if source.is_symlink() or not source.is_dir():
         raise ValueError("dashboard source must be a real directory")
     for path in source.rglob("*"):
@@ -30,6 +31,8 @@ def validate_source(source: Path, expected_repository: str | None = None,
         raise ValueError("snapshot repository does not match the selected workflow run")
     if expected_commit and snapshot.get("commit_sha") != expected_commit:
         raise ValueError("snapshot commit does not match the selected workflow run")
+    if expected_branch and snapshot.get("branch") != expected_branch:
+        raise ValueError("snapshot branch does not match the selected artifact stream")
     observations = json.loads((source / "raw-observations.json").read_text(encoding="utf-8"))
     displayed_findings = (len(snapshot.get("canonical_findings", [])) +
                           len(snapshot.get("ai_advisories", [])))
@@ -41,12 +44,12 @@ def validate_source(source: Path, expected_repository: str | None = None,
 
 
 def publish(source: Path, root: Path, expected_repository: str | None = None,
-            expected_commit: str | None = None) -> None:
+            expected_commit: str | None = None, expected_branch: str | None = None) -> None:
     source = source.resolve(strict=True)
     root = root.resolve()
     if source == root or root in source.parents:
         raise ValueError("source must be outside the publication root")
-    validate_source(source, expected_repository, expected_commit)
+    validate_source(source, expected_repository, expected_commit, expected_branch)
     root.mkdir(parents=True, exist_ok=True)
     transaction = uuid.uuid4().hex
     staging = root / f".staging-{transaction}"
@@ -77,8 +80,10 @@ def main() -> None:
     parser.add_argument("--publication-root", type=Path, required=True)
     parser.add_argument("--expected-repository")
     parser.add_argument("--expected-commit")
+    parser.add_argument("--expected-branch")
     args = parser.parse_args()
-    publish(args.source, args.publication_root, args.expected_repository, args.expected_commit)
+    publish(args.source, args.publication_root, args.expected_repository, args.expected_commit,
+            args.expected_branch)
 
 
 if __name__ == "__main__":

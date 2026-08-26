@@ -100,12 +100,29 @@ jobs:
           mv pipeline-output/snapshot-provenance.json snapshot-provenance.json
           rmdir pipeline-output
 
+      - name: Build portable snapshot artifact identity
+        id: snapshot-key
+        if: always()
+        env:
+          MONITORED_BRANCH: ${{ inputs.scan_branch || github.event.workflow_run.head_branch || github.ref_name }}
+          MONITORED_SHA: ${{ inputs.scan_sha || github.event.workflow_run.head_sha || github.sha }}
+        shell: bash
+        run: |
+          if [[ ! "$MONITORED_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "Invalid full source commit SHA: $MONITORED_SHA" >&2
+            exit 1
+          fi
+          branch_key="$(printf '%s' "$MONITORED_BRANCH" | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+|-+$//g')"
+          [[ -n "$branch_key" ]] || branch_key=unknown
+          echo "branch-key=$branch_key" >> "$GITHUB_OUTPUT"
+          echo "commit-key=${MONITORED_SHA,,}" >> "$GITHUB_OUTPUT"
+
       - name: Upload complete current snapshot
         id: analysis-artifact
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: current-findings-dashboard-${{ github.run_id }}
+          name: current-findings-dashboard-${{ steps.snapshot-key.outputs.branch-key }}-${{ steps.snapshot-key.outputs.commit-key }}-${{ github.run_id }}
           path: |
             normalized/
             dashboard/

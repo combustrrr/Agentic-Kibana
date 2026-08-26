@@ -11,7 +11,7 @@ from scripts.code_analysis.normalizer import CoverageParser, RadonParser, TscPar
 from scripts.code_analysis.pipeline import build as build_pipeline
 from scripts.code_analysis.provenance import build as build_provenance
 from scripts.code_analysis.publish_snapshot import publish
-from scripts.code_analysis.pull_worker import read_token, safe_extract
+from scripts.code_analysis.pull_worker import artifact_branch_key, artifact_commit, read_token, safe_extract
 
 MANIFEST={"schema_version":"1","required_static_channels":[
     {"channel":"codeql","scanner_family":"CodeQL","surface":"semantic","artifact_patterns":["*codeql*.sarif"]},
@@ -105,6 +105,8 @@ class MonitoringTests(unittest.TestCase):
             self.assertTrue((published/"current"/"index.html").is_file())
             with self.assertRaisesRegex(ValueError,"repository"):
                 publish(first,published,"wrong/repository","abc")
+            with self.assertRaisesRegex(ValueError,"branch"):
+                publish(first,published,"combustrrr/Agentic-Kibana","abc","wrong-branch")
             self.assertTrue((published/"current"/"index.html").is_file())
 
     def test_tsc_and_xenon_are_structured(self):
@@ -201,5 +203,20 @@ class MonitoringTests(unittest.TestCase):
                 if previous_token is not None: os.environ["GH_TOKEN"]=previous_token
                 if previous_file is None: os.environ.pop("GH_TOKEN_FILE",None)
                 else: os.environ["GH_TOKEN_FILE"]=previous_file
+
+    def test_dashboard_artifact_identity_is_source_branch_scoped(self):
+        self.assertEqual(artifact_branch_key("feature/static-code-analysis"),
+                         "feature-static-code-analysis")
+        sha="c37bc75618d44e4a117cc40d20949b37f25ad549"
+        name=f"current-findings-dashboard-feature-static-code-analysis-{sha}-32945417621"
+        self.assertEqual(artifact_commit(name,"feature/static-code-analysis"),sha)
+        with self.assertRaisesRegex(ValueError,"invalid identity"):
+            artifact_commit("current-findings-dashboard-feature-static-code-analysis-short-1",
+                            "feature/static-code-analysis")
+        workflow=Path(".github/workflows/05-issue-aggregation.yml").read_text(encoding="utf-8")
+        self.assertIn("current-findings-dashboard-${{ steps.snapshot-key.outputs.branch-key }}",workflow)
+        self.assertIn('echo "commit-key=${MONITORED_SHA,,}"',workflow)
+        self.assertNotIn('urlencode({"branch": branch',
+                         Path("scripts/code_analysis/pull_worker.py").read_text(encoding="utf-8"))
 
 if __name__=="__main__": unittest.main()

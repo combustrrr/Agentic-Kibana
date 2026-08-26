@@ -11014,3 +11014,18 @@
 - Safety: fork-only monitoring changes; no upstream, production, application, Issue,
   PR-comment, branch-protection, patch, autofix, or remediation mutation occurred.
 - Status: complete.
+
+## 2026-08-26 — Exact-source dashboard publication hardened
+- Found and corrected a QA-worker edge case: GitHub `workflow_run` aggregation runs
+  are attached to the default branch, so filtering those runs by the analyzed source
+  branch could hide a valid feature-branch dashboard.
+- Dashboard artifacts are now source-branch scoped and carry the full analyzed commit
+  SHA. The outbound-only VM worker extracts that identity, then validates repository,
+  branch, and commit inside the snapshot before atomic publication; it no longer treats
+  the dispatcher run SHA as the analyzed source SHA.
+- Verification: analysis-service tests **27/27 passed**, modified production scripts
+  pass Ruff, workflow YAML parses, and diff checking is clean. The test module retains
+  pre-existing compact-style Ruff findings and is exercised by unittest instead.
+- Safety: fork-local monitoring infrastructure only; no application, upstream,
+  production, Issue, PR-comment, patch, autofix, or remediation mutation occurred.
+- Status: implementation complete; remote workflow validation pending.

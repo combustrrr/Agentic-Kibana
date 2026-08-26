@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import tempfile
 import urllib.parse
@@ -80,15 +81,33 @@ def safe_extract(archive: Path, destination: Path) -> None:
                     shutil.copyfileobj(source, output, length=1024 * 1024)
 
 
-def select_artifact(repository: str, branch: str, token: str) -> tuple[dict, dict]:
-    query = urllib.parse.urlencode({"branch": branch, "status": "success", "per_page": 20})
+def artifact_branch_key(branch: str) -> str:
+    """Match the portable branch key emitted by the aggregation workflow."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", branch).strip("-") or "unknown"
+
+
+def artifact_commit(name: str, branch: str) -> str:
+    """Extract the full analyzed commit from a source-scoped artifact name."""
+    prefix = f"current-findings-dashboard-{artifact_branch_key(branch)}-"
+    match = re.fullmatch(re.escape(prefix) + r"([0-9a-fA-F]{40})-\d+", name)
+    if not match:
+        raise ValueError(f"dashboard artifact has an invalid identity: {name}")
+    return match.group(1).lower()
+
+
+def select_artifact(repository: str, branch: str, token: str) -> tuple[dict, dict, str]:
+    # workflow_run jobs themselves are attached to the default branch. Filtering the
+    # API by the analyzed branch would therefore hide valid feature/Testing snapshots.
+    query = urllib.parse.urlencode({"status": "success", "per_page": 30})
+    prefix = f"current-findings-dashboard-{artifact_branch_key(branch)}-"
     runs = request_json(f"{API}/repos/{repository}/actions/workflows/05-issue-aggregation.yml/runs?{query}", token)
     for run in runs.get("workflow_runs", []):
         artifacts = request_json(f"{API}/repos/{repository}/actions/runs/{run['id']}/artifacts", token)
         candidates = [row for row in artifacts.get("artifacts", [])
-                      if row.get("name", "").startswith("current-findings-dashboard-") and not row.get("expired")]
+                      if row.get("name", "").startswith(prefix) and not row.get("expired")]
         if candidates:
-            return run, sorted(candidates, key=lambda row: row["id"], reverse=True)[0]
+            artifact = sorted(candidates, key=lambda row: row["id"], reverse=True)[0]
+            return run, artifact, artifact_commit(artifact["name"], branch)
     raise RuntimeError("no non-expired validated dashboard artifact found")
 
 
@@ -122,7 +141,7 @@ def main() -> None:
             "GH_TOKEN or GH_TOKEN_FILE is required "
             "(Actions read-only fine-grained token or GitHub App token)"
         )
-    run, artifact = select_artifact(args.repository, args.branch, token)
+    run, artifact, analyzed_commit = select_artifact(args.repository, args.branch, token)
     if args.state_file.is_file():
         state = json.loads(args.state_file.read_text(encoding="utf-8"))
         if state.get("artifact_id") == artifact["id"]:
@@ -136,12 +155,12 @@ def main() -> None:
         download(artifact["archive_download_url"], token, archive)
         safe_extract(archive, extracted)
         dashboard = extracted / "dashboard"
-        publish(dashboard, args.publication_root, args.repository, run["head_sha"])
+        publish(dashboard, args.publication_root, args.repository, analyzed_commit, args.branch)
     write_state(args.state_file, {"schema_version": "1", "repository": args.repository,
                                   "branch": args.branch, "run_id": run["id"],
-                                  "commit_sha": run["head_sha"], "artifact_id": artifact["id"],
+                                  "commit_sha": analyzed_commit, "artifact_id": artifact["id"],
                                   "artifact_name": artifact["name"]})
-    print(f"published {artifact['name']} for {run['head_sha']}")
+    print(f"published {artifact['name']} for {analyzed_commit}")
 
 
 if __name__ == "__main__":
