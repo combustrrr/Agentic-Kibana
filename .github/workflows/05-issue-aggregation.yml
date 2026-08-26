@@ -1,8 +1,6 @@
 name: Code Analysis Dashboard
 
 on:
-  push:
-    branches: [feature/static-code-analysis]
   workflow_dispatch:
     inputs:
       scan_branch:
@@ -31,9 +29,12 @@ jobs:
     name: Build one advisory findings dashboard
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.ref_name == 'feature/static-code-analysis') ||
       (github.event.workflow_run.head_repository.full_name == github.repository &&
-       github.event.workflow_run.event == 'pull_request')
+       github.event.workflow_run.conclusion == 'success' &&
+       (github.event.workflow_run.event == 'pull_request' ||
+        (github.event.workflow_run.event == 'push' &&
+         contains(fromJSON('["feature/static-code-analysis","claude/main","Testing"]'),
+                  github.event.workflow_run.head_branch))))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

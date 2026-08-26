@@ -10984,3 +10984,33 @@
 - Safety: no application, upstream, production, Issue, PR-comment, branch-protection,
   patch, autofix, or remediation mutation occurred.
 - Status: complete.
+
+## 2026-08-26 — Every-commit scanner-web audit started
+- Scope correction: the primary product is scanner breadth plus one unified current
+  findings dashboard after every monitored commit; service infrastructure is only the
+  delivery mechanism.
+- Audit targets: branch/PR triggers, exact-commit aggregation, required-channel artifact
+  contracts, clean-scan behavior, normalization, deduplication, and dashboard coverage.
+- Status: in progress.
+
+## 2026-08-26 — Every-commit unified findings contract completed
+- Corrected the primary product path: pushes to the fork's analysis, default, and
+  `Testing` branches now run all four scanner workflows; PRs targeting the default or
+  `Testing` branch do the same. A single `workflow_run` dispatcher aggregates only
+  after successful code-health completion and then waits for successful same-commit
+  artifacts from every scanner workflow. The old parallel direct-push aggregation
+  trigger was removed to avoid duplicate/racing dashboard builds.
+- Fixed Gitleaks clean-scan completeness: operational failures now fail its job, while
+  successful scans produce the required `gitleaks-results.sarif` filename.
+- Closed two real ingestion gaps: Radon B-F complexity blocks and Coverage.py file-level
+  executable-line gaps now become structured, visible dashboard findings with source
+  evidence. Previously those channels could appear complete based only on artifact
+  presence while contributing no findings.
+- Normalization now fails closed when a recognized scanner artifact is malformed; a
+  parse warning can no longer turn into a publishable partial snapshot.
+- Verification: analysis-service tests **26/26 passed**, production analysis scripts
+  pass Ruff, every workflow YAML parses, diff check is clean, and the 10,000-finding /
+  13,000-observation benchmark completed in **11.83 seconds** at **77.32 MiB** peak.
+- Safety: fork-only monitoring changes; no upstream, production, application, Issue,
+  PR-comment, branch-protection, patch, autofix, or remediation mutation occurred.
+- Status: complete.

@@ -697,6 +697,73 @@ class XenonParser:
 # Deduplication
 # ─────────────────────────────────────────────────────────────
 
+class RadonParser:
+    """Turn Radon rank B-F blocks into file/symbol complexity findings."""
+
+    def parse(self, path: Path) -> list[Finding]:
+        report = json.loads(path.read_text(encoding="utf-8"))
+        findings: list[Finding] = []
+
+        def retain(file_name: str, block: dict) -> None:
+            rank = str(block.get("rank") or "A").upper()
+            if rank not in {"B", "C", "D", "E", "F"}:
+                return
+            line = int(block.get("lineno") or 0)
+            name = str(block.get("fullname") or block.get("name") or "<module>")
+            complexity = int(block.get("complexity") or 0)
+            findings.append(Finding(
+                source_tool="Radon", category="COMPLEXITY",
+                severity="HIGH" if rank in {"E", "F"} else "MEDIUM",
+                confidence="HIGH", file=file_name, start_line=line,
+                end_line=int(block.get("endline") or line),
+                rule_id=f"radon-rank-{rank.lower()}",
+                rule_name="Cyclomatic complexity",
+                message=f"{name} has cyclomatic complexity {complexity} (rank {rank})",
+                tags=["complexity", "maintainability"],
+            ))
+            for child in (block.get("methods") or []) + (block.get("closures") or []):
+                retain(file_name, child)
+
+        if not isinstance(report, dict):
+            raise ValueError("Radon report must be an object keyed by source path")
+        for file_name, blocks in report.items():
+            if not isinstance(blocks, list):
+                raise ValueError(f"Radon blocks must be an array: {file_name}")
+            for block in blocks:
+                retain(file_name, block)
+        return findings
+
+
+class CoverageParser:
+    """Represent every file-level executable-line coverage gap as one finding."""
+
+    def parse(self, path: Path) -> list[Finding]:
+        report = json.loads(path.read_text(encoding="utf-8"))
+        files = report.get("files")
+        if not isinstance(files, dict):
+            raise ValueError("Coverage.py report is missing the files object")
+        findings: list[Finding] = []
+        for file_name, detail in files.items():
+            if file_name.startswith(("app/", "tests/")):
+                file_name = f"backend/{file_name}"
+            missing = detail.get("missing_lines") or []
+            if not missing:
+                continue
+            summary = detail.get("summary") or {}
+            percent = float(summary.get("percent_covered") or 0.0)
+            first_line = int(missing[0])
+            findings.append(Finding(
+                source_tool="Coverage.py", category="COVERAGE",
+                severity="MEDIUM" if percent < 50 else "LOW", confidence="HIGH",
+                file=file_name, start_line=first_line, end_line=int(missing[-1]),
+                rule_id="coverage-missing-lines", rule_name="Executable lines not covered",
+                message=(f"{len(missing)} executable lines are not covered; "
+                         f"file coverage is {percent:.2f}%"),
+                tags=["coverage", "runtime-evidence"],
+            ))
+        return findings
+
+
 class FindingDeduplicator:
     """
     Groups findings by (file, line, concept).
@@ -858,10 +925,13 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
     eslint_parser = EslintParser()
     tsc_parser = TscParser()
     xenon_parser = XenonParser()
+    radon_parser = RadonParser()
+    coverage_parser = CoverageParser()
     deduplicator = FindingDeduplicator()
     exporter = SarifExporter()
 
     all_findings: list[Finding] = []
+    parse_errors: list[str] = []
 
     def retain(findings: list[Finding], artifact: Path) -> None:
         reference = artifact.relative_to(input_path).as_posix()
@@ -869,6 +939,11 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
             finding.raw_artifact = reference
             finding.native_result_id = finding.native_result_id or finding.id
         all_findings.extend(findings)
+
+    def report_parse_error(artifact: Path, error: Exception) -> None:
+        message = f"{artifact}: {error}"
+        parse_errors.append(message)
+        print(f"[ERROR] Failed to parse {message}", file=sys.stderr)
 
     # ── Parse SARIF files ────────────────────────────────────
     parsed_files: set[Path] = set()
@@ -881,7 +956,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
             if verbose:
                 print(f"[SARIF] {sarif_file.name}: {len(findings)} findings")
         except Exception as e:
-            print(f"[WARN] Failed to parse {sarif_file}: {e}", file=sys.stderr)
+            report_parse_error(sarif_file, e)
 
     # ── Parse Bandit JSON ────────────────────────────────────
     json_files = sorted(input_path.rglob("*.json"))
@@ -893,7 +968,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
             if verbose:
                 print(f"[Bandit] {bandit_file.name}: {len(findings)} findings")
         except Exception as e:
-            print(f"[WARN] Failed to parse {bandit_file}: {e}", file=sys.stderr)
+            report_parse_error(bandit_file, e)
 
     # ── Parse Ruff JSON ──────────────────────────────────────
     for ruff_file in (p for p in json_files if "ruff" in p.name.lower()):
@@ -904,7 +979,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
             if verbose:
                 print(f"[Ruff] {ruff_file.name}: {len(findings)} findings")
         except Exception as e:
-            print(f"[WARN] Failed to parse {ruff_file}: {e}", file=sys.stderr)
+            report_parse_error(ruff_file, e)
 
     for semgrep_file in (p for p in json_files if "semgrep" in p.name.lower()):
         try:
@@ -914,7 +989,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
             if verbose:
                 print(f"[Semgrep] {semgrep_file.name}: {len(findings)} findings")
         except Exception as e:
-            print(f"[WARN] Failed to parse {semgrep_file}: {e}", file=sys.stderr)
+            report_parse_error(semgrep_file, e)
 
     for pyright_file in (p for p in json_files if "pyright" in p.name.lower()):
         try:
@@ -924,7 +999,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
             if verbose:
                 print(f"[Pyright] {pyright_file.name}: {len(findings)} findings")
         except Exception as e:
-            print(f"[WARN] Failed to parse {pyright_file}: {e}", file=sys.stderr)
+            report_parse_error(pyright_file, e)
 
     for eslint_file in (p for p in json_files if "eslint" in p.name.lower()):
         try:
@@ -934,7 +1009,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
             if verbose:
                 print(f"[ESLint] {eslint_file.name}: {len(findings)} findings")
         except Exception as e:
-            print(f"[WARN] Failed to parse {eslint_file}: {e}", file=sys.stderr)
+            report_parse_error(eslint_file, e)
 
     # ── Parse Vulture JSON ───────────────────────────────────
     for vulture_file in (p for p in json_files if "vulture" in p.name.lower()):
@@ -945,7 +1020,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
             if verbose:
                 print(f"[Vulture] {vulture_file.name}: {len(findings)} findings")
         except Exception as e:
-            print(f"[WARN] Failed to parse {vulture_file}: {e}", file=sys.stderr)
+            report_parse_error(vulture_file, e)
 
     for vulture_file in (p for p in input_path.rglob("*.txt") if "vulture" in p.name.lower()):
         try:
@@ -955,7 +1030,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
             if verbose:
                 print(f"[Vulture] {vulture_file.name}: {len(findings)} findings")
         except Exception as e:
-            print(f"[WARN] Failed to parse {vulture_file}: {e}", file=sys.stderr)
+            report_parse_error(vulture_file, e)
 
     for tsc_file in (p for p in input_path.rglob("*.txt") if "tsc" in p.name.lower()):
         try:
@@ -965,7 +1040,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
             if verbose:
                 print(f"[TypeScript] {tsc_file.name}: {len(findings)} findings")
         except Exception as e:
-            print(f"[WARN] Failed to parse {tsc_file}: {e}", file=sys.stderr)
+            report_parse_error(tsc_file, e)
 
     for xenon_file in (p for p in input_path.rglob("*.txt") if "xenon" in p.name.lower()):
         try:
@@ -975,7 +1050,32 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
             if verbose:
                 print(f"[Xenon] {xenon_file.name}: {len(findings)} findings")
         except Exception as e:
-            print(f"[WARN] Failed to parse {xenon_file}: {e}", file=sys.stderr)
+            report_parse_error(xenon_file, e)
+
+    for radon_file in (p for p in json_files if p.name.lower() == "radon-cc.json"):
+        try:
+            findings = radon_parser.parse(radon_file)
+            retain(findings, radon_file)
+            parsed_files.add(radon_file)
+            if verbose:
+                print(f"[Radon] {radon_file.name}: {len(findings)} findings")
+        except Exception as e:
+            report_parse_error(radon_file, e)
+
+    for coverage_file in (p for p in json_files if p.name.lower() == "coverage.json"):
+        try:
+            findings = coverage_parser.parse(coverage_file)
+            retain(findings, coverage_file)
+            parsed_files.add(coverage_file)
+            if verbose:
+                print(f"[Coverage.py] {coverage_file.name}: {len(findings)} findings")
+        except Exception as e:
+            report_parse_error(coverage_file, e)
+
+    if parse_errors:
+        raise click.ClickException(
+            "normalization rejected malformed scanner artifacts:\n" + "\n".join(parse_errors)
+        )
 
     print(f"\n Parsed input files: {len(parsed_files)}")
     print(f" Total raw findings: {len(all_findings)}")

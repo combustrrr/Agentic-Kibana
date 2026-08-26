@@ -10,9 +10,9 @@ name: Code Health & Technical Debt
 on:
   workflow_dispatch:
   pull_request:
-    branches: [claude/main]
+    branches: [claude/main, Testing]
   push:
-    branches: [feature/static-code-analysis]
+    branches: [feature/static-code-analysis, claude/main, Testing]
   # schedule:
     # - cron: "0 4 * * 1"    # Monday weekly full health report
 

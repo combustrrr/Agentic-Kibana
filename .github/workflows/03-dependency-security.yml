@@ -10,9 +10,9 @@ name: Dependency & Supply Chain Security
 on:
   workflow_dispatch:
   pull_request:
-    branches: [claude/main]
+    branches: [claude/main, Testing]
   push:
-    branches: [feature/static-code-analysis]
+    branches: [feature/static-code-analysis, claude/main, Testing]
   # schedule:
     # - cron: "0 3 * * *"    # daily dependency check 03:00 UTC
 
@@ -151,18 +151,32 @@ jobs:
           fetch-depth: 0
 
       - name: Run Gitleaks
+        id: gitleaks
         continue-on-error: true
         uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_EXIT_CODE: 0
+          GITLEAKS_ENABLE_COMMENTS: false
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+
+      - name: Validate and normalize Gitleaks output
+        shell: bash
+        env:
+          GITLEAKS_RESULT: ${{ steps.gitleaks.outputs.exit-code }}
+        run: |
+          if [[ "$GITLEAKS_RESULT" != "0" && "$GITLEAKS_RESULT" != "2" ]]; then
+            echo "::error::Gitleaks failed operationally with exit code $GITLEAKS_RESULT"
+            exit 1
+          fi
+          test -s results.sarif
+          mv results.sarif gitleaks-results.sarif
 
       - name: Upload Gitleaks results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: gitleaks-results
-          path: results.sarif
+          path: gitleaks-results.sarif
 
   # ─────────────────────────────────────────────
   # Trivy — Docker image + filesystem scanning

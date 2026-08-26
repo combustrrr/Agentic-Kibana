@@ -18,6 +18,27 @@ The required-channel manifest spans semantic and pattern SAST, Python and TypeSc
 quality/types, dependencies, secrets, containers, IaC, complexity, dead code, and
 coverage evidence. No single scanner is treated as sufficient.
 
+The monitored fork branches are `feature/static-code-analysis`, `claude/main`, and
+`Testing`. Every push to one of those branches runs the four scanner workflows. When
+the final code-health workflow succeeds, one default-branch dispatcher gathers the
+successful **same-commit** artifacts from all four workflows and publishes one unified
+snapshot. Pull requests targeting `claude/main` or `Testing` use the same contract.
+
+The current required web contains 16 structured channels:
+
+| Surface | Tools represented in the unified dashboard |
+|---|---|
+| Quality and types | Ruff, Pyright, ESLint, TypeScript |
+| SAST | CodeQL, Semgrep, Bandit |
+| Supply chain and secrets | OSV-Scanner, Gitleaks, Trivy |
+| Container and IaC | Trivy, Hadolint, Checkov |
+| Health signals | Vulture, Radon, Xenon, Coverage.py |
+
+An artifact is not enough by itself: malformed scanner output now fails normalization
+and cannot publish a dashboard. Radon complexity blocks and Coverage.py file-level
+coverage gaps are normalized as visible findings rather than appearing only as a green
+channel-status badge.
+
 ## Output contract
 
 The dashboard workflow creates:

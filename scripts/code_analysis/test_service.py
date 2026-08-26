@@ -3,10 +3,11 @@ from argparse import Namespace
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
+from click.testing import CliRunner
 from scripts.code_analysis.channel_status import build as build_channel_status
 from scripts.code_analysis.dashboard import generate, github_summary, validate_snapshot, write_dashboard
 from scripts.code_analysis.monitoring import EvidenceError, build_snapshot, canonicalize, check_key, compare, defectdojo_fixture, effective_triage, stable_id
-from scripts.code_analysis.normalizer import TscParser, XenonParser
+from scripts.code_analysis.normalizer import CoverageParser, RadonParser, TscParser, XenonParser, main as normalize_cli
 from scripts.code_analysis.pipeline import build as build_pipeline
 from scripts.code_analysis.provenance import build as build_provenance
 from scripts.code_analysis.publish_snapshot import publish
@@ -112,6 +113,41 @@ class MonitoringTests(unittest.TestCase):
             xenon=root/"xenon-results.txt";xenon.write_text('ERROR:xenon:block "backend/app/a.py:12 function" has a rank of F')
             self.assertEqual(TscParser().parse(tsc)[0].rule_id,"TS2322")
             self.assertEqual(XenonParser().parse(xenon)[0].source_tool,"Xenon")
+
+    def test_radon_and_coverage_are_visible_structured_findings(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);radon=root/"radon-cc.json";coverage=root/"coverage.json"
+            radon.write_text(json.dumps({"backend/app/a.py":[{"type":"F","name":"hard",
+                "lineno":12,"endline":40,"complexity":18,"rank":"C","closures":[]}]}),encoding="utf-8")
+            coverage.write_text(json.dumps({"files":{"backend/app/a.py":{"missing_lines":[4,8,9],
+                "summary":{"percent_covered":42.5}}}}),encoding="utf-8")
+            radon_findings=RadonParser().parse(radon);coverage_findings=CoverageParser().parse(coverage)
+            self.assertEqual(radon_findings[0].source_tool,"Radon")
+            self.assertEqual(radon_findings[0].category,"COMPLEXITY")
+            self.assertEqual(coverage_findings[0].source_tool,"Coverage.py")
+            self.assertIn("3 executable lines",coverage_findings[0].message)
+
+    def test_malformed_scanner_artifact_fails_normalization(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);artifacts=root/"artifacts";artifacts.mkdir()
+            (artifacts/"radon-cc.json").write_text("{broken",encoding="utf-8")
+            result=CliRunner().invoke(normalize_cli,["--input-dir",str(artifacts),
+                                                     "--output-dir",str(root/"out")])
+            self.assertNotEqual(result.exit_code,0)
+            self.assertIn("rejected malformed scanner artifacts",result.output)
+
+    def test_monitored_commits_trigger_scanners_then_one_aggregator(self):
+        monitored="branches: [feature/static-code-analysis, claude/main, Testing]"
+        for name in ("01-code-quality.yml","02-security-sast.yml",
+                     "03-dependency-security.yml","04-code-health.yml"):
+            workflow=Path(".github/workflows",name).read_text(encoding="utf-8")
+            self.assertIn(monitored,workflow)
+        aggregator=Path(".github/workflows/05-issue-aggregation.yml").read_text(encoding="utf-8")
+        self.assertIn('workflows: ["Code Health & Technical Debt"]',aggregator)
+        self.assertIn("github.event.workflow_run.event == 'push'",aggregator)
+        self.assertNotIn("\n  push:\n",aggregator)
+        dependency=Path(".github/workflows/03-dependency-security.yml").read_text(encoding="utf-8")
+        self.assertIn("path: gitleaks-results.sarif",dependency)
 
     def test_original_proposal_tools_are_explicitly_accounted_for(self):
         catalog=json.loads(Path("config/code-analysis/proposal-tool-catalog.json").read_text(encoding="utf-8"))

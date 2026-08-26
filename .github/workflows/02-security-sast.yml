@@ -10,9 +10,9 @@ name: Security / SAST
 on:
   workflow_dispatch:
   pull_request:
-    branches: [claude/main]
+    branches: [claude/main, Testing]
   push:
-    branches: [feature/static-code-analysis]
+    branches: [feature/static-code-analysis, claude/main, Testing]
   # schedule:
     # - cron: "0 2 * * 1"    # weekly full scan — Monday 02:00 UTC
 
