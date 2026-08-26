@@ -7,6 +7,7 @@ repository workflow code on the QA VM.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -83,7 +84,18 @@ def safe_extract(archive: Path, destination: Path) -> None:
 
 def artifact_branch_key(branch: str) -> str:
     """Match the portable branch key emitted by the aggregation workflow."""
-    return re.sub(r"[^A-Za-z0-9._-]+", "-", branch).strip("-") or "unknown"
+    slug = (re.sub(r"[^A-Za-z0-9._-]+", "-", branch).strip("-") or "unknown")[:80]
+    digest = hashlib.sha256(branch.encode("utf-8")).hexdigest()[:12]
+    return f"{slug}-{digest}"
+
+
+def branch_head_sha(repository: str, branch: str, token: str) -> str:
+    encoded = urllib.parse.quote(branch, safe="")
+    payload = request_json(f"{API}/repos/{repository}/branches/{encoded}", token)
+    commit = str(payload.get("commit", {}).get("sha", "")).lower()
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise RuntimeError(f"branch {branch!r} has no valid GitHub head SHA")
+    return commit
 
 
 def artifact_commit(name: str, branch: str) -> str:
@@ -100,15 +112,20 @@ def select_artifact(repository: str, branch: str, token: str) -> tuple[dict, dic
     # API by the analyzed branch would therefore hide valid feature/Testing snapshots.
     query = urllib.parse.urlencode({"status": "success", "per_page": 30})
     prefix = f"current-findings-dashboard-{artifact_branch_key(branch)}-"
+    expected_commit = branch_head_sha(repository, branch, token)
     runs = request_json(f"{API}/repos/{repository}/actions/workflows/05-issue-aggregation.yml/runs?{query}", token)
     for run in runs.get("workflow_runs", []):
         artifacts = request_json(f"{API}/repos/{repository}/actions/runs/{run['id']}/artifacts", token)
         candidates = [row for row in artifacts.get("artifacts", [])
                       if row.get("name", "").startswith(prefix) and not row.get("expired")]
-        if candidates:
-            artifact = sorted(candidates, key=lambda row: row["id"], reverse=True)[0]
-            return run, artifact, artifact_commit(artifact["name"], branch)
-    raise RuntimeError("no non-expired validated dashboard artifact found")
+        for artifact in sorted(candidates, key=lambda row: row["id"], reverse=True):
+            analyzed_commit = artifact_commit(artifact["name"], branch)
+            if analyzed_commit == expected_commit:
+                return run, artifact, analyzed_commit
+    raise RuntimeError(
+        f"no non-expired validated dashboard artifact found for latest {branch} commit "
+        f"{expected_commit}"
+    )
 
 
 def write_state(path: Path, state: dict) -> None:

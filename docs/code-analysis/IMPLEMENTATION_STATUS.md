@@ -73,8 +73,9 @@ infrastructure.
 
 ### Pushes and synchronized branches
 
-Pushes to `feature/static-code-analysis`, `claude/main`, or `Testing` run the four
-full-codebase scanner workflows:
+Pushes to every fork branch run the four full-codebase scanner workflows. Pull requests
+analyze the exact PR head commit rather than the synthetic merge ref, and manual
+dispatches analyze the selected ref:
 
 1. `01-code-quality.yml`
 2. `02-security-sast.yml`

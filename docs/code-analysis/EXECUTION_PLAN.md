@@ -130,9 +130,8 @@ normalization, and validation. [`ACKNOWLEDGED_GAPS.md`](ACKNOWLEDGED_GAPS.md) re
 Phase 3 was explicitly approved for monitoring-only work. Its original PR-only policy
 has since been superseded by the accepted current-snapshot trigger contract:
 
-- run full scanner workflows on pushes to `feature/static-code-analysis`, `claude/main`,
-  and `Testing`;
-- run them for pull requests targeting `claude/main` or `Testing`;
+- run full scanner workflows on every fork branch push;
+- run them against the exact head of every eligible pull request;
 - retain manual `workflow_dispatch` for exact-commit analysis;
 - aggregate only successful same-commit artifacts using `workflow_run.head_sha`;
 - keep schedules disabled and keep API fuzzing isolated/manual;

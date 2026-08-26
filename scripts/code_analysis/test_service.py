@@ -12,7 +12,7 @@ from scripts.code_analysis.normalizer import CoverageParser, RadonParser, Schema
 from scripts.code_analysis.pipeline import build as build_pipeline
 from scripts.code_analysis.provenance import build as build_provenance
 from scripts.code_analysis.publish_snapshot import publish
-from scripts.code_analysis.pull_worker import artifact_branch_key, artifact_commit, read_token, safe_extract
+from scripts.code_analysis.pull_worker import artifact_branch_key, artifact_commit, read_token, safe_extract, select_artifact
 
 MANIFEST={"schema_version":"1","required_static_channels":[
     {"channel":"codeql","scanner_family":"CodeQL","surface":"semantic","artifact_patterns":["*codeql*.sarif"]},
@@ -176,7 +176,7 @@ class MonitoringTests(unittest.TestCase):
             self.assertIn("rejected malformed scanner artifacts",result.output)
 
     def test_monitored_commits_trigger_scanners_then_one_aggregator(self):
-        monitored="branches: [feature/static-code-analysis, claude/main, Testing]"
+        monitored='branches: ["**"]'
         for name in ("01-code-quality.yml","02-security-sast.yml",
                      "03-dependency-security.yml","04-code-health.yml"):
             workflow=Path(".github/workflows",name).read_text(encoding="utf-8")
@@ -257,18 +257,51 @@ class MonitoringTests(unittest.TestCase):
                 else: os.environ["GH_TOKEN_FILE"]=previous_file
 
     def test_dashboard_artifact_identity_is_source_branch_scoped(self):
-        self.assertEqual(artifact_branch_key("feature/static-code-analysis"),
-                         "feature-static-code-analysis")
+        branch="feature/static-code-analysis"
+        key=artifact_branch_key(branch)
+        self.assertTrue(key.startswith("feature-static-code-analysis-"))
+        self.assertEqual(len(key.rsplit("-",1)[1]),12)
+        self.assertNotEqual(artifact_branch_key("feature/a-b"),artifact_branch_key("feature-a/b"))
         sha="c37bc75618d44e4a117cc40d20949b37f25ad549"
-        name=f"current-findings-dashboard-feature-static-code-analysis-{sha}-32945417621"
-        self.assertEqual(artifact_commit(name,"feature/static-code-analysis"),sha)
+        name=f"current-findings-dashboard-{key}-{sha}-32945417621"
+        self.assertEqual(artifact_commit(name,branch),sha)
         with self.assertRaisesRegex(ValueError,"invalid identity"):
-            artifact_commit("current-findings-dashboard-feature-static-code-analysis-short-1",
-                            "feature/static-code-analysis")
+            artifact_commit(f"current-findings-dashboard-{key}-short-1",branch)
         workflow=Path(".github/workflows/05-issue-aggregation.yml").read_text(encoding="utf-8")
         self.assertIn("current-findings-dashboard-${{ steps.snapshot-key.outputs.branch-key }}",workflow)
         self.assertIn('echo "commit-key=${MONITORED_SHA,,}"',workflow)
         self.assertNotIn('urlencode({"branch": branch',
                          Path("scripts/code_analysis/pull_worker.py").read_text(encoding="utf-8"))
+
+    def test_pull_worker_never_publishes_a_late_older_commit_as_current(self):
+        branch="feature/example";key=artifact_branch_key(branch)
+        current="a"*40;older="b"*40
+        responses=[
+            {"commit":{"sha":current}},
+            {"workflow_runs":[{"id":22},{"id":21}]},
+            {"artifacts":[{"id":220,"expired":False,
+                            "name":f"current-findings-dashboard-{key}-{older}-22"}]},
+            {"artifacts":[{"id":210,"expired":False,
+                            "name":f"current-findings-dashboard-{key}-{current}-21"}]},
+        ]
+        with patch("scripts.code_analysis.pull_worker.request_json",side_effect=responses):
+            run,artifact,commit=select_artifact("combustrrr/Agentic-Kibana",branch,"token")
+        self.assertEqual(run["id"],21)
+        self.assertEqual(artifact["id"],210)
+        self.assertEqual(commit,current)
+
+    def test_every_branch_uses_exact_pr_head_and_automatic_aggregation(self):
+        for name in ("01-code-quality.yml","02-security-sast.yml",
+                     "03-dependency-security.yml","04-code-health.yml"):
+            workflow=Path(".github/workflows",name).read_text(encoding="utf-8")
+            self.assertIn('branches: ["**"]',workflow)
+            self.assertNotIn("branches: [claude/main, Testing]",workflow)
+            self.assertEqual(workflow.count("uses: actions/checkout@"),
+                             workflow.count("ref: ${{ github.event.pull_request.head.sha || github.sha }}"))
+        aggregate=Path(".github/workflows/05-issue-aggregation.yml").read_text(encoding="utf-8")
+        self.assertIn("github.event.workflow_run.event == 'push'",aggregate)
+        self.assertIn("github.event.workflow_run.event == 'pull_request'",aggregate)
+        self.assertNotIn('contains(fromJSON',aggregate)
+        self.assertIn("branch_hash=",aggregate)
 
 if __name__=="__main__": unittest.main()

@@ -15,8 +15,8 @@ on:
     workflows: ["Code Health & Technical Debt"]
     types: [completed]
 
-# Monitoring only: the automatic path observes same-repository PR runs and the fork's
-# dedicated analysis-branch pushes. It
+# Monitoring only: the automatic path observes same-repository PR and branch-push runs.
+# Every branch is isolated by its source branch plus exact analyzed SHA. It
 # cannot create/close Issues, apply fixes, or affect branch protection.
 
 permissions:
@@ -32,9 +32,8 @@ jobs:
       (github.event.workflow_run.head_repository.full_name == github.repository &&
        github.event.workflow_run.conclusion == 'success' &&
        (github.event.workflow_run.event == 'pull_request' ||
-        (github.event.workflow_run.event == 'push' &&
-         contains(fromJSON('["feature/static-code-analysis","claude/main","Testing"]'),
-                  github.event.workflow_run.head_branch))))
+        github.event.workflow_run.event == 'push' ||
+        github.event.workflow_run.event == 'workflow_dispatch'))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -113,8 +112,10 @@ jobs:
             echo "Invalid full source commit SHA: $MONITORED_SHA" >&2
             exit 1
           fi
-          branch_key="$(printf '%s' "$MONITORED_BRANCH" | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+|-+$//g')"
-          [[ -n "$branch_key" ]] || branch_key=unknown
+          branch_slug="$(printf '%s' "$MONITORED_BRANCH" | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+|-+$//g' | cut -c1-80)"
+          [[ -n "$branch_slug" ]] || branch_slug=unknown
+          branch_hash="$(printf '%s' "$MONITORED_BRANCH" | sha256sum | cut -c1-12)"
+          branch_key="${branch_slug}-${branch_hash}"
           echo "branch-key=$branch_key" >> "$GITHUB_OUTPUT"
           echo "commit-key=${MONITORED_SHA,,}" >> "$GITHUB_OUTPUT"
 

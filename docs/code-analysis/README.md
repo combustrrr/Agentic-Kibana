@@ -34,9 +34,9 @@ The required-channel manifest spans semantic and pattern SAST, Python and TypeSc
 quality/types, dependencies, secrets, containers, IaC, complexity, dead code, and
 coverage evidence. No single scanner is treated as sufficient.
 
-The monitored fork branches are `feature/static-code-analysis`, `claude/main`, and
-`Testing`. Every push to one of those branches runs the four scanner workflows. When
-the final code-health workflow succeeds, one default-branch dispatcher gathers the
+Every fork branch is monitored. Each push runs the four scanner workflows. Eligible
+pull requests analyze the exact PR head rather than GitHub's synthetic merge ref, and
+manual dispatch analyzes the selected workflow ref. When the final code-health workflow succeeds, one default-branch dispatcher gathers the
 successful **same-commit** artifacts from all four workflows and publishes one unified
 snapshot. Pull requests targeting `claude/main` or `Testing` use the same contract.
 
@@ -92,6 +92,11 @@ pipeline command, systemd boundary, and VM deployment contract.
 Scanners run in GitHub Actions or a dedicated QA worker, not in the Agentic SOC
 application startup path. The VM serves the last validated snapshot continuously while
 new evidence is built separately and published atomically.
+
+For every analyzed commit, the advisory **Code Analysis Dashboard** Check links to its
+complete searchable artifact. Branches never share artifact identities or Checks. The
+outbound QA worker only publishes a snapshot when its analyzed SHA equals the selected
+branch's current GitHub head, so a slower older run cannot become the latest dashboard.
 
 ## Safety
 

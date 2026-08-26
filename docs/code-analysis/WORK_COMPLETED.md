@@ -68,9 +68,8 @@ This proves only the checked-in canary contract, not a universal detection perce
 
 ## 5. Exact-commit aggregation
 
-- Pushes to `feature/static-code-analysis`, `claude/main`, and `Testing` execute the
-  scanner workflows.
-- PRs targeting `claude/main` or `Testing` use the same scanner web; Dependency Review
+- Pushes to every fork branch execute the scanner workflows.
+- PRs use the same scanner web against the exact PR head; Dependency Review
   remains PR-only.
 - Manual workflows support controlled re-analysis.
 - The default-branch aggregator derives identity from `workflow_run.head_sha`, downloads
