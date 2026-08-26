@@ -176,3 +176,22 @@ silently weaken it.
 
 **Consequence:** Unsafe workflow changes fail the normal Code Quality workflow before
 they can become the accepted analysis-service definition.
+
+## ADR-CA-014 — Security-first detection with advisory AI
+
+**Status:** Accepted
+
+**Decision:** Security discovery is the primary mission of the external analysis
+service. The dashboard provides an explicit security-focused view while preserving the
+complete deterministic backlog. Approved AI review is a separate `AI_ADVISORY` lane
+for contextual threat candidates and cannot corroborate deterministic evidence.
+
+**Reason:** Agentic SOC handles hostile telemetry, identity, authorization, agent-tool
+execution, and security automation. Pattern-only analysis cannot cover every cross-file
+trust or business-logic defect, but probabilistic AI output is not sufficient evidence
+for automatic confirmation or enforcement.
+
+**Consequence:** Security scanners and canaries remain the evidentiary core. AI may
+broaden discovery and explain candidate attack paths, but human review is required
+before an AI candidate is treated as a confirmed security issue. No AI lane can patch,
+commit, block, suppress, or remediate code in this phase.

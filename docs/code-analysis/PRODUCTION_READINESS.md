@@ -9,6 +9,21 @@ application. It has no authority to patch code, create Issues or comments, alter
 change branch protection, deploy the application, contact upstream, or contact
 DefectDojo.
 
+## Security-first mission
+
+The primary purpose of this service is to expose security weaknesses in the complete
+SOC codebase. Semantic SAST, project-specific SAST, Python security, secrets,
+dependency/SCA, container, and IaC evidence therefore receive first-class dashboard
+visibility. Type, lint, complexity, dead-code, and coverage channels remain required
+because they expose unsafe assumptions and untested or fragile security-sensitive
+paths, but they do not replace security analysis.
+
+AI review is used as a complementary threat-discovery mechanism for authorization,
+trust-boundary, agent-tool, prompt-injection, and cross-file logic concerns that a
+fixed rule may miss. AI output remains `AI_ADVISORY`: it is shown separately, retains
+its source evidence, and requires human confirmation. It never counts as deterministic
+corroboration and never gains patch, commit, blocking-check, or remediation authority.
+
 ## Automated and manual operation
 
 - Every fork branch push and eligible PR head starts the four required scanner

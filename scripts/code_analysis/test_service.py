@@ -94,6 +94,10 @@ class MonitoringTests(unittest.TestCase):
             self.assertIn("Raw evidence records",page);self.assertIn("Current Code Quality",github_summary(result))
             self.assertIn("Snapshot integrity and source proof",page)
             self.assertIn("artifactHashes",page)
+            self.assertIn("Security focus",page)
+            self.assertIn("Security findings",page)
+            self.assertIn("securityFinding",page)
+            self.assertIn("Contextual AI candidates",page)
     def test_required_manifest_maps_sixteen_channels_to_four_workflows(self):
         root=Path(__file__).resolve().parents[2]
         manifest=json.loads((root/"config/code-analysis/required-channels.json").read_text(encoding="utf-8"))
