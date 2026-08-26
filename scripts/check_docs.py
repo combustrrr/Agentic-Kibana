@@ -25,6 +25,11 @@ EXCLUDED_FILES = {
     "VIGIL_STUDY.md",
 }
 
+# Engineering-only material is linked from the repository handoff/README, not from
+# the customer-facing Help Center bundled into the Console. Code-analysis documents
+# can contain scanner operations, fork workflow evidence, and private-hosting guidance.
+EXCLUDED_DIRECTORIES = {"research", "code-analysis"}
+
 OBSOLETE_PUBLIC_TERMS = {
     "3.0.0-alpha.1": "use the 0.1 release nomenclature",
     "BLEEDING EDGE": "use Testing",
@@ -63,7 +68,7 @@ def public_pages() -> set[Path]:
     return {
         path.relative_to(DOCS)
         for path in DOCS.rglob("*.md")
-        if path.relative_to(DOCS).parts[0] != "research"
+        if path.relative_to(DOCS).parts[0] not in EXCLUDED_DIRECTORIES
         and path.relative_to(DOCS).as_posix() not in EXCLUDED_FILES
     }
 

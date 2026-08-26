@@ -3,6 +3,9 @@
 > Captured: 2026-08-22  
 > Branch: `feature/static-code-analysis`  
 > Scope: findings collection and web visibility only; no finding was fixed or suppressed.
+> This is historical Phase 1 evidence. For the current 16-channel platform, 10/10 canary
+> acceptance, Snyk activation, and hosted-dashboard contract, see
+> [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md).
 
 ## Where to view findings
 

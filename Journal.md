@@ -11053,6 +11053,31 @@
   production, Issue, PR-comment, patch, autofix, or remediation mutation occurred.
 - Status: implementation complete; remote workflow validation pending.
 
+## 2026-08-26 — Code-analysis documentation consolidation started
+- Scope: reconcile the code-analysis documents with the implementation and decisions
+  established through the current working session, including the current-snapshot
+  objective, scanner/trigger model, dashboard and QA-VM boundary, Snyk activation,
+  CodeRabbit status, verified canaries, safety guarantees, and deferred roadmap.
+- Rule: historical measurements remain labelled as historical; superseded gaps and
+  proposal aspirations must not be presented as current implementation truth.
+- Added `docs/code-analysis/IMPLEMENTATION_STATUS.md` as the consolidated decision and
+  implementation handoff: objective, supersession matrix, branch/commit/PR/manual
+  behavior, 16-channel stack, optional lanes, evidence/dedup/snapshot contracts,
+  dashboard access, QA-VM sizing, verified runs, external activation, and roadmap.
+- Corrected stale execution truth: 7/10 is now explicitly historical and the accepted
+  canary is 10/10; TypeScript/Xenon/Schemathesis ingestion is accurately classified;
+  Snyk is verified optional from run `32965286130`; CodeRabbit remains restart/WSL/App
+  pending; current push/PR/manual triggers replace the old PR-only narrative.
+- Marked lifecycle/DefectDojo/Issue automation documents as superseded or deferred,
+  linked the handoff from root README/docs handoff, and documented exactly where the
+  Actions dashboard is viewed before QA-VM deployment.
+- Classified `docs/code-analysis/` as internal engineering documentation so scanner,
+  fork, and private-hosting operations are not bundled into the customer Help Center.
+- Verification: public documentation consistency passed for 79 pages; analysis-service
+  tests passed 31/31; proposal catalog JSON parsed; `scripts/check_docs.py` passed Ruff;
+  and diff whitespace validation passed.
+- Status: documentation consolidation complete.
+
 ## 2026-08-26 — Local CodeRabbit and Snyk CLI validation started
 - Scope: install and authenticate the approved CLIs for read-only fork analysis,
   exercise their non-mutating analysis commands, and determine whether their

@@ -5,21 +5,22 @@
 > **Operating mode:** fork-only, read-only full-codebase detection and visualization
 > **Last updated:** 2026-08-26
 
-This plan records implementation truth, not proposal intent. A workflow file or Compose
+This plan records implementation truth, not proposal intent. The consolidated handoff is
+[`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md). A workflow file or Compose
 draft is not considered an implemented service until it has executed and produced usable
-evidence. Likewise, the 14/14 dashboard coverage result refers to the configured artifact
-channels; it does not mean every shortlisted proposal tool is installed.
+evidence. Historical 14/14 results refer only to the manifest at that time; the current
+required manifest has 16 channels and does not mean every shortlisted proposal tool is installed.
 
 ## Phase status
 
 | Phase | Status | Work completed | Work remaining / exit condition |
 |---|---|---|---|
-| 0 — Dormant setup | **Complete** | Fork safety established; `feature/static-code-analysis` retained; fork default synchronized; existing `ci.yml` untouched; custom Semgrep, CodeQL, Bandit, Ruff, Gitleaks and canary configuration added. | The Phase 3 PR-only activation supersedes the original manual-only state; push/schedule triggers remain dormant. |
+| 0 — Dormant setup | **Complete** | Fork safety established; `feature/static-code-analysis` retained; fork default synchronized; existing `ci.yml` untouched; custom Semgrep, CodeQL, Bandit, Ruff, Gitleaks and canary configuration added. | Superseded by the active fork push/PR/manual trigger model; schedules remain disabled. |
 | 1 — Manual baseline and diagnosis service | **Complete for collection; remediation deferred** | All four scanner families manually exercised; raw artifacts retained; recursive normalizer repaired; file+line+concept fingerprints; 298+ overlaps proven; searchable all-findings dashboard; 14/14 configured channels; 81.16% parent-process runtime coverage; bounded dry-run issue plan; review-only Ruff patch. | False-positive classification and application finding fixes remain intentionally out of scope. Shortlisted services not yet implemented are tracked below, not counted as Phase 1 coverage. |
-| 2 — Canary validation | **Complete with 3 acknowledged gaps** | Manual-only canary repaired and measured: 7/10 expectations, 202 normalized findings, eight contributing tools. SQL injection, path traversal, and React XSS remain visible failures with concrete next actions in `ACKNOWLEDGED_GAPS.md`. | Do not represent 7/10 as full coverage. Close the three gaps in a later monitoring-coverage iteration. |
-| 3 — Selective advisory activation | **Complete** | Fork PR [#1](https://github.com/combustrrr/Agentic-Kibana/pull/1) verified all four exact-commit scanner families. Fork PR [#2](https://github.com/combustrrr/Agentic-Kibana/pull/2) verified one neutral, idempotent commit check with bounded rollups and an explicit full-artifact link. Dashboard run `32578162932` produced 8,535 deduplicated findings, 14/14 observed channels, and 81.16% runtime coverage; rebuild `32580941289` proved the same check is updated rather than duplicated. | The lean monitoring MVP now adds manifest-driven channels, canonical observations, immutable baseline comparison, conservation, attention/backlog views, and triage. Fork acceptance remains. |
+| 2 — Canary validation | **Complete: 10/10 defined expectations** | The historical 7/10 run exposed SQL injection, path traversal, and React XSS gaps. Project-specific detection/normalization work closed them; run `32938363577` passed all 10 end-to-end expectations. | Preserve the canary contract as scanner configuration changes. Do not turn 10/10 defined fixtures into a universal security-coverage claim. |
+| 3 — Selective advisory activation | **Complete** | Fork PRs #1/#2 verified exact-commit scanner collection and one idempotent advisory Check. Historical run `32578162932` produced 8,535 canonical findings and rebuild `32580941289` updated the same Check. | Superseded by the current full-snapshot product; baseline/lifecycle/triage work is deferred rather than required for acceptance. |
 | 4 — Current findings platform | **Accepted on fork** | Added publishable `snapshot-v1` provenance and reconciliation, exact-commit artifact hashing, structured TypeScript/Xenon evidence, improved all-findings/evidence dashboard, bounded rendering, atomic publication, and a localhost-only container profile. All required workflows and 10/10 canaries passed; run `32940124398` published the improved real-data artifact. | Validate the same image on the company QA VM behind VPN/OIDC. |
-| 5 — Additional detection surfaces | **Started** | Added an explicit proposal-tool catalog and a pinned, scan-only Snyk SCA/Code SARIF lane. Local OAuth/SCA validation produced parseable npm SARIF and exposed incomplete Python resolution; CI now reports `CONFIGURED_PARTIAL` rather than hiding missing surfaces. | Enable Snyk Code and configure the fork secret, then validate complete SCA/Code evidence. Complete CodeRabbit after the approved WSL restart. Add SonarQube, CodeScene, and Atheris only after each output is exportable, visible, and proves non-redundant value. |
+| 5 — Additional detection surfaces | **Started; Snyk verified** | The proposal catalog is explicit. Pinned scan-only Snyk SCA/Code ran successfully in fork run `32965286130`; CI retains per-surface status and cannot hide partial analysis. Schemathesis JUnit ingestion is structured but remains an isolated dynamic lane. | Complete CodeRabbit after the approved WSL restart. Add SonarQube, CodeScene, or Atheris only after exportable, visible, non-redundant evidence is demonstrated. |
 
 ## Shortlisted tool implementation inventory
 
@@ -35,28 +36,28 @@ Statuses use these meanings:
 | Quality | Ruff | **Verified** | JSON normalized; 5,000+ findings; safe review patch verified. |
 | Quality | Pyright | **Verified** | JSON artifact plumbing repaired and observed. |
 | Quality | ESLint | **Verified** | JSON artifact plumbing repaired and observed. |
-| Quality | TypeScript `tsc` | **Implemented; web verification pending** | Stable text artifact and structured diagnostic parser feed the current snapshot. |
+| Quality | TypeScript `tsc` | **Verified** | Stable text artifact and structured diagnostics feed the accepted current snapshot. |
 | SAST | CodeQL (Python + JS/TS) | **Verified** | SARIF retained and normalized for both languages. |
 | SAST | Semgrep OSS + custom rules | **Verified** | Raw JSON parser repaired; 2,736 findings entered the unified dashboard. |
 | SAST | Bandit | **Verified** | JSON and normalized SARIF retained. |
 | Supply chain | OSV-Scanner | **Verified** | SARIF retained and normalized. |
 | Supply chain | Trivy filesystem/config | **Verified** | Both SARIF channels retained and normalized. |
-| Secrets | Gitleaks | **Verified** | SARIF retained and normalized; canary-specific coverage still needs Phase 2 work. |
+| Secrets | Gitleaks | **Verified** | SARIF retained and normalized; the defined secret canary passes. |
 | IaC/container | Hadolint | **Verified** | Workflow and artifact channel verified after upload repair. |
 | IaC/container | Checkov | **Verified** | SARIF retained and normalized. |
-| Health | Radon | **Verified** | Complexity JSON retained and coverage manifest observes it; metrics are not yet converted into row-level findings. |
-| Health | Xenon | **Implemented; web verification pending** | Retained text artifact and structured complexity parser feed the current snapshot. |
+| Health | Radon | **Verified** | Complexity JSON is retained and complexity blocks normalize into visible findings. |
+| Health | Xenon | **Verified** | Retained text artifact and structured complexity findings feed the accepted snapshot. |
 | Health | Vulture | **Verified** | Actual text format parser added; findings appear centrally. |
 | Health | Coverage.py | **Verified** | Stable parent-process JSON/XML retained; dashboard shows 81.16%. Child-process coverage is not claimed. |
-| Active testing | Schemathesis | **Partial** | Manual workflow exists; not validated in this work and JUnit/HTML outputs are not normalized into findings. |
+| Active testing | Schemathesis | **Implemented; isolated dynamic lane** | Manual workflow JUnit failures normalize as `DYNAMIC`, including API-500 classification; it is not part of static publishability. |
 | Active testing | Atheris | **Not implemented** | Mentioned in proposal/docs only; no executable fuzz harness or workflow. |
 | AI review | CodeRabbit | **Configured; CLI activation pending restart** | Safe opt-in advisory configuration is checked in. WSL was enabled locally but Windows restart and Ubuntu/CLI authentication remain; the fork-only GitHub App is not installed. |
 | AI review | PR-Agent | **Not implemented** | Fallback is documented only. |
 | Behavioral health | CodeScene | **Partial scaffold** | Compose draft exists; no license/configured service, scan, or dashboard integration. |
 | Finding management | DefectDojo | **Partial scaffold** | Compose draft exists; no deployed service, importer, persistence, or lifecycle sync. |
-| Supply-chain alternative | Snyk | **Implemented; partially verified** | Pinned CLI OAuth and npm SCA produced parseable SARIF. Python dependency graphs were unresolved and Snyk Code is disabled for the organization, so complete coverage is not claimed. CI emits explicit per-surface status; no monitor, report, fix, patch, or PR command exists. |
+| Supply-chain alternative | Snyk | **Verified optional** | Fork run `32965286130` passed Open Source SCA, Snyk Code, status generation, and artifact upload. Local OAuth used a different organization where Code was disabled; CI evidence is authoritative. No monitor, report, fix, patch, or PR command exists. |
 | Optional evaluator | Qodana | **Not selected / not implemented** | Appears in evaluation/parser compatibility only; it is not an active shortlisted lane. |
-| GitHub native | Dependency Review | **Partial** | Configured PR-only; manual dispatch cannot exercise it and no PR trigger is active. |
+| GitHub native | Dependency Review | **Active PR-only** | Runs for PRs targeting `claude/main` or `Testing`; it is correctly skipped for push/manual runs. |
 
 The authoritative detailed inventory should be kept aligned with
 [`README.md`](README.md) and the workflow files. “Verified” does not imply findings are
@@ -117,15 +118,27 @@ and `scripts/code_analysis/validate_canary.py`. Current expectations cover:
 - Open concepts: SQL injection independence, path traversal dataflow, React XSS.
 - Detailed evidence and next actions: [`ACKNOWLEDGED_GAPS.md`](ACKNOWLEDGED_GAPS.md).
 
+The lines above are the historical diagnosis that drove the coverage work. They are not
+the current result. Commit `48a1db2` and fork run
+[`32938363577`](https://github.com/combustrrr/Agentic-Kibana/actions/runs/32938363577)
+subsequently passed **10/10** defined canary expectations through detection,
+normalization, and validation. [`ACKNOWLEDGED_GAPS.md`](ACKNOWLEDGED_GAPS.md) retains the
+7/10 evidence as an audit record and marks those three gaps resolved by the later run.
+
 ## Phase 3 decision gate
 
-Phase 3 was explicitly approved for monitoring-only work. The conservative decisions are:
+Phase 3 was explicitly approved for monitoring-only work. Its original PR-only policy
+has since been superseded by the accepted current-snapshot trigger contract:
 
-- scope only same-repository pull requests into fork `claude/main`;
-- keep push, schedule, canary, and API-fuzzing triggers manual;
+- run full scanner workflows on pushes to `feature/static-code-analysis`, `claude/main`,
+  and `Testing`;
+- run them for pull requests targeting `claude/main` or `Testing`;
+- retain manual `workflow_dispatch` for exact-commit analysis;
+- aggregate only successful same-commit artifacts using `workflow_run.head_sha`;
+- keep schedules disabled and keep API fuzzing isolated/manual;
 - keep GitHub Issues read-only and retain only a dry-run plan;
 - retain the downloadable HTML dashboard artifact for 30 days;
-- keep ownership entirely in the fork, with no `Testing` or upstream integration.
+- keep ownership entirely in the fork, with no upstream or production mutation.
 
 The current operator policy is advisory. Phase 3 must not add required status checks or
 branch protection changes.

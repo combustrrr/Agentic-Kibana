@@ -40,4 +40,15 @@ Until the QA VM exists, Actions retains `current-findings-dashboard-<run-id>` as
 evidence. The custom Check describes snapshot validity and links to that artifact. The
 hosted dashboard, not the artifact ZIP, is the intended daily developer surface.
 
+For a scanned commit, open **Checks → Code Analysis Dashboard**. The Check identifies
+the analyzed SHA and links to the immutable
+`current-findings-dashboard-<branch>-<sha>-<run-id>` artifact. Download it and open
+`dashboard/index.html`; this is the complete current-snapshot UI, while GitHub's
+Security and quality count remains a separate native-alert surface. Verified examples
+include dashboard runs `32938363593` (platform acceptance) and `32940124398` (improved
+real-data UI).
+
+The company QA VM will remove the download step: its outbound pull worker downloads the
+same accepted artifact and atomically serves the latest valid `dashboard/` directory.
+
 DefectDojo, history, triage analytics, Issues, remediation, and autofix are deferred.

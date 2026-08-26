@@ -38,18 +38,21 @@ Owner action:
 5. Measure unique detection value before making Snyk a required channel.
 
 Fork status: the repository-level `SNYK_TOKEN` Actions secret was added on
-2026-08-26. The first post-secret workflow run must still prove authentication,
-per-surface status, retained evidence, and normalizer visibility; secret presence
-alone is not treated as successful analysis.
+2026-08-26. Post-secret run
+[`32965286130`](https://github.com/combustrrr/Agentic-Kibana/actions/runs/32965286130)
+then passed pinned CLI installation, Open Source SCA, Snyk Code, configured-status
+generation, and artifact upload. Artifact `snyk-results` (`9605455800`, 66,570 bytes)
+was retained. Snyk is therefore a verified optional source, not a required channel.
 
 Local validation on 2026-08-26 used the same pinned CLI version as CI. OAuth succeeded
 and SCA emitted parseable SARIF for both npm projects, with no vulnerable paths found.
 Three Python manifests were unresolved because their dependency environments were not
 installed, so this is explicitly **partial evidence**, not a clean repository result.
-Snyk Code returned `SNYK-CODE-0005` because Code analysis is not enabled for the
-selected organization. The workflow records these states as `CONFIGURED_PARTIAL`
-instead of silently reporting a complete scan. Enable Snyk Code and provide the fork
-Actions secret before expecting both optional surfaces in an aggregated snapshot.
+Snyk Code returned `SNYK-CODE-0005` locally because Code analysis was not enabled for
+the OAuth-selected organization. The fork Actions token uses an organization where
+both SCA and Code succeeded. This distinction is retained so a local partial result is
+not confused with the authoritative CI evidence. The workflow records unavailable
+surfaces as `CONFIGURED_PARTIAL` instead of silently reporting a complete scan.
 
 ## GitHub secret scanning and push protection
 

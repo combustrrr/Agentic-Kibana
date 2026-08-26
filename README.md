@@ -277,6 +277,7 @@ matches the application version.
 | Author intelligence | [Runbooks](docs/intelligence/runbooks.md) |
 | Deploy and operate | [Deployment](docs/operations/deployment.md) |
 | Troubleshoot | [Troubleshooting](docs/operations/troubleshooting.md) |
+| Review the fork-only code-analysis platform | [Code-analysis overview](docs/code-analysis/README.md) · [implementation status](docs/code-analysis/IMPLEMENTATION_STATUS.md) |
 | Integrate the API | [API reference](docs/reference/api.md) |
 | Understand releases | [Release channels](docs/releases/channels.md) |
 | Continue development | [Developer handoff](docs/HANDOFF.md) |

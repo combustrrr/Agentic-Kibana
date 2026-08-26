@@ -3,6 +3,9 @@
 > **Authority:** [`EXECUTION_PLAN.md`](EXECUTION_PLAN.md) records implementation truth.
 > The original proposal remains a scanner-candidate roadmap; remediation, Issues,
 > DefectDojo, history, and production integration are deferred.
+> [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) is the consolidated architecture,
+> trigger, tool-status, hosting, safety, and verified-evidence handoff from the 2026-08-26
+> implementation discussions.
 
 ## Objective
 
@@ -63,10 +66,13 @@ pipeline command, systemd boundary, and VM deployment contract.
 - Deterministic findings are the primary canonical table.
 - Optional AI output is labelled `AI_ADVISORY` and never counts as deterministic
   corroboration.
-- Snyk has a scan-only, token-gated SARIF lane. Until `SNYK_TOKEN` is configured it
-  reports `NOT_CONFIGURED`, is not required, and cannot make the snapshot look complete.
-- SonarQube, CodeScene, CodeRabbit, and additional tools enter only after an exportable,
-  non-redundant detection contribution is verified.
+- Snyk has a scan-only, token-gated SARIF lane. The fork secret is configured and run
+  `32965286130` verified both Open Source and Code scans plus retained evidence. It
+  remains optional and reports `NOT_CONFIGURED` or `CONFIGURED_PARTIAL` truthfully when
+  credentials or analysis surfaces are unavailable.
+- CodeRabbit's safe opt-in configuration is checked in, but CLI/App execution remains
+  pending the approved Windows restart/WSL completion. SonarQube, CodeScene, and
+  additional tools enter only after an exportable, non-redundant contribution is verified.
 - [`proposal-tool-catalog.json`](../../config/code-analysis/proposal-tool-catalog.json)
   accounts explicitly for every selected proposal tool and its activation boundary.
 

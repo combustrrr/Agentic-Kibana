@@ -857,6 +857,7 @@ hunting/query builder, case linking/merge, and an integrations marketplace.
 | Deploy (Docker, auth, SMTP/SSO env) | `DEPLOY.md` · `docs/ENVIRONMENT.md` · `.env.example` |
 | Run a live demo / give a tour | `DEMO.md` · `scripts/run-demo.sh` |
 | Security posture + hardening TODOs | `SECURITY.md` |
+| Fork-only multi-scanner code analysis and findings dashboard | `docs/code-analysis/README.md` · `docs/code-analysis/IMPLEMENTATION_STATUS.md` · `docs/code-analysis/EXECUTION_PLAN.md` |
 | What changed, when | `CHANGELOG.md` · `Journal.md` |
 | Round-2 design intent (extend a feature) | `docs/research/2026-06-round2/ROUND2_DESIGN.md` |
 | Round-3 design + what-shipped (extend a feature) | `docs/research/2026-06-round3/PROPOSAL.md` · `IMPLEMENTATION.md` |

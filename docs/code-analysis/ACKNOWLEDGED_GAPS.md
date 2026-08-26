@@ -1,12 +1,19 @@
-# Acknowledged Code-Analysis Coverage Gaps
+# Historical Canary Coverage Gaps — Resolved for the Defined Fixture Set
 
 > Last measured: 2026-08-22, fork run
 > [32575538895](https://github.com/combustrrr/Agentic-Kibana/actions/runs/32575538895)
 > Result: 7/10 canary expectations; 202 normalized findings from eight tools
 
-These are coverage gaps, not suppressed application findings. The canary validator
-continues to fail so the gaps remain visible. None is accepted as “safe”; each needs a
-better model or an additional deterministic rule before it can become covered.
+> **Current status:** This file preserves the diagnostic evidence from the 7/10 stage.
+> It is not the current acceptance result. After project-specific detection and
+> normalization improvements, fork run
+> [`32938363577`](https://github.com/combustrrr/Agentic-Kibana/actions/runs/32938363577)
+> passed all **10/10 defined canary expectations** at commit `48a1db2`.
+
+These were coverage gaps, not suppressed application findings. None was accepted as
+safe. The table remains as the explanation of why the earlier run failed and what work
+was required. The current validator remains fail-closed and must continue to pass as
+rules and scanners change.
 
 | Canary concept | Observed evidence | Why the expectation remains unmet | Required next implementation |
 |---|---|---|---|
@@ -16,8 +23,9 @@ better model or an additional deterministic rule before it can become covered.
 
 ## Not covered by this canary phase
 
-The following shortlisted proposal items are separately tracked as partial or not
-implemented in [`EXECUTION_PLAN.md`](EXECUTION_PLAN.md): `tsc` normalization, Xenon
-structured findings, Schemathesis normalization/validation, Atheris, CodeRabbit,
-PR-Agent, CodeScene service deployment, DefectDojo integration, Snyk, and persistent
-dashboard hosting. A 7/10 canary result does not claim those capabilities.
+The 10/10 result applies only to the ten checked-in expectations. It does not validate
+every scanner or establish a vulnerability-detection percentage. TypeScript and Xenon
+structured ingestion, Snyk CI, and Schemathesis dynamic ingestion are tracked separately
+in [`EXECUTION_PLAN.md`](EXECUTION_PLAN.md). Atheris, CodeRabbit execution, PR-Agent,
+CodeScene/SonarQube services, DefectDojo, and QA-VM deployment remain partial or deferred
+as described in [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md).

@@ -3,6 +3,12 @@
 
 > **Version:** 1.1 — Addressing Core Engineering Challenges
 
+> **Superseded for the active phase:** This is a historical design exploration. The
+> implemented product is the read-only current full-codebase snapshot documented in
+> [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md). Stable identity and preserved
+> evidence were retained; GitHub Issue creation, lifecycle state, automatic closure,
+> triage persistence, and remediation are deferred.
+
 ---
 
 ## Part 1 — The Duplicate Issue Problem
