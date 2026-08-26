@@ -31,6 +31,7 @@ import json
 import os
 import re
 import sys
+import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -781,6 +782,32 @@ class CoverageParser:
         return findings
 
 
+class SchemathesisParser:
+    """Convert Schemathesis JUnit failures into structured dynamic findings."""
+
+    def parse(self, path: Path) -> list[Finding]:
+        root = ET.parse(path).getroot()
+        findings: list[Finding] = []
+        for case in root.iter("testcase"):
+            failures = [*case.findall("failure"), *case.findall("error")]
+            for index, failure in enumerate(failures, start=1):
+                message = "\n".join(filter(None, [failure.get("message"), failure.text])).strip()
+                lowered = message.lower()
+                concept = "api-500-crash" if any(token in lowered for token in (
+                    "status code: 500", "status_code=500", "internal server error")) else "api-contract-failure"
+                endpoint = case.get("name") or case.get("classname") or "OpenAPI operation"
+                findings.append(Finding(
+                    source_tool="Schemathesis", category="DYNAMIC",
+                    severity="HIGH" if concept == "api-500-crash" else "MEDIUM",
+                    confidence="HIGH", file="backend/openapi", start_line=0, end_line=0,
+                    rule_id=f"schemathesis.{concept}", rule_concept=concept,
+                    rule_name="Schemathesis API property failure", message=message or endpoint,
+                    native_result_id=f"{endpoint}:{index}", analysis_category="dynamic-api",
+                    tags=["dynamic", "api", "schemathesis"],
+                ))
+        return findings
+
+
 class FindingDeduplicator:
     """
     Groups findings by a conservative source-region identity.
@@ -944,6 +971,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
     xenon_parser = XenonParser()
     radon_parser = RadonParser()
     coverage_parser = CoverageParser()
+    schemathesis_parser = SchemathesisParser()
     deduplicator = FindingDeduplicator()
     exporter = SarifExporter()
 
@@ -1088,6 +1116,17 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
                 print(f"[Coverage.py] {coverage_file.name}: {len(findings)} findings")
         except Exception as e:
             report_parse_error(coverage_file, e)
+
+    for schemathesis_file in (p for p in input_path.rglob("*.xml")
+                              if "fuzzing-results" in p.name.lower()):
+        try:
+            findings = schemathesis_parser.parse(schemathesis_file)
+            retain(findings, schemathesis_file)
+            parsed_files.add(schemathesis_file)
+            if verbose:
+                print(f"[Schemathesis] {schemathesis_file.name}: {len(findings)} findings")
+        except Exception as e:
+            report_parse_error(schemathesis_file, e)
 
     if parse_errors:
         raise click.ClickException(

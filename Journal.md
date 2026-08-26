@@ -11052,3 +11052,25 @@
 - Safety: fork-only read-only analysis infrastructure; no application, upstream,
   production, Issue, PR-comment, patch, autofix, or remediation mutation occurred.
 - Status: implementation complete; remote workflow validation pending.
+
+## 2026-08-26 — Required external and dynamic analysis activation started
+- Scope: prepare a least-authority CodeRabbit advisory configuration, complete
+  structured Schemathesis ingestion, and document/verify the credential or admin
+  boundaries for Snyk and GitHub-native secret protection.
+- Status: in progress.
+
+## 2026-08-26 — External activation package and dynamic ingestion completed
+- Added a least-authority, opt-in `.coderabbit.yaml`: automatic reviews, request-
+  changes, chat auto-replies, bot reviews, and irrelevant generated paths are disabled;
+  security-sensitive backend/agent/API and frontend paths receive focused instructions.
+- Schemathesis JUnit failures now normalize into structured `DYNAMIC` findings,
+  including explicit API-500 classification. The manual isolated workflow remains
+  outside the required static publication gate until runtime/CI-cost approval.
+- Added the owner activation contract for CodeRabbit, Snyk, and GitHub-native secret
+  scanning/push protection. No token, app installation, or repository setting is
+  claimed to exist merely because code-side configuration is ready.
+- Verification: analysis-service tests **30/30 passed**, modified production code
+  passes Ruff, CodeRabbit YAML parses, and diff checking is clean.
+- Safety: no external app was installed, no secret was written, no repository setting
+  changed, and no upstream/production/application/remediation mutation occurred.
+- Status: code-side activation work complete; explicit owner actions remain.

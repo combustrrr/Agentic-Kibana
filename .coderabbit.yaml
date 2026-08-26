@@ -1,0 +1,41 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+early_access: false
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  path_filters:
+    - "!output/**"
+    - "!**/node_modules/**"
+    - "!**/dist/**"
+    - "!**/coverage/**"
+    - "!Journal.md"
+  auto_review:
+    enabled: false
+    drafts: false
+    description_keyword: "coderabbit:review"
+    base_branches:
+      - "Testing"
+    ignore_usernames:
+      - "dependabot[bot]"
+      - "github-actions[bot]"
+  path_instructions:
+    - path: "backend/app/auth/**"
+      instructions: |
+        Review authentication, authorization, session, token, and privilege-boundary logic.
+        Never propose or apply a patch automatically; report concerns as advisory evidence.
+    - path: "backend/app/agents/**"
+      instructions: |
+        Review trust boundaries, untrusted-input fencing, tool permissions, and LLM-output use.
+        Treat repository AGENTS.md contracts as authoritative.
+    - path: "backend/app/api/**"
+      instructions: |
+        Review RBAC gates, input validation, error handling, and unsafe data-flow to stores or tools.
+    - path: "webui/src/**"
+      instructions: |
+        Review React correctness, unsafe rendering, authorization assumptions, and accessibility.
+chat:
+  auto_reply: false

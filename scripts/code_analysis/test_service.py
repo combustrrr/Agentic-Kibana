@@ -8,7 +8,7 @@ from scripts.code_analysis.channel_status import build as build_channel_status
 from scripts.code_analysis.dashboard import generate, github_summary, validate_snapshot, write_dashboard
 from scripts.code_analysis.evidence_contract import build as build_evidence_contract
 from scripts.code_analysis.monitoring import EvidenceError, build_snapshot, canonicalize, check_key, compare, defectdojo_fixture, effective_triage, stable_id
-from scripts.code_analysis.normalizer import CoverageParser, RadonParser, TscParser, XenonParser, main as normalize_cli
+from scripts.code_analysis.normalizer import CoverageParser, RadonParser, SchemathesisParser, TscParser, XenonParser, main as normalize_cli
 from scripts.code_analysis.pipeline import build as build_pipeline
 from scripts.code_analysis.provenance import build as build_provenance
 from scripts.code_analysis.publish_snapshot import publish
@@ -149,6 +149,16 @@ class MonitoringTests(unittest.TestCase):
             self.assertEqual(radon_findings[0].category,"COMPLEXITY")
             self.assertEqual(coverage_findings[0].source_tool,"Coverage.py")
             self.assertIn("3 executable lines",coverage_findings[0].message)
+
+    def test_schemathesis_junit_failures_are_structured_dynamic_findings(self):
+        with tempfile.TemporaryDirectory() as d:
+            report=Path(d)/"fuzzing-results.xml"
+            report.write_text('<testsuite><testcase name="GET /cases"><failure message="Status code: 500">Internal Server Error</failure></testcase></testsuite>',encoding="utf-8")
+            findings=SchemathesisParser().parse(report)
+            self.assertEqual(len(findings),1)
+            self.assertEqual(findings[0].source_tool,"Schemathesis")
+            self.assertEqual(findings[0].rule_concept,"api-500-crash")
+            self.assertEqual(findings[0].category,"DYNAMIC")
 
     def test_malformed_scanner_artifact_fails_normalization(self):
         with tempfile.TemporaryDirectory() as d:
