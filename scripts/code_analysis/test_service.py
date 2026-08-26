@@ -6,6 +6,7 @@ from unittest.mock import patch
 from click.testing import CliRunner
 from scripts.code_analysis.channel_status import build as build_channel_status
 from scripts.code_analysis.dashboard import generate, github_summary, validate_snapshot, write_dashboard
+from scripts.code_analysis.evidence_contract import build as build_evidence_contract
 from scripts.code_analysis.monitoring import EvidenceError, build_snapshot, canonicalize, check_key, compare, defectdojo_fixture, effective_triage, stable_id
 from scripts.code_analysis.normalizer import CoverageParser, RadonParser, TscParser, XenonParser, main as normalize_cli
 from scripts.code_analysis.pipeline import build as build_pipeline
@@ -34,6 +35,12 @@ class MonitoringTests(unittest.TestCase):
     def test_duplicate_evidence_is_one_finding_with_two_families(self):
         doc=evidence([raw("CodeQL"),raw("Semgrep")]);self.assertEqual(len(doc["findings"]),1)
         self.assertEqual(doc["findings"][0]["observation_count"],2);self.assertEqual(doc["findings"][0]["scanner_family_count"],2)
+    def test_distinct_same_line_sinks_are_never_collapsed(self):
+        left={**raw("CodeQL"),"id":"left","start_col":4}
+        right={**raw("CodeQL"),"id":"right","start_col":30}
+        doc=evidence([left,right])
+        self.assertEqual(len(doc["findings"]),2)
+        self.assertEqual(len(doc["observations"]),2)
     def test_exact_new_and_conservation(self):
         base=evidence([raw(line=10)]);base["baseline_id"]="base";current=evidence([raw(line=10),raw(line=30,snippet="other")])
         result=compare(current,base,None,status(),{"decisions":[]});self.assertEqual(result["counts"],{"EXISTING":1,"NEW":1})
@@ -55,7 +62,21 @@ class MonitoringTests(unittest.TestCase):
     def test_required_channel_missing_fails(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);(root/"codeql.sarif").write_text("{}")
-            built=build_channel_status(MANIFEST,root);self.assertEqual([x["status"] for x in built["channels"]],["COMPLETED","NOT_CONFIGURED"])
+            contract=build_evidence_contract(MANIFEST,root,"repo/fork","abc",["1"])
+            built=build_channel_status(MANIFEST,root,contract=contract,repository="repo/fork",commit="abc")
+            self.assertEqual([x["status"] for x in built["channels"]],["COMPLETED","INVALID_EVIDENCE"])
+
+    def test_channel_contract_rejects_mixed_commit_and_tampering(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);(root/"codeql.sarif").write_text("{}")
+            contract=build_evidence_contract(MANIFEST,root,"repo/fork","abc",["1"])
+            with self.assertRaisesRegex(ValueError,"commit"):
+                build_channel_status(MANIFEST,root,contract=contract,
+                                     repository="repo/fork",commit="different")
+            (root/"codeql.sarif").write_text('{"changed":true}')
+            built=build_channel_status(MANIFEST,root,contract=contract,
+                                       repository="repo/fork",commit="abc")
+            self.assertEqual(built["channels"][0]["status"],"INVALID_EVIDENCE")
     def test_dashboard_is_bounded_and_exposes_all_current_findings(self):
         result=snapshot([raw("CodeQL"),raw("Semgrep")])
         with tempfile.TemporaryDirectory() as d:

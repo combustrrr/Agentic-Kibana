@@ -286,8 +286,7 @@ class Finding:
         The same vulnerability found by CodeQL, Semgrep, and Bandit at the
         same file+line gets the SAME fingerprint → deduplicated to ONE issue.
         """
-        concept = self.rule_concept or normalize_concept(self.rule_id)
-        key = f"{canonicalize_file(self.file)}:{self.start_line}:{concept}"
+        key = self.dedup_key()
         return hashlib.sha256(key.encode()).hexdigest()[:16]
 
     def __post_init__(self) -> None:
@@ -304,9 +303,21 @@ class Finding:
             self.last_seen = now
 
     def dedup_key(self) -> str:
-        """Deduplication key across tools: file + line + concept."""
+        """Conservative cross-tool key; never collapse on file+line alone."""
         concept = self.rule_concept or normalize_concept(self.rule_id)
-        return f"{canonicalize_file(self.file)}:{self.start_line}:{concept}"
+        snippet = re.sub(r"\s+", " ", self.code_snippet.strip())
+        if snippet:
+            column = (f":column:{self.start_col}:{self.end_col or self.start_col}"
+                      if self.start_col else "")
+            anchor = f"snippet:{snippet}{column}"
+        elif self.start_col:
+            anchor = f"column:{self.start_col}:{self.end_col or self.start_col}"
+        elif self.native_result_id or self.id:
+            anchor = f"native:{self.source_tool}:{self.native_result_id or self.id}"
+        else:
+            message = re.sub(r"\s+", " ", self.message.strip())
+            anchor = f"fallback:{self.source_tool}:{self.rule_id}:{message}"
+        return f"{canonicalize_file(self.file)}:{self.start_line}:{concept}:{anchor}"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -414,6 +425,8 @@ class SarifParser:
                 file_path = ""
                 start_line = 0
                 end_line = 0
+                start_col = 0
+                end_col = 0
                 snippet = ""
 
                 if locations:
@@ -423,6 +436,8 @@ class SarifParser:
                     region = phys.get("region", {})
                     start_line = region.get("startLine", 0)
                     end_line = region.get("endLine", start_line)
+                    start_col = region.get("startColumn", 0)
+                    end_col = region.get("endColumn", 0)
                     snippet = region.get("snippet", {}).get("text", "")
 
                 tags = rule.get("properties", {}).get("tags", [])
@@ -438,6 +453,8 @@ class SarifParser:
                     file=file_path,
                     start_line=start_line,
                     end_line=end_line,
+                    start_col=start_col,
+                    end_col=end_col,
                     code_snippet=snippet,
                     rule_id=rule_id,
                     rule_name=rule.get("name", rule_id),
@@ -766,7 +783,7 @@ class CoverageParser:
 
 class FindingDeduplicator:
     """
-    Groups findings by (file, line, concept).
+    Groups findings by a conservative source-region identity.
     When multiple tools flag the same location, the highest-severity
     finding becomes canonical; others are marked as duplicates.
     """

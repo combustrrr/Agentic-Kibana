@@ -32,14 +32,20 @@ def build(args: argparse.Namespace) -> Path:
     dashboard = staging / "dashboard"
     status = staging / "channel-status.json"
     provenance = staging / "snapshot-provenance.json"
+    contract = staging / "scanner-evidence-contract.json"
     snapshot = normalized / "current-snapshot.json"
     python = sys.executable
     run_ids = [item for run_id in args.workflow_run_id for item in ("--workflow-run-id", run_id)]
     try:
         run([python, str(HERE / "normalizer.py"), "--input-dir", str(artifacts),
              "--output-dir", str(normalized), "--verbose"])
+        run([python, str(HERE / "evidence_contract.py"), "--manifest", str(args.manifest),
+             "--artifacts", str(artifacts), "--repository", args.repository,
+             "--commit", args.commit, *run_ids, "--output", str(contract)])
         run([python, str(HERE / "channel_status.py"), "--manifest", str(args.manifest),
              "--artifacts", str(artifacts), "--findings", str(normalized / "unified-findings.json"),
+             "--evidence-contract", str(contract), "--repository", args.repository,
+             "--commit", args.commit,
              "--output", str(status)])
         run([python, str(HERE / "provenance.py"), "--artifacts", str(artifacts),
              "--commit", args.commit, *run_ids, "--output", str(provenance)])

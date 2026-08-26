@@ -98,6 +98,7 @@ jobs:
           mv pipeline-output/dashboard dashboard
           mv pipeline-output/channel-status.json channel-status.json
           mv pipeline-output/snapshot-provenance.json snapshot-provenance.json
+          mv pipeline-output/scanner-evidence-contract.json scanner-evidence-contract.json
           rmdir pipeline-output
 
       - name: Build portable snapshot artifact identity
@@ -128,6 +129,7 @@ jobs:
             dashboard/
             channel-status.json
             snapshot-provenance.json
+            scanner-evidence-contract.json
           if-no-files-found: warn
           retention-days: 30
 

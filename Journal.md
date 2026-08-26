@@ -11029,3 +11029,26 @@
 - Safety: fork-local monitoring infrastructure only; no application, upstream,
   production, Issue, PR-comment, patch, autofix, or remediation mutation occurred.
 - Status: implementation complete; remote workflow validation pending.
+
+## 2026-08-26 — Findings trust-gap remediation started
+- Scope: make canonical deduplication conservative enough that distinct same-line
+  sinks cannot disappear, and strengthen channel completion with exact-run evidence
+  contracts instead of artifact-name presence alone.
+- Status: in progress.
+
+## 2026-08-26 — Findings trust gaps remediated locally
+- Replaced file+line+concept-only grouping with a conservative source-region anchor.
+  Snippet and column evidence are retained; if neither region nor symbol evidence is
+  available, scanner-native identity keeps observations separate. Distinct identical
+  calls on the same line are covered by an adversarial non-collapse test.
+- Added an exact-commit scanner evidence contract containing repository, full commit,
+  workflow-run IDs, channel membership, artifact paths, and SHA-256 hashes. Required
+  channels now validate this contract and the current artifact bytes; filename presence
+  alone can no longer mark a channel complete.
+- SARIF start/end columns now survive normalization and canonical observation output.
+- Verification: analysis-service tests **29/29 passed**; modified production scripts
+  pass Ruff; diff check is clean. The 10,000-finding / 13,000-observation benchmark
+  completed in **12.12 seconds** at **80.17 MiB** peak Python allocation.
+- Safety: fork-only read-only analysis infrastructure; no application, upstream,
+  production, Issue, PR-comment, patch, autofix, or remediation mutation occurred.
+- Status: implementation complete; remote workflow validation pending.

@@ -39,12 +39,41 @@ def canonical_path(value: Any) -> str:
 
 def normalized_anchor(finding: dict[str, Any]) -> str:
     snippet = re.sub(r"\s+", " ", str(finding.get("code_snippet") or "").strip())
+    start_col = int(finding.get("start_col") or 0)
+    column = f"\0column:{start_col}" if start_col else ""
     if snippet:
         # Location disambiguates repeated identical statements; drift matching compares
         # the retained statement and can still classify a unique line shift as MOVED.
-        return canonical_text(f"line:{int(finding.get('start_line') or 0)}\0snippet:{snippet}")
+        return canonical_text(
+            f"line:{int(finding.get('start_line') or 0)}\0snippet:{snippet}{column}")
     # Legacy artifacts do not always retain snippets. Location is an explicit weak fallback.
-    return f"line:{int(finding.get('start_line') or 0)}"
+    return f"line:{int(finding.get('start_line') or 0)}{column}"
+
+
+def correlation_anchor(finding: dict[str, Any]) -> str:
+    """Return a conservative within-run anchor for cross-tool correlation.
+
+    Missing evidence must create extra canonical rows rather than hide distinct
+    issues. Native IDs are therefore the final fallback, not file+line alone.
+    """
+    snippet = re.sub(r"\s+", " ", str(finding.get("code_snippet") or "").strip())
+    start_col = int(finding.get("start_col") or 0)
+    end_col = int(finding.get("end_col") or 0)
+    if snippet:
+        column = f":column:{start_col}:{end_col or start_col}" if start_col else ""
+        return canonical_text(f"snippet:{snippet}{column}")
+    if start_col:
+        return f"column:{start_col}:{end_col or start_col}"
+    symbol = str(finding.get("enclosing_symbol") or "").strip()
+    if symbol:
+        return canonical_text(f"symbol:{symbol}")
+    family = scanner_family(str(finding.get("source_tool") or "Unknown"))
+    native = finding.get("native_result_id") or finding.get("id")
+    if native:
+        return canonical_text(f"native:{family}:{native}")
+    rule = str(finding.get("rule_id") or "unknown")
+    message = re.sub(r"\s+", " ", str(finding.get("message") or "").strip())
+    return canonical_text(f"fallback:{family}:{rule}:{message}")
 
 
 def stable_id(repository: str, finding: dict[str, Any]) -> str:
@@ -61,7 +90,10 @@ def stable_id(repository: str, finding: dict[str, Any]) -> str:
 
 
 def compatibility_fingerprint(finding: dict[str, Any]) -> str:
-    key = f"{canonical_path(finding.get('file'))}:{int(finding.get('start_line') or 0)}:{finding.get('rule_concept') or finding.get('rule_id')}"
+    key = "\0".join((canonical_path(finding.get("file")),
+                     str(int(finding.get("start_line") or 0)),
+                     canonical_text(finding.get("rule_concept") or finding.get("rule_id")),
+                     correlation_anchor(finding)))
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
 
 
@@ -128,6 +160,8 @@ def canonicalize(raw_findings: list[dict[str, Any]], repository: str, run: dict[
                 "file": canonical_path(member.get("file")),
                 "start_line": int(member.get("start_line") or 0),
                 "end_line": int(member.get("end_line") or member.get("start_line") or 0),
+                "start_col": int(member.get("start_col") or 0),
+                "end_col": int(member.get("end_col") or 0),
                 "tool_version": str(member.get("tool_version") or "<NONE>"),
                 "ruleset_version": str(member.get("ruleset_version") or "<NONE>"),
                 "raw_artifact": str(member.get("raw_artifact") or "<NONE>"),
@@ -148,6 +182,8 @@ def canonicalize(raw_findings: list[dict[str, Any]], repository: str, run: dict[
             "file": canonical_path(primary.get("file")),
             "start_line": int(primary.get("start_line") or 0),
             "end_line": int(primary.get("end_line") or primary.get("start_line") or 0),
+            "start_col": int(primary.get("start_col") or 0),
+            "end_col": int(primary.get("end_col") or 0),
             "component": canonical_path(primary.get("file")).split("/", 1)[0],
             "enclosing_symbol": str(primary.get("enclosing_symbol") or "<NONE>"),
             "region_anchor": normalized_anchor(primary),
