@@ -6,23 +6,24 @@ and cannot be activated by a workflow commit alone.
 
 ## CodeRabbit (AI advisory)
 
-Repository configuration is checked in at `.coderabbit.yaml`. It is deliberately
-opt-in: automatic review and request-changes behavior are disabled. A review starts
-only when a PR description contains `coderabbit:review` or an authorized developer
-uses CodeRabbit's manual review command.
+Repository configuration is checked in at `.coderabbit.yaml`. Cloud automatic and
+incremental reviews are enabled, so an eligible fork PR is reviewed when opened and
+again after every pushed commit. The default branch is included by CodeRabbit and
+`Testing` is an additional approved target. Reviews remain advisory:
+`request_changes_workflow` and chat auto-replies are disabled, and CodeRabbit evidence
+never counts as deterministic scanner corroboration.
 
 Owner action:
 
 1. Complete the code-sharing/privacy review.
 2. Install the CodeRabbit GitHub App on this fork only.
 3. Confirm the app has no access to the upstream company repository.
-4. Open a test PR against the fork and opt in with `coderabbit:review`.
+4. Open or update a test PR against the fork default branch or `Testing`.
 5. Confirm the output remains advisory and is not counted as deterministic evidence.
 
-The CLI's supported Windows path uses WSL. On the current evaluation workstation the
-WSL component has been enabled, but Windows restart code `3010` must be cleared before
-the Ubuntu distribution and CLI can be installed. This local prerequisite does not
-change the fork-only GitHub App boundary above.
+The CodeRabbit CLI/WSL path is not part of the operating design. CodeRabbit runs as a
+cloud GitHub App on pull requests; deterministic full-codebase scanners continue to
+run in GitHub Actions and feed the hosted findings dashboard.
 
 ## Snyk
 

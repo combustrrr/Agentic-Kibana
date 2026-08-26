@@ -24,21 +24,19 @@ document was written, so the automatic dashboard run had not started.
 - required completion remains 16/16 and optional lanes do not affect publishability;
 - the Check links to the new real-data artifact.
 
-### P0.2 Complete CodeRabbit CLI evaluation
+### P0.2 Activate and verify CodeRabbit cloud PR review
 
-**Current state:** privacy/code-sharing approval received; safe opt-in config exists;
-Windows WSL component enabled with restart-required code 3010; firmware virtualization
-is disabled, so WSL1 is planned. Ubuntu, CLI installation/authentication, and review
-output validation remain incomplete. The GitHub App is not installed.
+**Current state:** privacy/code-sharing approval received. Automatic cloud review and
+incremental review after every PR push are configured, without request-changes
+authority. The GitHub App installation and a real fork PR review remain unverified.
 
 **Exit criteria:**
 
-- restart Windows and finish Ubuntu/WSL1 initialization;
-- install CodeRabbit through its official WSL installer and authenticate;
-- run one read-only review of fork changes with structured `--agent` output;
-- preserve output as `AI_ADVISORY` without deterministic corroboration;
+- install/authorize the CodeRabbit GitHub App on this fork only;
+- open or update an eligible fork PR and verify automatic incremental review after a push;
+- preserve any dashboard adapter output as `AI_ADVISORY` without deterministic corroboration;
 - determine whether it adds non-redundant findings;
-- only then decide whether to install the GitHub App on this fork.
+- confirm the app has no upstream-company repository access and cannot apply patches.
 
 ### P0.3 Deploy the dashboard to the company QA VM
 
@@ -128,4 +126,3 @@ output validation remain incomplete. The GitHub App is not installed.
 - Do not claim the application is secure.
 - Do not publish unsupported vulnerability-detection percentages.
 - Do not treat an optional/deferred tool as completed coverage because its config exists.
-

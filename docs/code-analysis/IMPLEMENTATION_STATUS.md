@@ -241,19 +241,18 @@ product is unavailable. Snyk remains optional until unique detection value is me
 
 ### CodeRabbit
 
-`.coderabbit.yaml` is opt-in and advisory: automatic reviews, request-changes behavior,
-chat auto-replies, and bot reviews are disabled. Code-sharing approval was received.
-On the Windows evaluation host, the WSL component was enabled and returned restart code
-3010. Firmware virtualization is disabled, so WSL1 is the intended path after restart.
-Ubuntu, CodeRabbit CLI authentication/review, and a fork-only GitHub App installation
-remain incomplete and must not be claimed as implemented.
+`.coderabbit.yaml` enables cloud automatic review and incremental review after every
+push to an eligible PR, with automatic pausing disabled. Request-changes behavior,
+chat auto-replies, and bot reviews remain disabled. Code-sharing approval was received.
+The local CLI/WSL path is not part of the deployment design. A fork-only GitHub App
+installation and real PR review remain incomplete and must not be claimed as verified.
 
 ## 12. Deferred roadmap
 
 Separate approval is required for:
 
 1. QA-VM deployment and company VPN/OIDC configuration.
-2. CodeRabbit CLI/App activation and evidence-adapter evaluation.
+2. CodeRabbit GitHub App activation and AI-advisory evidence-adapter evaluation.
 3. Non-redundant SonarQube or CodeScene export ingestion.
 4. Human triage operations, persistence, or DefectDojo evaluation.
 5. Precision/false-positive measurement.

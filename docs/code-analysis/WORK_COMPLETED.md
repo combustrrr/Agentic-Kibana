@@ -39,7 +39,8 @@ Additional work:
 - Structured parsers for TypeScript, Xenon, Vulture, Radon, Coverage.py, and scanner
   formats that did not natively arrive as usable SARIF.
 - Manual Schemathesis JUnit ingestion as separate `DYNAMIC` evidence.
-- Safe, opt-in `.coderabbit.yaml`; execution remains pending and is not claimed complete.
+- Advisory `.coderabbit.yaml` with cloud automatic and per-push incremental PR review;
+  fork-only GitHub App execution remains pending and is not claimed complete.
 
 ## 3. Canary validation
 
@@ -154,4 +155,3 @@ Copilot Autofix is not invoked by this platform.
 | `9cd2d67` | Truthful partial Snyk status handling |
 | `1c419be` | Consolidated implementation documentation |
 | `6f0adfc` | Additional scanner-lane visualization |
-

@@ -83,8 +83,8 @@ pipeline command, systemd boundary, and VM deployment contract.
   `32965286130` verified both Open Source and Code scans plus retained evidence. It
   remains optional and reports `NOT_CONFIGURED` or `CONFIGURED_PARTIAL` truthfully when
   credentials or analysis surfaces are unavailable.
-- CodeRabbit's safe opt-in configuration is checked in, but CLI/App execution remains
-  pending the approved Windows restart/WSL completion. SonarQube, CodeScene, and
+- CodeRabbit cloud automatic and per-push incremental PR review is configured as an
+  advisory lane, but fork-only GitHub App execution remains unverified. SonarQube, CodeScene, and
   additional tools enter only after an exportable, non-redundant contribution is verified.
 - [`proposal-tool-catalog.json`](../../config/code-analysis/proposal-tool-catalog.json)
   accounts explicitly for every selected proposal tool and its activation boundary.

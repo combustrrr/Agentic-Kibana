@@ -11196,3 +11196,11 @@
   grouping; a no-region/native-ID adversarial regression test requires two unique
   canonical identities.
 - Status: local verification and remote rerun pending.
+## 2026-08-26 — CodeRabbit post-restart activation resumed
+- Scope: verify WSL after the approved restart, install and authenticate the CodeRabbit CLI, run read-only analysis against the fork, and validate its separate `AI_ADVISORY` dashboard channel.
+- Safety: no patches, commits from the reviewer, Issues, PR comments, upstream changes, production changes, or application mutation are authorized.
+- Initial status: the restricted Windows shell receives `Wsl/EnumerateDistros/Service/E_ACCESSDENIED`; elevated verification is required to distinguish service access from distribution setup.
+- Correction: the repository owner clarified that CodeRabbit must run as a cloud PR integration after commits, not as a local scanner. The Ubuntu distribution installation was stopped; local CLI activation is no longer part of the operating design.
+- Completed: `.coderabbit.yaml` now enables cloud automatic review and incremental review after every eligible PR push, disables automatic pausing, and retains advisory-only request-change/chat behavior. The dashboard catalog and code-analysis documentation now describe GitHub App activation rather than local WSL/CLI execution.
+- Verification: CodeRabbit YAML assertions and proposal catalog parsing passed; analysis-service tests passed 31/31; documentation consistency passed 79 pages; diff checking passed.
+- External boundary: the CodeRabbit GitHub App still requires repository-owner installation on the fork and is not claimed as verified. No upstream, production, application, patch, Issue, or branch-protection mutation occurred.
