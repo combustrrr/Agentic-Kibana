@@ -1,12 +1,15 @@
-import json, tempfile, unittest
+import json, os, tempfile, unittest, zipfile
+from argparse import Namespace
 from datetime import datetime, timezone
 from pathlib import Path
 from scripts.code_analysis.channel_status import build as build_channel_status
 from scripts.code_analysis.dashboard import generate, github_summary, validate_snapshot, write_dashboard
 from scripts.code_analysis.monitoring import EvidenceError, build_snapshot, canonicalize, check_key, compare, defectdojo_fixture, effective_triage, stable_id
 from scripts.code_analysis.normalizer import TscParser, XenonParser
+from scripts.code_analysis.pipeline import build as build_pipeline
 from scripts.code_analysis.provenance import build as build_provenance
 from scripts.code_analysis.publish_snapshot import publish
+from scripts.code_analysis.pull_worker import read_token, safe_extract
 
 MANIFEST={"schema_version":"1","required_static_channels":[
     {"channel":"codeql","scanner_family":"CodeQL","surface":"semantic","artifact_patterns":["*codeql*.sarif"]},
@@ -106,5 +109,36 @@ class MonitoringTests(unittest.TestCase):
         channels={row["channel"] for row in required["required_static_channels"]}
         for row in tools.values():
             if row["state"] == "ACTIVE_REQUIRED": self.assertIn(row["channel"],channels)
+
+    def test_shared_pipeline_builds_and_atomically_publishes(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);artifacts=root/"artifacts";artifacts.mkdir()
+            (artifacts/"codeql.sarif").write_text(json.dumps({"version":"2.1.0","runs":[]}),encoding="utf-8")
+            (artifacts/"semgrep.json").write_text('{"results":[]}',encoding="utf-8")
+            manifest=root/"manifest.json";manifest.write_text(json.dumps(MANIFEST),encoding="utf-8")
+            output=root/"run";publication=root/"published"
+            build_pipeline(Namespace(artifacts=artifacts,output=output,repository="repo/fork",commit="abc",
+                                     branch="feature",workflow_run_id=["1"],manifest=manifest,
+                                     publication_root=publication))
+            self.assertTrue((output/"normalized"/"current-snapshot.json").is_file())
+            self.assertTrue((publication/"current"/"index.html").is_file())
+
+    def test_pull_worker_rejects_zip_path_traversal(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);archive=root/"bad.zip";destination=root/"out";destination.mkdir()
+            with zipfile.ZipFile(archive,"w") as bundle: bundle.writestr("../escape.txt","bad")
+            with self.assertRaises(ValueError): safe_extract(archive,destination)
+
+    def test_pull_worker_reads_protected_token_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            token_file=Path(d)/"github-token";token_file.write_text("read-only-token\n",encoding="utf-8")
+            previous_token=os.environ.pop("GH_TOKEN",None);previous_file=os.environ.get("GH_TOKEN_FILE")
+            try:
+                os.environ["GH_TOKEN_FILE"]=str(token_file)
+                self.assertEqual(read_token(),"read-only-token")
+            finally:
+                if previous_token is not None: os.environ["GH_TOKEN"]=previous_token
+                if previous_file is None: os.environ.pop("GH_TOKEN_FILE",None)
+                else: os.environ["GH_TOKEN_FILE"]=previous_file
 
 if __name__=="__main__": unittest.main()

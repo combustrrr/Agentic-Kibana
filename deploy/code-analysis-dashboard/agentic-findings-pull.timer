@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh the validated Agentic SOC findings dashboard
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+Persistent=true
+Unit=agentic-findings-pull.service
+
+[Install]
+WantedBy=timers.target
+

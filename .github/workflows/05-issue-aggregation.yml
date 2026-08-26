@@ -76,32 +76,7 @@ jobs:
             printf '%s\n' "$run_id" >> scanner-run-ids.txt
           done
 
-      - name: Build exact-commit artifact provenance
-        env:
-          SCAN_SHA: ${{ inputs.scan_sha || github.event.workflow_run.head_sha || github.sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          args=()
-          while IFS= read -r run_id; do args+=(--workflow-run-id "$run_id"); done < scanner-run-ids.txt
-          python scripts/code_analysis/provenance.py \
-            --artifacts scan-artifacts \
-            --commit "$SCAN_SHA" \
-            "${args[@]}" \
-            --output snapshot-provenance.json
-
-      - name: Normalize and deduplicate by repository file, line, and concept
-        run: python scripts/code_analysis/normalizer.py --input-dir scan-artifacts --output-dir normalized --verbose
-
-      - name: Validate the required scanner web
-        run: >-
-          python scripts/code_analysis/channel_status.py
-          --manifest config/code-analysis/required-channels.json
-          --artifacts scan-artifacts
-          --findings normalized/unified-findings.json
-          --output channel-status.json
-
-      - name: Build and reconcile the current full-codebase snapshot
+      - name: Run the shared current-findings pipeline
         env:
           MONITORED_SHA: ${{ inputs.scan_sha || github.event.workflow_run.head_sha || github.sha }}
           MONITORED_BRANCH: ${{ inputs.scan_branch || github.event.workflow_run.head_branch || github.ref_name }}
@@ -110,22 +85,19 @@ jobs:
           set -euo pipefail
           run_args=()
           while IFS= read -r run_id; do run_args+=(--workflow-run-id "$run_id"); done < scanner-run-ids.txt
-          python scripts/code_analysis/snapshot.py \
-            --raw-findings normalized/unified-findings.json \
+          python scripts/code_analysis/pipeline.py \
+            --artifacts scan-artifacts \
+            --output pipeline-output \
             --repository "$GITHUB_REPOSITORY" \
             --commit "$MONITORED_SHA" \
             --branch "$MONITORED_BRANCH" \
             "${run_args[@]}" \
-            --channel-manifest config/code-analysis/required-channels.json \
-            --channel-status channel-status.json \
-            --provenance snapshot-provenance.json \
-            --output normalized/current-snapshot.json
-
-      - name: Build searchable current-findings dashboard
-        run: >-
-          python scripts/code_analysis/dashboard.py
-          --snapshot normalized/current-snapshot.json
-          --output-dir dashboard
+            --manifest config/code-analysis/required-channels.json
+          mv pipeline-output/normalized normalized
+          mv pipeline-output/dashboard dashboard
+          mv pipeline-output/channel-status.json channel-status.json
+          mv pipeline-output/snapshot-provenance.json snapshot-provenance.json
+          rmdir pipeline-output
 
       - name: Upload complete current snapshot
         id: analysis-artifact

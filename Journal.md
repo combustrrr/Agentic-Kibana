@@ -10914,3 +10914,28 @@
   `evidence_fields`.**
 - Status: done
 - Next: commit and raise the PR against `Testing`.
+
+## 2026-08-26 — Hybrid scanner pipeline and safe QA-VM publication completed
+- Scope: unify GitHub Actions and controlled local/VM scanner outputs behind one
+  current-findings build path, safely synchronize the analysis branch with the
+  original repository's `Testing` branch, and document the production-like VM profile.
+- Changes:
+  - merged `upstream/Testing` at `0972ac0` into `feature/static-code-analysis`; the
+    only merge conflict was the append-only Journal and both histories were retained;
+  - added `scripts/code_analysis/pipeline.py`, the shared fail-closed staging,
+    normalization, reconciliation, dashboard, and optional atomic-publication command;
+  - made the GitHub aggregation workflow invoke that same pipeline;
+  - added an outbound-only Actions artifact pull worker with safe ZIP extraction,
+    atomic publication, retry-safe artifact state, and protected token-file support;
+  - added a hardened systemd timer/service and documented the loopback container,
+    VPN/OIDC boundary, local scanning contract, and 8-vCPU/16-GiB/200-GiB starting profile.
+- Security decision: a persistent self-hosted Actions runner is not installed for this
+  public fork. GitHub-hosted jobs collect evidence; the QA VM only pulls validated
+  artifacts over outbound HTTPS and never executes repository workflow code.
+- Verification: code-analysis unit suite **21/21 passed**; pipeline scripts compile;
+  every workflow YAML parses. Docker Compose runtime validation remains pending because
+  Docker is not installed on this Windows host; the existing Compose profile was not
+  modified by this limitation.
+- Safety: no upstream, production, deployment, Issue, PR-comment, application, patch,
+  autofix, or branch-protection mutation occurred.
+- Status: complete; ready to push to the fork and validate through GitHub Actions.

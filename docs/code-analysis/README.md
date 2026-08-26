@@ -34,6 +34,8 @@ exact commit and valid hashes, normalization completes, and counts reconcile. Fa
 refreshes cannot replace the last publishable hosted snapshot.
 
 See [`MONITORING_UI.md`](MONITORING_UI.md) for local and future QA-VM hosting.
+See [`QA_VM.md`](QA_VM.md) for the outbound-only pull worker, shared local/Actions
+pipeline command, systemd boundary, and VM deployment contract.
 
 ## Discovery lanes
 
