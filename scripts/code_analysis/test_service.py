@@ -338,6 +338,8 @@ class MonitoringTests(unittest.TestCase):
         workflow=Path(".github/workflows/08-full-code-analysis.yml").read_text(encoding="utf-8")
         self.assertIn("workflow_dispatch:",workflow)
         self.assertIn("actions: write",workflow)
+        self.assertIn("GH_REPO: ${{ github.repository }}",workflow)
+        self.assertNotIn("uses: actions/checkout@",workflow)
         self.assertIn('gh api "repos/${GITHUB_REPOSITORY}/branches/${encoded}"',workflow)
         for name in ("01-code-quality.yml","02-security-sast.yml",
                      "03-dependency-security.yml","04-code-health.yml"):

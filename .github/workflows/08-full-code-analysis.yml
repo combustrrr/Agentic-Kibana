@@ -24,6 +24,10 @@ jobs:
     name: Scan branch head and build dashboard
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    # This orchestration job intentionally does not check out source. Give gh an
+    # explicit repository so workflow/run commands never depend on local .git state.
+    env:
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Resolve and validate the selected fork branch
         id: target
