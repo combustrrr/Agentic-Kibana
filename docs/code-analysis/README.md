@@ -84,7 +84,9 @@ pipeline command, systemd boundary, and VM deployment contract.
   remains optional and reports `NOT_CONFIGURED` or `CONFIGURED_PARTIAL` truthfully when
   credentials or analysis surfaces are unavailable.
 - CodeRabbit cloud automatic and per-push incremental PR review is configured as an
-  advisory lane, but fork-only GitHub App execution remains unverified. SonarQube, CodeScene, and
+  advisory lane. Exact-head inline bot comments are collected through GitHub's read-only
+  PR APIs and trigger a dashboard refresh into the separate `AI_ADVISORY` view. Fork-only
+  GitHub App execution remains unverified. SonarQube, CodeScene, and
   additional tools enter only after an exportable, non-redundant contribution is verified.
 - [`proposal-tool-catalog.json`](../../config/code-analysis/proposal-tool-catalog.json)
   accounts explicitly for every selected proposal tool and its activation boundary.

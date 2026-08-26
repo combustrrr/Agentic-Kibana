@@ -13,13 +13,24 @@ again after every pushed commit. The default branch is included by CodeRabbit an
 `request_changes_workflow` and chat auto-replies are disabled, and CodeRabbit evidence
 never counts as deterministic scanner corroboration.
 
+The dashboard integration uses GitHub as the evidence boundary. After an exact-head
+CodeRabbit review is submitted, `09-coderabbit-advisory-refresh.yml` requests a
+dashboard-only rebuild. The aggregator reads original inline comments authored by
+`coderabbitai[bot]` for that exact PR-head SHA, normalizes them as `AI_ADVISORY`, and
+retains the native GitHub comment ID/URL. Replies, stale-commit comments, external-fork
+heads, summaries without file locations, and other authors are excluded. If no open PR
+exists, CodeRabbit is `NOT_APPLICABLE`; if a PR exists but no exact-head review has been
+submitted, it is `PENDING_REVIEW`. Neither state blocks deterministic publication.
+
 Owner action:
 
 1. Complete the code-sharing/privacy review.
 2. Install the CodeRabbit GitHub App on this fork only.
 3. Confirm the app has no access to the upstream company repository.
 4. Open or update a test PR against the fork default branch or `Testing`.
-5. Confirm the output remains advisory and is not counted as deterministic evidence.
+5. Confirm the automatic review appears after each pushed PR commit.
+6. Confirm the subsequent dashboard rebuild shows its inline findings only under
+   **AI advisory**, with native evidence links and no deterministic corroboration.
 
 The CodeRabbit CLI/WSL path is not part of the operating design. CodeRabbit runs as a
 cloud GitHub App on pull requests; deterministic full-codebase scanners continue to

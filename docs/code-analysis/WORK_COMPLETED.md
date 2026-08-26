@@ -40,7 +40,8 @@ Additional work:
   formats that did not natively arrive as usable SARIF.
 - Manual Schemathesis JUnit ingestion as separate `DYNAMIC` evidence.
 - Advisory `.coderabbit.yaml` with cloud automatic and per-push incremental PR review;
-  fork-only GitHub App execution remains pending and is not claimed complete.
+  exact-head inline-comment collection and AI-advisory dashboard refresh are implemented.
+  Fork-only GitHub App execution remains pending and is not claimed complete.
 
 ## 3. Canary validation
 

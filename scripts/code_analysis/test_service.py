@@ -5,10 +5,11 @@ from pathlib import Path
 from unittest.mock import patch
 from click.testing import CliRunner
 from scripts.code_analysis.channel_status import build as build_channel_status
+from scripts.code_analysis.collect_coderabbit import collect as collect_coderabbit
 from scripts.code_analysis.dashboard import generate, github_summary, validate_snapshot, write_dashboard
 from scripts.code_analysis.evidence_contract import build as build_evidence_contract
 from scripts.code_analysis.monitoring import EvidenceError, build_snapshot, canonicalize, check_key, compare, defectdojo_fixture, effective_triage, stable_id
-from scripts.code_analysis.normalizer import CoverageParser, RadonParser, SchemathesisParser, TscParser, XenonParser, main as normalize_cli
+from scripts.code_analysis.normalizer import CodeRabbitParser, CoverageParser, RadonParser, SchemathesisParser, TscParser, XenonParser, main as normalize_cli
 from scripts.code_analysis.pipeline import build as build_pipeline
 from scripts.code_analysis.provenance import build as build_provenance
 from scripts.code_analysis.publish_snapshot import publish
@@ -314,5 +315,42 @@ class MonitoringTests(unittest.TestCase):
             self.assertIn(name,workflow)
         self.assertNotIn("issues: write",workflow)
         self.assertNotIn("contents: write",workflow)
+
+    def test_coderabbit_exact_head_comments_are_separate_ai_advisories(self):
+        commit="a"*40;repository="combustrrr/Agentic-Kibana";branch="feature/review"
+        responses=[
+            [{"number":7,"state":"open","head":{"sha":commit,"ref":branch,
+              "repo":{"full_name":repository}}}],
+            [{"id":11,"commit_id":commit,"user":{"login":"coderabbitai[bot]"}}],
+            [{"id":21,"commit_id":commit,"in_reply_to_id":None,
+              "user":{"login":"coderabbitai[bot]"},"path":"backend/app/api/routes.py",
+              "line":42,"body":"Potential major authorization issue",
+              "html_url":"https://github.com/combustrrr/Agentic-Kibana/pull/7#discussion_r21"},
+             {"id":22,"commit_id":"b"*40,"in_reply_to_id":None,
+              "user":{"login":"coderabbitai[bot]"},"path":"old.py","line":1,
+              "body":"stale","html_url":"https://github.com/example"}],
+        ]
+        with patch("scripts.code_analysis.collect_coderabbit.request_json",side_effect=responses):
+            evidence,status=collect_coderabbit(repository,branch,commit,"token")
+        self.assertEqual(status["status"],"COMPLETED_OPTIONAL")
+        self.assertEqual(len(evidence["advisories"]),1)
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/"coderabbit-advisories.json"
+            path.write_text(json.dumps(evidence),encoding="utf-8")
+            parsed=CodeRabbitParser().parse(path)
+        self.assertEqual(parsed[0].evidence_source,"AI_ADVISORY")
+        self.assertEqual(parsed[0].severity,"HIGH")
+        current=canonicalize([parsed[0].__dict__, raw()],repository,RUN,MANIFEST)
+        lanes={row["evidence_source"] for row in current["findings"]}
+        self.assertEqual(lanes,{"AI_ADVISORY","DETERMINISTIC"})
+        aggregate=Path(".github/workflows/05-issue-aggregation.yml").read_text(encoding="utf-8")
+        self.assertIn("pull-requests: read",aggregate)
+        self.assertIn("collect_coderabbit.py",aggregate)
+        refresh=Path(".github/workflows/09-coderabbit-advisory-refresh.yml").read_text(encoding="utf-8")
+        self.assertIn("pull_request_review:",refresh)
+        self.assertIn("github.event.review.commit_id == github.event.pull_request.head.sha",refresh)
+        self.assertIn("09-coderabbit-advisory-refresh",str(Path(".github/workflows/09-coderabbit-advisory-refresh.yml")))
+        self.assertNotIn("issues: write",refresh)
+        self.assertNotIn("contents: write",refresh)
 
 if __name__=="__main__": unittest.main()

@@ -86,6 +86,8 @@ def stable_id(repository: str, finding: dict[str, Any]) -> str:
         normalized_anchor(finding),
         correlation_anchor(finding),
     )
+    if finding.get("evidence_source") == "AI_ADVISORY":
+        fields = (*fields, "AI_ADVISORY")
     digest = hashlib.sha256("\0".join(canonical_text(item) for item in fields).encode("utf-8")).hexdigest()
     return f"{IDENTITY_VERSION}:{digest}"
 
@@ -138,14 +140,16 @@ def canonicalize(raw_findings: list[dict[str, Any]], repository: str, run: dict[
     for row in channel_manifest["required_static_channels"]:
         channel_by_family.setdefault(str(row["scanner_family"]), str(row["channel"]))
 
-    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for raw in raw_findings:
-        groups[compatibility_fingerprint(raw)].append(raw)
+        lane = "AI_ADVISORY" if raw.get("evidence_source") == "AI_ADVISORY" else "DETERMINISTIC"
+        groups[(lane, compatibility_fingerprint(raw))].append(raw)
 
     findings: list[dict[str, Any]] = []
     observations: list[dict[str, Any]] = []
-    for fingerprint in sorted(groups):
-        members = sorted(groups[fingerprint], key=lambda row: (
+    for group_key in sorted(groups):
+        lane, fingerprint = group_key
+        members = sorted(groups[group_key], key=lambda row: (
             -SEVERITY_RANK.get(str(row.get("severity")), 0), str(row.get("source_tool")), str(row.get("rule_id"))))
         primary = members[0]
         sid = stable_id(repository, primary)
@@ -168,6 +172,8 @@ def canonicalize(raw_findings: list[dict[str, Any]], repository: str, run: dict[
                 "raw_artifact": str(member.get("raw_artifact") or "<NONE>"),
                 "message": str(member.get("message") or member.get("description") or ""),
                 "severity": str(member.get("severity") or "MEDIUM"),
+                "native_url": str(member.get("native_url") or ""),
+                "evidence_source": str(member.get("evidence_source") or "DETERMINISTIC"),
             }
             observation["observation_id"] = observation_id(sid, run, observation)
             member_observations.append(observation)
@@ -195,7 +201,7 @@ def canonicalize(raw_findings: list[dict[str, Any]], repository: str, run: dict[
             "scanner_family_count": len(families),
             "observation_ids": [row["observation_id"] for row in member_observations],
             "first_seen": str(primary.get("first_seen") or run.get("generated_at") or "<NONE>"),
-            "evidence_source": "DETERMINISTIC",
+            "evidence_source": lane,
         })
     return {
         "schema_version": SCHEMA_VERSION,

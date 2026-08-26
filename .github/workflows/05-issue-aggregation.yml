@@ -23,6 +23,7 @@ permissions:
   actions: read
   checks: write
   contents: read
+  pull-requests: read
 
 jobs:
   aggregate:
@@ -75,6 +76,25 @@ jobs:
             gh run download "$run_id" --dir "scan-artifacts/$workflow"
             printf '%s\n' "$run_id" >> scanner-run-ids.txt
           done
+
+      - name: Collect optional exact-head CodeRabbit advisories
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MONITORED_SHA: ${{ inputs.scan_sha || github.event.workflow_run.head_sha || github.sha }}
+          MONITORED_BRANCH: ${{ inputs.scan_branch || github.event.workflow_run.head_branch || github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p scan-artifacts/coderabbit
+          if ! python scripts/code_analysis/collect_coderabbit.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --branch "$MONITORED_BRANCH" \
+            --commit "$MONITORED_SHA" \
+            --output-dir scan-artifacts/coderabbit
+          then
+            printf '%s\n' '{"schema_version":"1","scanner_family":"CodeRabbit","status":"UNAVAILABLE","reason":"GitHub review evidence could not be collected","finding_count":0,"observation_count":0}' \
+              > scan-artifacts/coderabbit/coderabbit-status.json
+          fi
 
       - name: Run the shared current-findings pipeline
         env:

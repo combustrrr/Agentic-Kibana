@@ -1,0 +1,50 @@
+name: CodeRabbit Advisory Refresh
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+# CodeRabbit submits review evidence after CI. This read-only dispatcher rebuilds the
+# existing exact-head dashboard so those comments appear in the AI_ADVISORY lane.
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+jobs:
+  refresh:
+    name: Refresh exact-head AI advisory evidence
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.review.commit_id == github.event.pull_request.head.sha &&
+      (github.actor == 'coderabbitai[bot]' || github.actor == 'coderabbitai')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: coderabbit-dashboard-${{ github.event.pull_request.head.sha }}
+      cancel-in-progress: false
+    steps:
+      - name: Dispatch exact-head dashboard rebuild
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCAN_BRANCH: ${{ github.event.pull_request.head.ref }}
+          SCAN_SHA: ${{ github.event.pull_request.head.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run 05-issue-aggregation.yml \
+            --ref "$DEFAULT_BRANCH" \
+            -f scan_branch="$SCAN_BRANCH" \
+            -f scan_sha="$SCAN_SHA"
+
+      - name: Publish refresh summary
+        run: |
+          {
+            echo "## CodeRabbit advisory refresh dispatched"
+            echo
+            echo "- PR: #${{ github.event.pull_request.number }}"
+            echo "- Branch: \`${{ github.event.pull_request.head.ref }}\`"
+            echo "- Exact head: \`${{ github.event.pull_request.head.sha }}\`"
+            echo "- Evidence lane: \`AI_ADVISORY\`"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -39,5 +39,8 @@ reviews:
     - path: "webui/src/**"
       instructions: |
         Review React correctness, unsafe rendering, authorization assumptions, and accessibility.
+  tools:
+    github-checks:
+      enabled: true
 chat:
   auto_reply: false

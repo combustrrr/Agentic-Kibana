@@ -28,13 +28,15 @@ document was written, so the automatic dashboard run had not started.
 
 **Current state:** privacy/code-sharing approval received. Automatic cloud review and
 incremental review after every PR push are configured, without request-changes
-authority. The GitHub App installation and a real fork PR review remain unverified.
+authority. Exact-head inline review-comment ingestion and dashboard refresh are
+implemented. The GitHub App installation and a real fork PR review remain unverified.
 
 **Exit criteria:**
 
 - install/authorize the CodeRabbit GitHub App on this fork only;
 - open or update an eligible fork PR and verify automatic incremental review after a push;
-- preserve any dashboard adapter output as `AI_ADVISORY` without deterministic corroboration;
+- verify dashboard adapter output is `AI_ADVISORY`, retains native evidence, rejects
+  stale comments, and never contributes deterministic corroboration;
 - determine whether it adds non-redundant findings;
 - confirm the app has no upstream-company repository access and cannot apply patches.
 

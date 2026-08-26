@@ -248,8 +248,12 @@ product is unavailable. Snyk remains optional until unique detection value is me
 `.coderabbit.yaml` enables cloud automatic review and incremental review after every
 push to an eligible PR, with automatic pausing disabled. Request-changes behavior,
 chat auto-replies, and bot reviews remain disabled. Code-sharing approval was received.
-The local CLI/WSL path is not part of the deployment design. A fork-only GitHub App
-installation and real PR review remain incomplete and must not be claimed as verified.
+GitHub Checks context is explicitly enabled. Exact-head inline CodeRabbit comments now
+normalize through a read-only GitHub evidence collector and a CodeRabbit review event
+requests a dashboard-only refresh; AI results remain separate and never corroborate
+deterministic findings. The local CLI/WSL path is not part of the deployment design. A
+fork-only GitHub App installation and real PR review remain incomplete and must not be
+claimed as verified.
 
 ## 12. Deferred roadmap
 

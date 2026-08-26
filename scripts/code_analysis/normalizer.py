@@ -258,6 +258,8 @@ class Finding:
     tool_version: str = ""
     ruleset_version: str = ""
     raw_artifact: str = ""
+    native_url: str = ""
+    evidence_source: str = "DETERMINISTIC"
 
     # Analysis metadata
     reachability: str = ""
@@ -318,7 +320,8 @@ class Finding:
         else:
             message = re.sub(r"\s+", " ", self.message.strip())
             anchor = f"fallback:{self.source_tool}:{self.rule_id}:{message}"
-        return f"{canonicalize_file(self.file)}:{self.start_line}:{concept}:{anchor}"
+        lane = ":AI_ADVISORY" if self.evidence_source == "AI_ADVISORY" else ""
+        return f"{canonicalize_file(self.file)}:{self.start_line}:{concept}:{anchor}{lane}"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -808,6 +811,33 @@ class SchemathesisParser:
         return findings
 
 
+class CodeRabbitParser:
+    """Parse the bounded GitHub review-comment export produced by our collector."""
+
+    def parse(self, path: Path) -> list[Finding]:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("schema_version") != "1" or not isinstance(data.get("advisories"), list):
+            raise ValueError("unsupported CodeRabbit advisory schema")
+        findings = []
+        for row in data["advisories"]:
+            findings.append(Finding(
+                id=str(row.get("id") or ""), source_tool="CodeRabbit",
+                category="AI_REVIEW", severity=str(row.get("severity") or "INFO"),
+                confidence="LOW", file=str(row.get("file") or ""),
+                start_line=int(row.get("start_line") or 0),
+                end_line=int(row.get("end_line") or row.get("start_line") or 0),
+                rule_id=str(row.get("rule_id") or "coderabbit-pr-advisory"),
+                rule_concept=str(row.get("rule_concept") or "ai-pr-review-advisory"),
+                message=str(row.get("message") or ""), commit=str(row.get("commit") or ""),
+                branch=str(row.get("branch") or ""), pr_number=str(row.get("pr_number") or ""),
+                native_result_id=str(row.get("native_result_id") or row.get("id") or ""),
+                native_url=str(row.get("native_url") or ""),
+                analysis_category=str(row.get("analysis_category") or "github-pr-review"),
+                evidence_source="AI_ADVISORY", tags=["AI_ADVISORY", "coderabbit"],
+            ))
+        return findings
+
+
 class FindingDeduplicator:
     """
     Groups findings by a conservative source-region identity.
@@ -972,6 +1002,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
     radon_parser = RadonParser()
     coverage_parser = CoverageParser()
     schemathesis_parser = SchemathesisParser()
+    coderabbit_parser = CodeRabbitParser()
     deduplicator = FindingDeduplicator()
     exporter = SarifExporter()
 
@@ -1055,6 +1086,16 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
                 print(f"[ESLint] {eslint_file.name}: {len(findings)} findings")
         except Exception as e:
             report_parse_error(eslint_file, e)
+
+    for coderabbit_file in (p for p in json_files if p.name.lower() == "coderabbit-advisories.json"):
+        try:
+            findings = coderabbit_parser.parse(coderabbit_file)
+            retain(findings, coderabbit_file)
+            parsed_files.add(coderabbit_file)
+            if verbose:
+                print(f"[CodeRabbit] {coderabbit_file.name}: {len(findings)} advisories")
+        except Exception as e:
+            report_parse_error(coderabbit_file, e)
 
     # ── Parse Vulture JSON ───────────────────────────────────
     for vulture_file in (p for p in json_files if "vulture" in p.name.lower()):

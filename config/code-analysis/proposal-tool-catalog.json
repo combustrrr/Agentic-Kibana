@@ -21,7 +21,7 @@
     {"tool": "Coverage.py", "state": "ACTIVE_REQUIRED", "channel": "coverage", "surface": "runtime-evidence"},
     {"tool": "Schemathesis", "state": "ACTIVE_DYNAMIC", "channel": "schemathesis", "surface": "api-fuzzing", "note": "Manual isolated workflow; dynamic evidence is not part of the static publishability gate."},
     {"tool": "Snyk", "state": "OPTIONAL_VERIFIED", "channel": "snyk", "surface": "sca-and-code", "activation": "Fork Actions run 32965286130 verified Open Source SCA, Snyk Code, per-surface status, and retained SARIF. Keep optional until unique detection value is measured."},
-    {"tool": "CodeRabbit", "state": "OPTIONAL_NOT_CONFIGURED", "surface": "ai-advisory", "activation": "Cloud automatic and per-push incremental PR review are configured as advisory; install and verify the GitHub App on this fork only."},
+    {"tool": "CodeRabbit", "channel": "coderabbit-ai-advisory", "state": "OPTIONAL_NOT_CONFIGURED", "surface": "ai-advisory", "activation": "Cloud auto/incremental PR review, GitHub Checks context, exact-head review-comment ingestion, and dashboard refresh are configured; install and verify the GitHub App on this fork only."},
     {"tool": "CodeScene", "state": "DEFERRED_EXTERNAL", "surface": "behavioral-code-health", "activation": "Service enrollment and a stable machine-readable export are required."},
     {"tool": "SonarQube", "state": "DEFERRED_EXTERNAL", "surface": "quality-and-security", "activation": "QA VM, PostgreSQL, authenticated API export, and non-redundancy validation are required."},
     {"tool": "Atheris", "state": "DEFERRED_RESEARCH", "surface": "python-fuzzing", "activation": "Build bounded isolated harnesses for selected pure/state-machine targets before enabling CI."}
