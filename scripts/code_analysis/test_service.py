@@ -326,8 +326,13 @@ class MonitoringTests(unittest.TestCase):
             workflow=Path(".github/workflows",name).read_text(encoding="utf-8")
             self.assertIn('branches: ["**"]',workflow)
             self.assertNotIn("branches: [claude/main, Testing]",workflow)
+            target_checkouts=workflow.count(
+                "ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}")
+            tooling_checkouts=workflow.count(
+                "ref: ${{ github.event.repository.default_branch }}")
+            self.assertGreaterEqual(target_checkouts,1)
             self.assertEqual(workflow.count("uses: actions/checkout@"),
-                             workflow.count("ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}"))
+                             target_checkouts+tooling_checkouts)
         aggregate=Path(".github/workflows/05-issue-aggregation.yml").read_text(encoding="utf-8")
         self.assertIn("github.event.workflow_run.event == 'push'",aggregate)
         self.assertIn("github.event.workflow_run.event == 'pull_request'",aggregate)
@@ -347,6 +352,9 @@ class MonitoringTests(unittest.TestCase):
         for name in ("01-code-quality.yml","02-security-sast.yml",
                      "03-dependency-security.yml","04-code-health.yml"):
             self.assertIn(name,workflow)
+        self.assertIn("displayTitle",workflow)
+        self.assertIn(".displayTitle == $title",workflow)
+        self.assertNotIn('--commit "$SCAN_SHA"',workflow)
         self.assertIn('-f scan_sha="$SCAN_SHA"',workflow)
         self.assertIn('gh run watch "$run_id" --exit-status',workflow)
         self.assertIn("05-issue-aggregation.yml",workflow)

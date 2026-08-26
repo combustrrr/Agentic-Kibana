@@ -56,6 +56,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SCAN_BRANCH: ${{ inputs.scan_branch || github.event.workflow_run.head_branch || github.ref_name }}
           SCAN_SHA: ${{ inputs.scan_sha || github.event.workflow_run.head_sha || github.sha }}
+          MANUAL_SCAN: ${{ inputs.scan_sha != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -63,8 +64,20 @@ jobs:
           : > scanner-run-ids.txt
           for workflow in 01-code-quality.yml 02-security-sast.yml 03-dependency-security.yml 04-code-health.yml; do
             run_id=""
+            case "$workflow" in
+              01-code-quality.yml) run_title="Code Quality · $SCAN_BRANCH · $SCAN_SHA" ;;
+              02-security-sast.yml) run_title="Security / SAST · $SCAN_BRANCH · $SCAN_SHA" ;;
+              03-dependency-security.yml) run_title="Dependency & Supply Chain Security · $SCAN_BRANCH · $SCAN_SHA" ;;
+              04-code-health.yml) run_title="Code Health & Technical Debt · $SCAN_BRANCH · $SCAN_SHA" ;;
+              *) echo "Unknown scanner workflow: $workflow" >&2; exit 1 ;;
+            esac
             for attempt in $(seq 1 40); do
-              run_id="$(gh run list --workflow "$workflow" --commit "$SCAN_SHA" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+              if [[ "$MANUAL_SCAN" == "true" ]]; then
+                runs="$(gh run list --workflow "$workflow" --event workflow_dispatch --status success --limit 30 --json databaseId,displayTitle)"
+                run_id="$(jq -r --arg title "$run_title" '[.[] | select(.displayTitle == $title)] | first | .databaseId // empty' <<<"$runs")"
+              else
+                run_id="$(gh run list --workflow "$workflow" --commit "$SCAN_SHA" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+              fi
               [[ -n "$run_id" ]] && break
               sleep 30
             done

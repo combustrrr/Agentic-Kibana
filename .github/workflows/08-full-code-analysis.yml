@@ -105,15 +105,22 @@ jobs:
           do
             run_id=""
             run_url=""
+            case "$workflow" in
+              01-code-quality.yml) run_title="Code Quality · $SCAN_BRANCH · $SCAN_SHA" ;;
+              02-security-sast.yml) run_title="Security / SAST · $SCAN_BRANCH · $SCAN_SHA" ;;
+              03-dependency-security.yml) run_title="Dependency & Supply Chain Security · $SCAN_BRANCH · $SCAN_SHA" ;;
+              04-code-health.yml) run_title="Code Health & Technical Debt · $SCAN_BRANCH · $SCAN_SHA" ;;
+              *) echo "Unknown scanner workflow: $workflow" >&2; exit 1 ;;
+            esac
             for attempt in $(seq 1 30); do
-              runs="$(gh run list --workflow "$workflow" --commit "$SCAN_SHA" \
+              runs="$(gh run list --workflow "$workflow" \
                 --event workflow_dispatch --limit 20 \
-                --json databaseId,createdAt,url)"
-              run_id="$(jq -r --arg started "$dispatched_at" \
-                '[.[] | select(.createdAt >= $started)] | sort_by(.createdAt) | last | .databaseId // empty' \
+                --json databaseId,createdAt,displayTitle,url)"
+              run_id="$(jq -r --arg started "$dispatched_at" --arg title "$run_title" \
+                '[.[] | select(.createdAt >= $started and .displayTitle == $title)] | sort_by(.createdAt) | last | .databaseId // empty' \
                 <<<"$runs")"
-              run_url="$(jq -r --arg started "$dispatched_at" \
-                '[.[] | select(.createdAt >= $started)] | sort_by(.createdAt) | last | .url // empty' \
+              run_url="$(jq -r --arg started "$dispatched_at" --arg title "$run_title" \
+                '[.[] | select(.createdAt >= $started and .displayTitle == $title)] | sort_by(.createdAt) | last | .url // empty' \
                 <<<"$runs")"
               [[ -n "$run_id" ]] && break
               sleep 5

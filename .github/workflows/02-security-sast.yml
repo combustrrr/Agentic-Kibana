@@ -6,6 +6,7 @@
 # ============================================================
 
 name: Security / SAST
+run-name: Security / SAST · ${{ inputs.scan_branch || github.head_ref || github.ref_name }} · ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
 
 on:
   workflow_dispatch:
@@ -55,12 +56,20 @@ jobs:
           ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 2
 
+      - name: Checkout trusted analysis tooling
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .analysis-tooling
+          sparse-checkout: .github/codeql
+          sparse-checkout-cone-mode: false
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@6d786de4d6f3531a740e445b53a42b622bbbace8 # v3
         with:
           languages: ${{ matrix.language }}
           queries: +security-extended,security-and-quality
-          config-file: .github/codeql/codeql-config.yml
+          config-file: .analysis-tooling/.github/codeql/codeql-config.yml
 
       - name: Build (Python — no explicit build needed)
         if: matrix.language == 'python'
@@ -111,6 +120,16 @@ jobs:
           ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
+      - name: Checkout trusted analysis tooling
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .analysis-tooling
+          sparse-checkout: |
+            .github/semgrep-rules
+            scripts/code_analysis
+          sparse-checkout-cone-mode: false
+
       - name: Set up Python 3.11
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
@@ -120,7 +139,7 @@ jobs:
         run: pip install semgrep==1.80.0 click==8.1.7 python-dateutil==2.9.0.post0
 
       - name: Validate custom Semgrep rules
-        run: semgrep --validate --config=.github/semgrep-rules/
+        run: semgrep --validate --config=.analysis-tooling/.github/semgrep-rules/
 
       - name: Run Semgrep (JSON output)
         run: |
@@ -130,7 +149,7 @@ jobs:
             --config=p/jwt \
             --config=p/secrets \
             --config=p/fastapi \
-            --config=.github/semgrep-rules/ \
+            --config=.analysis-tooling/.github/semgrep-rules/ \
             --json \
             --output=semgrep-results.json \
             --severity=ERROR \
@@ -141,7 +160,7 @@ jobs:
         run: |
           mkdir -p semgrep-scan-results
           cp semgrep-results.json semgrep-scan-results/
-          python scripts/code_analysis/normalizer.py \
+          python .analysis-tooling/scripts/code_analysis/normalizer.py \
             --input-dir semgrep-scan-results \
             --output-dir semgrep-normalized
 

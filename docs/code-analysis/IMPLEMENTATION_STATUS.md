@@ -114,6 +114,14 @@ diagnosis. Manual dashboard-only builds may specify an exact `scan_sha` and bran
 publication still requires same-commit artifacts and all required channels. Canary and
 API fuzzing workflows remain isolated from the required static snapshot gate.
 
+The selected target branch is the code under analysis; it is not required to contain
+the analysis service itself. Jobs that need pinned scanner dependencies, custom rules,
+or normalization code sparsely check out those trusted files from the fork default
+branch into `.analysis-tooling`. Scanner commands continue to target the selected
+branch's root source tree. Manual runs carry a deterministic branch/SHA display title,
+which is used for run discovery because GitHub associates `workflow_dispatch` metadata
+with the workflow-definition ref rather than the separately pinned source commit.
+
 ### QA VM and local analysis
 
 The same `scripts/code_analysis/pipeline.py` is used by Actions and the QA/local worker.
