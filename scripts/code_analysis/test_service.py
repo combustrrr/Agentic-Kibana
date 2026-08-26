@@ -115,6 +115,9 @@ class MonitoringTests(unittest.TestCase):
         aggregation=(Path(__file__).resolve().parents[2]/".github/workflows/05-issue-aggregation.yml").read_text(encoding="utf-8")
         self.assertIn('conclusion="neutral"',aggregation)
         self.assertIn("if-no-files-found: error",aggregation)
+        self.assertIn("Bounded pipeline diagnostic",aggregation)
+        self.assertIn("tail -n 30 pipeline-diagnostic.log",aggregation)
+        self.assertIn("REDACTED",aggregation)
         coderabbit=(Path(__file__).resolve().parents[2]/".coderabbit.yaml").read_text(encoding="utf-8")
         self.assertNotIn("base_branches:",coderabbit)
     def test_invalid_current_fails_closed(self):

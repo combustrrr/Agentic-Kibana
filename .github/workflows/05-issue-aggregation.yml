@@ -105,6 +105,7 @@ jobs:
           set -euo pipefail
           run_args=()
           while IFS= read -r run_id; do run_args+=(--workflow-run-id "$run_id"); done < scanner-run-ids.txt
+          set +e
           python scripts/code_analysis/pipeline.py \
             --artifacts scan-artifacts \
             --output pipeline-output \
@@ -112,7 +113,25 @@ jobs:
             --commit "$MONITORED_SHA" \
             --branch "$MONITORED_BRANCH" \
             "${run_args[@]}" \
-            --manifest config/code-analysis/required-channels.json
+            --manifest config/code-analysis/required-channels.json \
+            2>&1 | tee pipeline-diagnostic.log
+          pipeline_exit=${PIPESTATUS[0]}
+          set -e
+          if (( pipeline_exit != 0 )); then
+            mkdir -p dashboard
+            {
+              echo "## Current Code Quality & Security Snapshot"
+              echo
+              echo "A publishable snapshot could not be produced. The previous hosted snapshot remains active."
+              echo
+              echo "### Bounded pipeline diagnostic"
+              echo '```text'
+              tail -n 30 pipeline-diagnostic.log \
+                | sed -E 's/(token|secret|password|authorization)([^[:space:]]*)/REDACTED/Ig'
+              echo '```'
+            } > dashboard/github-summary.md
+            exit "$pipeline_exit"
+          fi
           mv pipeline-output/normalized normalized
           mv pipeline-output/dashboard dashboard
           mv pipeline-output/channel-status.json channel-status.json
