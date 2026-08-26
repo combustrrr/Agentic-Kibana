@@ -180,6 +180,11 @@ The custom dashboard is the primary visualization. It shows:
 - separate deterministic and `AI_ADVISORY` views; and
 - complete snapshot/raw-observation downloads.
 
+The visualization also exposes an **Additional analysis lanes** board. It displays the
+current status and evidence counts for Snyk and other optional/dynamic sources, keeps
+CodeRabbit visibly labelled `AI_ADVISORY`, and shows deferred tools as roadmap entries.
+Only the separate required-channel board contributes to the publishability fraction.
+
 Rendering is bounded to 50/100/250 rows; the browser never mounts the complete 8,000+
 or 10,000-row dataset simultaneously.
 

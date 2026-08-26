@@ -206,6 +206,10 @@ class MonitoringTests(unittest.TestCase):
             root=Path(d);artifacts=root/"artifacts";artifacts.mkdir()
             (artifacts/"codeql.sarif").write_text(json.dumps({"version":"2.1.0","runs":[]}),encoding="utf-8")
             (artifacts/"semgrep.json").write_text('{"results":[]}',encoding="utf-8")
+            (artifacts/"snyk-status.json").write_text(json.dumps({
+                "schema_version":"1","scanner_family":"Snyk",
+                "status":"CONFIGURED_COMPLETE","surfaces":{"sca":"success","code":"success"}
+            }),encoding="utf-8")
             manifest=root/"manifest.json";manifest.write_text(json.dumps(MANIFEST),encoding="utf-8")
             output=root/"run";publication=root/"published"
             build_pipeline(Namespace(artifacts=artifacts,output=output,repository="repo/fork",commit="abc",
@@ -213,6 +217,14 @@ class MonitoringTests(unittest.TestCase):
                                      publication_root=publication))
             self.assertTrue((output/"normalized"/"current-snapshot.json").is_file())
             self.assertTrue((publication/"current"/"index.html").is_file())
+            current=json.loads((output/"normalized"/"current-snapshot.json").read_text(encoding="utf-8"))
+            additional={row["tool"]:row for row in current["additional_channels"]}
+            self.assertEqual(additional["Snyk"]["status"],"CONFIGURED_COMPLETE")
+            self.assertEqual(additional["CodeRabbit"]["status"],"PENDING_ACTIVATION")
+            self.assertEqual(additional["CodeRabbit"]["evidence_source"],"AI_ADVISORY")
+            dashboard=(publication/"current"/"index.html").read_text(encoding="utf-8")
+            self.assertIn("Additional analysis lanes",dashboard)
+            self.assertIn("Scanner distribution",dashboard)
 
     def test_pull_worker_rejects_zip_path_traversal(self):
         with tempfile.TemporaryDirectory() as d:

@@ -28,12 +28,18 @@ def github_summary(snapshot: dict) -> str:
     validate_snapshot(snapshot)
     severities = Counter(row.get("severity", "UNKNOWN") for row in snapshot["canonical_findings"])
     channels = snapshot["channel_status"]
+    additional = snapshot.get("additional_channels", [])
+    observed_additional = [
+        row for row in additional
+        if row.get("status") in {"CONFIGURED_COMPLETE", "COMPLETED_OPTIONAL"}
+    ]
     lines = ["## Current Code Quality & Security Snapshot", "",
              f"- **Snapshot commit:** `{snapshot['commit_sha']}`",
              f"- **Required channels complete:** {sum(c['status'] == 'COMPLETED' for c in channels)}/{len(channels)}",
              f"- **Canonical findings:** {snapshot['finding_count']:,}",
              f"- **Raw observations:** {snapshot['observation_count']:,}",
              f"- **AI advisories:** {snapshot['ai_advisory_count']:,}",
+             f"- **Additional lanes observed:** {len(observed_additional)}/{len(additional)} (not part of required coverage)",
              "- **Mode:** read-only; no Issues, patches, comments, history, or remediation", "",
              "| Severity | Findings |", "|---|---:|",
              *[f"| {key} | {value:,} |" for key, value in sorted(severities.items())]]

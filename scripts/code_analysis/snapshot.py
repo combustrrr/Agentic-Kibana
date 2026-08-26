@@ -3,10 +3,60 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
 from monitoring import build_snapshot, canonicalize, load_json, write_json
+
+
+def build_additional_channels(catalog: dict, artifacts: Path | None,
+                              snapshot: dict) -> list[dict]:
+    """Describe optional/dynamic/deferred lanes without changing required coverage."""
+    status_by_family: dict[str, dict] = {}
+    if artifacts and artifacts.is_dir():
+        for status_file in sorted(artifacts.rglob("*-status.json")):
+            try:
+                status = load_json(status_file)
+            except (OSError, ValueError):
+                continue
+            family = str(status.get("scanner_family") or "")
+            if family:
+                status_by_family[family] = status
+    observations = snapshot.get("observations", [])
+    observation_counts = Counter(str(row.get("scanner_family")) for row in observations)
+    findings = [*snapshot.get("canonical_findings", []), *snapshot.get("ai_advisories", [])]
+    rows = []
+    for configured in catalog.get("tools", []):
+        state = str(configured.get("state") or "")
+        if state == "ACTIVE_REQUIRED":
+            continue
+        tool = str(configured.get("tool") or "Unknown")
+        native = status_by_family.get(tool, {})
+        if native:
+            status = str(native.get("status") or "UNKNOWN")
+        elif state == "ACTIVE_DYNAMIC":
+            status = "MANUAL_DYNAMIC"
+        elif state == "OPTIONAL_VERIFIED":
+            status = "NOT_IN_CURRENT_SNAPSHOT"
+        elif state == "OPTIONAL_NOT_CONFIGURED":
+            status = "PENDING_ACTIVATION"
+        else:
+            status = "DEFERRED"
+        rows.append({
+            "tool": tool,
+            "channel": str(configured.get("channel") or ""),
+            "surface": str(configured.get("surface") or ""),
+            "state": state,
+            "status": status,
+            "reason": str(native.get("reason") or configured.get("activation") or configured.get("note") or ""),
+            "finding_count": sum(
+                tool in row.get("supporting_scanner_families", []) for row in findings
+            ),
+            "observation_count": observation_counts.get(tool, 0),
+            "evidence_source": "AI_ADVISORY" if tool == "CodeRabbit" else "DETERMINISTIC",
+        })
+    return rows
 
 
 def main() -> None:
@@ -19,6 +69,8 @@ def main() -> None:
     parser.add_argument("--channel-manifest", type=Path, required=True)
     parser.add_argument("--channel-status", type=Path, required=True)
     parser.add_argument("--provenance", type=Path, required=True)
+    parser.add_argument("--tool-catalog", type=Path)
+    parser.add_argument("--artifacts", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     run = {
@@ -32,6 +84,12 @@ def main() -> None:
     provenance = load_json(args.provenance)
     provenance["workflow_run_ids"] = args.workflow_run_id
     snapshot = build_snapshot(current, load_json(args.channel_status), provenance)
+    if args.tool_catalog:
+        snapshot["additional_channels"] = build_additional_channels(
+            load_json(args.tool_catalog), args.artifacts, snapshot
+        )
+    else:
+        snapshot["additional_channels"] = []
     args.output.parent.mkdir(parents=True, exist_ok=True)
     write_json(args.output, snapshot)
 

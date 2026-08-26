@@ -20,6 +20,16 @@ The browser mounts at most 250 rows and supports search plus severity, category,
 component, and scanner filters. Separate downloads expose the complete snapshot and raw
 observation collection.
 
+The board has two channel sections:
+
+- **Required scanner channels** are the manifest-controlled 16-channel publication gate.
+- **Additional analysis lanes** show optional Snyk SCA/Code, manual dynamic analysis,
+  CodeRabbit `AI_ADVISORY` readiness, and deferred research tools with honest status.
+
+Optional/deferred lanes never inflate the required completion fraction. The analytics
+area includes a scanner-family distribution so contributors can see which engines
+actually produced the canonical current findings.
+
 ## Local hosting
 
 After generating `dashboard/`, publish and serve it with:

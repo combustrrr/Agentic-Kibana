@@ -11053,6 +11053,23 @@
   production, Issue, PR-comment, patch, autofix, or remediation mutation occurred.
 - Status: implementation complete; remote workflow validation pending.
 
+## 2026-08-26 — Dashboard scanner-channel expansion started
+- Scope: surface newly activated and planned scanner lanes in the current-findings UI,
+  including verified optional Snyk evidence and clearly separated CodeRabbit AI status,
+  without changing the 16-channel fail-closed publication contract or inflating coverage.
+- Added snapshot-level `additional_channels` derived from the proposal catalog and
+  retained per-tool status artifacts. Required channels remain the only publishability
+  gate; optional, dynamic, AI, and deferred lanes carry explicit independent status.
+- Updated the board with separate Required and Additional sections, Snyk SCA/Code
+  status/evidence counts, CodeRabbit `AI_ADVISORY` labelling, roadmap states, and a
+  scanner-family distribution chart. GitHub summaries report observed optional lanes
+  without adding them to required coverage.
+- Updated the benchmark preview and operator documentation for the new visualization.
+- Verification: analysis-service tests passed 31/31; Python checks and dashboard
+  JavaScript syntax passed; public docs passed 79 pages; the 10k/13k scale gate passed
+  in 5.60 seconds at 80.20 MiB; diff validation passed.
+- Status: implementation complete; fork workflow publication pending push verification.
+
 ## 2026-08-26 — Code-analysis documentation consolidation started
 - Scope: reconcile the code-analysis documents with the implementation and decisions
   established through the current working session, including the current-snapshot

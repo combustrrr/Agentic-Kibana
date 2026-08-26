@@ -34,6 +34,9 @@ def build(args: argparse.Namespace) -> Path:
     provenance = staging / "snapshot-provenance.json"
     contract = staging / "scanner-evidence-contract.json"
     snapshot = normalized / "current-snapshot.json"
+    tool_catalog = getattr(
+        args, "tool_catalog", Path("config/code-analysis/proposal-tool-catalog.json")
+    )
     python = sys.executable
     run_ids = [item for run_id in args.workflow_run_id for item in ("--workflow-run-id", run_id)]
     try:
@@ -52,7 +55,8 @@ def build(args: argparse.Namespace) -> Path:
         run([python, str(HERE / "snapshot.py"), "--raw-findings", str(normalized / "unified-findings.json"),
              "--repository", args.repository, "--commit", args.commit, "--branch", args.branch,
              *run_ids, "--channel-manifest", str(args.manifest), "--channel-status", str(status),
-             "--provenance", str(provenance), "--output", str(snapshot)])
+             "--provenance", str(provenance), "--tool-catalog", str(tool_catalog),
+             "--artifacts", str(artifacts), "--output", str(snapshot)])
         run([python, str(HERE / "dashboard.py"), "--snapshot", str(snapshot),
              "--output-dir", str(dashboard)])
         staging.rename(output)
@@ -75,6 +79,8 @@ def main() -> None:
     parser.add_argument("--workflow-run-id", action="append", required=True)
     parser.add_argument("--manifest", type=Path,
                         default=Path("config/code-analysis/required-channels.json"))
+    parser.add_argument("--tool-catalog", type=Path,
+                        default=Path("config/code-analysis/proposal-tool-catalog.json"))
     parser.add_argument("--publication-root", type=Path)
     args = parser.parse_args()
     built = build(args)

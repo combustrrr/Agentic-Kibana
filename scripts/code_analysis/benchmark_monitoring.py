@@ -5,6 +5,7 @@ import argparse, json, tempfile, time, tracemalloc
 from pathlib import Path
 from dashboard import generate, write_dashboard
 from monitoring import build_snapshot, canonicalize
+from snapshot import build_additional_channels
 
 def main() -> None:
     parser=argparse.ArgumentParser();parser.add_argument("--preview-dir",type=Path);args=parser.parse_args()
@@ -19,6 +20,8 @@ def main() -> None:
     statuses={"schema_version":"1","channels":[{"scanner_family":family,"status":"COMPLETED","channel":channel,"surface":"benchmark","artifact_files":[]} for family,channel in tools],"analysis_change_flags":[]}
     provenance={"commit_sha":"benchmark","workflow_run_ids":["benchmark"],"artifact_hashes":[{"path":"benchmark.json","sha256":"a"*64}]}
     tracemalloc.start();started=time.perf_counter();base=canonicalize(raw,"benchmark/repo",run,manifest);result=build_snapshot(base,statuses,provenance)
+    catalog=json.loads(Path("config/code-analysis/proposal-tool-catalog.json").read_text())
+    result["additional_channels"]=build_additional_channels(catalog,None,result)
     with tempfile.TemporaryDirectory() as directory:
         output=Path(directory)/"index.html";generate(result,output);html=output.read_text(encoding="utf-8")
         if "slice((page-1)*size,page*size)" not in html or "<option>250</option>" not in html: raise SystemExit("dashboard is not DOM-bounded")
