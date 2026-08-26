@@ -10661,3 +10661,12 @@
 - Verification: 17 unit/integration tests passed; 10,000 canonical findings and 13,000 observations completed in 6.97 seconds with 112.41 MiB peak Python allocation; workflow/Compose YAML parsed; `git diff --check` passed apart from Windows line-ending notices.
 - Blocker: WSL2/container runtime validation requires an Administrator-enabled WSL installation and reboot on this Windows host; the current tool session does not hold that Windows administrator token.
 - Next: Commit and push only to the fork development branch, then verify the scanner web, 10/10 canary workflow, and current-findings dashboard workflow on GitHub Actions.
+
+### 2026-08-26 — Codex — Current-findings platform accepted on the fork
+- Commit: `48a1db2` was pushed only to `origin/feature/static-code-analysis`; no upstream or production ref was changed.
+- Scanner web: Code Quality, Security/SAST, Dependency & Supply Chain Security, and Code Health all completed successfully for the exact commit.
+- Canaries: Canary Coverage Validation run `32938363577` completed successfully, validating all 10 required end-to-end fixtures through the configured detection web.
+- Visualization: Code Analysis Dashboard run `32938363593` completed successfully and published immutable artifact `current-findings-dashboard-32938363593` (9,845,603 bytes) plus one successful advisory Check for the exact commit.
+- Safety: No Issue, PR comment, application mutation, patch, autofix, deployment, branch-protection change, DefectDojo request, upstream push, or production mutation occurred.
+- Remaining environment work: Install/enable WSL2 with Windows Administrator privileges and reboot, then validate the same loopback-only nginx Compose image locally; deploy that image to the company QA VM once provisioned and protected by VPN/OIDC.
+- Status: Current snapshot scanner, normalization, deduplication, visualization, and fork-only automatic publication are implemented and accepted. Additional non-redundant scanners and an approved AI-advisory lane remain later extensions.
