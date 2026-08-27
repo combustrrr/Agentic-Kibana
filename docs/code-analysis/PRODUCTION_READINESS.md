@@ -57,7 +57,11 @@ outbound-only pull worker uses an Actions-read-only credential supplied through 
 validates archive size/path/symlink limits, and atomically retains the last valid
 dashboard. The nginx container binds to `127.0.0.1:8787`, runs unprivileged and
 read-only, drops all capabilities, bounds CPU/memory/PIDs/logs, denies non-read methods,
-and requires the company VPN/OIDC HTTPS proxy before developer access.
+and requires the company VPN/OIDC HTTPS proxy before developer access. Readiness is
+content-aware (`503` before the first validated publication); refresh retries are based
+on systemd unit inactivity, corrupt optimization state cannot strand the worker, and a
+bounded paginated Actions search prevents other branches from hiding the selected
+branch's latest exact-head artifact.
 
 ## Deployment gates
 

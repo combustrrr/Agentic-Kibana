@@ -20,11 +20,18 @@ The browser mounts at most 250 rows and supports search plus severity, category,
 component, and scanner filters. Separate downloads expose the complete snapshot and raw
 observation collection.
 
+The board keeps supervisor assurance ahead of scanner detail: current branch/SHA and
+freshness, deterministic security posture, highest-risk areas, required-channel
+coverage, optional-control evidence, and the critical/high review queue are visible at
+a glance. Optional detail is collapsed by default to prevent scanner noise from
+overwhelming the operational view.
+
 The board has two channel sections:
 
 - **Required scanner channels** are the manifest-controlled 16-channel publication gate.
-- **Additional analysis lanes** show optional Snyk SCA/Code, manual dynamic analysis,
-  CodeRabbit `AI_ADVISORY` readiness, and deferred research tools with honest status.
+- **Security controls & optional assurance** expands to show shipping-image/SBOM,
+  repository posture, Snyk, dynamic analysis, CodeRabbit `AI_ADVISORY` readiness, and
+  deferred research tools with honest status.
 
 Optional/deferred lanes never inflate the required completion fraction. The analytics
 area includes a scanner-family distribution so contributors can see which engines

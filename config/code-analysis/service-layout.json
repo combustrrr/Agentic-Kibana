@@ -22,6 +22,8 @@
       "scripts/code_analysis/pipeline.py"
     ],
     "presentation": [
+      "scripts/code_analysis/bound_sarif.py",
+      "scripts/code_analysis/validate_sbom.py",
       "scripts/code_analysis/dashboard.py",
       "scripts/code_analysis/dashboard_template.html",
       "scripts/code_analysis/publish_snapshot.py"

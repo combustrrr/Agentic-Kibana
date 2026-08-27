@@ -8,8 +8,8 @@ and cannot be activated by a workflow commit alone.
 
 Repository configuration is checked in at `.coderabbit.yaml`. Cloud automatic and
 incremental reviews are enabled, so an eligible fork PR is reviewed when opened and
-again after every pushed commit. The default branch is included by CodeRabbit and
-`Testing` is an additional approved target. Reviews remain advisory:
+again after every pushed commit. `base_branches: [".*"]` explicitly covers PRs targeting
+every fork branch; omitting that setting would cover only the default branch. Reviews remain advisory:
 `request_changes_workflow` and chat auto-replies are disabled, and CodeRabbit evidence
 never counts as deterministic scanner corroboration.
 
@@ -22,15 +22,20 @@ heads, summaries without file locations, and other authors are excluded. If no o
 exists, CodeRabbit is `NOT_APPLICABLE`; if a PR exists but no exact-head review has been
 submitted, it is `PENDING_REVIEW`. Neither state blocks deterministic publication.
 
-Owner action:
+Owner-reported state: the CodeRabbit GitHub App is installed on the fork. Remaining
+acceptance action:
 
 1. Complete the code-sharing/privacy review.
-2. Install the CodeRabbit GitHub App on this fork only.
+2. Confirm the installed GitHub App is scoped to this fork only.
 3. Confirm the app has no access to the upstream company repository.
 4. Open or update a test PR against the fork default branch or `Testing`.
 5. Confirm the automatic review appears after each pushed PR commit.
 6. Confirm the subsequent dashboard rebuild shows its inline findings only under
    **AI advisory**, with native evidence links and no deterministic corroboration.
+
+The GitHub Checks integration waits up to 15 minutes for the required scanner workflows.
+The checkout-free review dispatcher carries explicit repository context, so a submitted
+exact-head bot review can reliably dispatch the dashboard rebuild.
 
 The CodeRabbit CLI/WSL path is not part of the operating design. CodeRabbit runs as a
 cloud GitHub App on pull requests; deterministic full-codebase scanners continue to
@@ -69,7 +74,9 @@ surfaces as `CONFIGURED_PARTIAL` instead of silently reporting a complete scan.
 ## GitHub secret scanning and push protection
 
 Gitleaks already scans repository content/history. GitHub-native protection is a
-separate repository setting and cannot be asserted by checked-in YAML.
+separate repository setting and cannot be enabled by checked-in YAML. The dependency
+workflow verifies both setting states and counts open alerts through read-only API
+calls; retained evidence contains alert numbers only, never secret values.
 
 Owner action:
 
@@ -81,6 +88,7 @@ Owner action:
 
 ## Schemathesis
 
-`07-api-fuzzing.yml` remains manual and isolated. Its JUnit failures now normalize
-to structured `DYNAMIC` findings. Automatic per-commit execution remains deferred
-until the backend test service is stable, bounded, and approved for the extra CI cost.
+`07-api-fuzzing.yml` remains isolated and runs manually or on a weekly trusted-default-
+branch schedule. Schemathesis uses 250 examples; its JUnit failures normalize to
+structured `DYNAMIC` findings. The same workflow runs a bounded Atheris case-decision
+campaign. Per-commit dynamic execution remains disabled to avoid untrusted PR code.

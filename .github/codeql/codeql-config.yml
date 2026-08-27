@@ -23,7 +23,6 @@ paths-ignore:
   - webui/node_modules/
   - webui/dist/
 
-# Additional search paths for custom queries
-# (custom queries can be added here in the future)
-# searches:
-#   - .github/codeql/custom-queries/
+# Repository model packs under `.github/codeql/extensions/` are automatically
+# discovered by CodeQL in advanced setup. They extend the standard queries with
+# Agentic SOC request, SQL, path, HTML, and LLM-output trust-boundary models.

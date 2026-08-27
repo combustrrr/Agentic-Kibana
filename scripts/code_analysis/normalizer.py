@@ -294,7 +294,7 @@ class Finding:
 
     def __post_init__(self) -> None:
         import datetime
-        now = datetime.datetime.utcnow().isoformat()
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
         self.file = canonicalize_file(self.file)
         if not self.rule_concept:
             self.rule_concept = normalize_concept(self.rule_id)

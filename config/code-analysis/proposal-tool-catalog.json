@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
   "authority": "The original proposal is the candidate-tool roadmap; the current-findings execution plan controls activation.",
-  "states": ["ACTIVE_REQUIRED", "ACTIVE_DYNAMIC", "OPTIONAL_VERIFIED", "OPTIONAL_NOT_CONFIGURED", "DEFERRED_EXTERNAL", "DEFERRED_RESEARCH"],
+  "states": ["ACTIVE_REQUIRED", "ACTIVE_DYNAMIC", "OPTIONAL_VERIFIED", "OPTIONAL_CONFIGURED", "OPTIONAL_NOT_CONFIGURED", "DEFERRED_EXTERNAL", "DEFERRED_RESEARCH"],
   "tools": [
     {"tool": "CodeQL", "state": "ACTIVE_REQUIRED", "channel": "codeql", "surface": "semantic-sast"},
     {"tool": "Semgrep", "state": "ACTIVE_REQUIRED", "channel": "semgrep", "surface": "pattern-sast"},
@@ -21,9 +21,15 @@
     {"tool": "Coverage.py", "state": "ACTIVE_REQUIRED", "channel": "coverage", "surface": "runtime-evidence"},
     {"tool": "Schemathesis", "state": "ACTIVE_DYNAMIC", "channel": "schemathesis", "surface": "api-fuzzing", "note": "Manual isolated workflow; dynamic evidence is not part of the static publishability gate."},
     {"tool": "Snyk", "state": "OPTIONAL_VERIFIED", "channel": "snyk", "surface": "sca-and-code", "activation": "Fork Actions run 32965286130 verified Open Source SCA, Snyk Code, per-surface status, and retained SARIF. Keep optional until unique detection value is measured."},
-    {"tool": "CodeRabbit", "channel": "coderabbit-ai-advisory", "state": "OPTIONAL_NOT_CONFIGURED", "surface": "ai-advisory", "activation": "Cloud auto/incremental PR review, GitHub Checks context, exact-head review-comment ingestion, and dashboard refresh are configured; install and verify the GitHub App on this fork only."},
+    {"tool": "CodeRabbit", "channel": "coderabbit-ai-advisory", "state": "OPTIONAL_CONFIGURED", "surface": "ai-advisory", "activation": "Repository owner reports the GitHub App installed; cloud auto/incremental review, all-target coverage, 15-minute GitHub Checks context, exact-head review-comment ingestion, and dashboard refresh are configured. Await an observed exact-head bot review before marking verified."},
+    {"tool": "Shipping Image Trivy", "channel": "shipping-image-cves", "state": "OPTIONAL_CONFIGURED", "surface": "post-build-container-image", "activation": "Build exact-commit backend and web UI shipping images, retain full-severity SARIF, and measure unique findings before promotion."},
+    {"tool": "SBOM Policy", "channel": "sbom-license-provenance", "state": "OPTIONAL_CONFIGURED", "surface": "cyclonedx-spdx-license-provenance", "activation": "CycloneDX and SPDX inventories, denied-license SARIF, image digests, and an in-toto/SLSA-shaped provenance statement are generated from shipping images."},
+    {"tool": "Repository Security Posture", "channel": "github-secret-protection-posture", "state": "OPTIONAL_CONFIGURED", "surface": "secret-scanning-push-protection", "activation": "Read-only observation of GitHub secret scanning, push protection, and open-alert count; unavailable permissions stay explicit and secret values are never retained."},
+    {"tool": "OpenSSF Scorecard", "channel": "openssf-scorecard", "state": "OPTIONAL_CONFIGURED", "surface": "repository-supply-chain", "activation": "Pinned official Scorecard analysis produces exact-commit SARIF without publishing repository results externally."},
+    {"tool": "zizmor", "channel": "github-actions-security", "state": "OPTIONAL_CONFIGURED", "surface": "workflow-security", "activation": "Pinned zizmor analyzes exact-commit GitHub workflow definitions and retains SARIF."},
     {"tool": "CodeScene", "state": "DEFERRED_EXTERNAL", "surface": "behavioral-code-health", "activation": "Service enrollment and a stable machine-readable export are required."},
     {"tool": "SonarQube", "state": "DEFERRED_EXTERNAL", "surface": "quality-and-security", "activation": "QA VM, PostgreSQL, authenticated API export, and non-redundancy validation are required."},
-    {"tool": "Atheris", "state": "DEFERRED_RESEARCH", "surface": "python-fuzzing", "activation": "Build bounded isolated harnesses for selected pure/state-machine targets before enabling CI."}
+    {"tool": "KICS", "state": "DEFERRED_RESEARCH", "surface": "iac-comparison", "activation": "Do not execute the current third-party Action: a public compromise advisory is open. Re-evaluate a checksum-verified standalone release only after provenance review and measure uniqueness against Checkov/Trivy."},
+    {"tool": "Atheris", "state": "ACTIVE_DYNAMIC", "channel": "atheris", "surface": "python-fuzzing", "activation": "Weekly/manual isolated 25,000-input campaign against deterministic case-decision logic; never part of static publishability."}
   ]
 }

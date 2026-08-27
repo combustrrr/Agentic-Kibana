@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 from click.testing import CliRunner
 from scripts.code_analysis.audit_workflows import audit as audit_workflows
+from scripts.code_analysis.bound_sarif import bound as bound_sarif
 from scripts.code_analysis.channel_status import build as build_channel_status
 from scripts.code_analysis.collect_coderabbit import collect as collect_coderabbit
 from scripts.code_analysis.dashboard import generate, github_summary, validate_snapshot, write_dashboard
@@ -14,7 +15,8 @@ from scripts.code_analysis.normalizer import CodeRabbitParser, CoverageParser, R
 from scripts.code_analysis.pipeline import build as build_pipeline
 from scripts.code_analysis.provenance import build as build_provenance
 from scripts.code_analysis.publish_snapshot import publish
-from scripts.code_analysis.pull_worker import artifact_branch_key, artifact_commit, read_token, safe_extract, select_artifact
+from scripts.code_analysis.pull_worker import artifact_branch_key, artifact_commit, read_state, read_token, safe_extract, select_artifact, select_artifact_by_id
+from scripts.code_analysis.validate_sbom import evaluate as evaluate_sbom
 
 MANIFEST={"schema_version":"1","required_static_channels":[
     {"channel":"codeql","scanner_family":"CodeQL","surface":"semantic","artifact_patterns":["*codeql*.sarif"]},
@@ -85,6 +87,51 @@ class MonitoringTests(unittest.TestCase):
             built=build_channel_status(MANIFEST,root,contract=contract,
                                        repository="repo/fork",commit="abc")
             self.assertEqual(built["channels"][0]["status"],"INVALID_EVIDENCE")
+
+    def test_nested_scanner_outputs_are_valid_retained_evidence(self):
+        manifest={"schema_version":"1","required_static_channels":[
+            {"channel":"codeql","scanner_family":"CodeQL","surface":"semantic",
+             "artifact_patterns":["*codeql*/*.sarif"]},
+            {"channel":"checkov","scanner_family":"Checkov","surface":"iac",
+             "artifact_patterns":["*checkov*/*.sarif"]}]}
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            (root/"codeql-python-sarif").mkdir()
+            (root/"codeql-python-sarif"/"python.sarif").write_text("{}")
+            (root/"checkov-results").mkdir()
+            (root/"checkov-results"/"results_sarif.sarif").write_text("{}")
+            contract=build_evidence_contract(manifest,root,"repo/fork","abc",["1"])
+            built=build_channel_status(manifest,root,contract=contract,
+                                       repository="repo/fork",commit="abc")
+            self.assertTrue(all(row["status"] == "COMPLETED" for row in built["channels"]))
+
+    def test_github_sarif_bound_is_deterministic_and_severity_first(self):
+        document={"runs":[{"results":[
+            {"ruleId":"low","level":"note","message":{"text":"low"}},
+            {"ruleId":"high-b","level":"error","message":{"text":"b"}},
+            {"ruleId":"high-a","level":"error","message":{"text":"a"}},
+        ]}]}
+        result=bound_sarif(document,2)
+        self.assertEqual([row["ruleId"] for row in result["runs"][0]["results"]],
+                         ["high-a","high-b"])
+
+    def test_sbom_policy_accepts_standard_inventories_and_reports_denied_licenses(self):
+        cyclonedx={"bomFormat":"CycloneDX","components":[
+            {"name":"safe","licenses":[{"license":{"id":"MIT"}}]},
+            {"name":"review","licenses":[{"license":{"id":"AGPL-3.0-only"}}]},
+        ]}
+        spdx={"spdxVersion":"SPDX-2.3","packages":[
+            {"name":"safe-spdx","licenseDeclared":"Apache-2.0","licenseConcluded":"NOASSERTION"}
+        ]}
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);cdx=root/"image.cdx.json";spdx_path=root/"image.spdx.json"
+            cdx.write_text(json.dumps(cyclonedx));spdx_path.write_text(json.dumps(spdx))
+            sbom_status,sarif=evaluate_sbom([cdx,spdx_path])
+        self.assertEqual(sbom_status["status"],"POLICY_FINDINGS")
+        self.assertEqual(sbom_status["finding_count"],1)
+        self.assertEqual(sbom_status["formats"],["CycloneDX","SPDX"])
+        self.assertEqual(sarif["runs"][0]["tool"]["driver"]["name"],"SBOM Policy")
+        self.assertEqual(len(sarif["runs"][0]["results"]),1)
     def test_dashboard_is_bounded_and_exposes_all_current_findings(self):
         result=snapshot([raw("CodeQL"),raw("Semgrep")])
         with tempfile.TemporaryDirectory() as d:
@@ -98,6 +145,11 @@ class MonitoringTests(unittest.TestCase):
             self.assertIn("Security findings",page)
             self.assertIn("securityFinding",page)
             self.assertIn("Contextual AI candidates",page)
+            self.assertIn("Supervisor overview",page)
+            self.assertIn("Highest-risk areas",page)
+            self.assertIn("Publication path",page)
+            self.assertIn("data-filter",page)
+            self.assertIn("copyLink",page)
     def test_required_manifest_maps_sixteen_channels_to_four_workflows(self):
         root=Path(__file__).resolve().parents[2]
         manifest=json.loads((root/"config/code-analysis/required-channels.json").read_text(encoding="utf-8"))
@@ -105,6 +157,31 @@ class MonitoringTests(unittest.TestCase):
         self.assertEqual(len(channels),16)
         self.assertEqual({row["workflow"] for row in channels},{"01-code-quality.yml","02-security-sast.yml","03-dependency-security.yml","04-code-health.yml"})
         self.assertTrue(all(row["artifact_patterns"] for row in channels))
+
+    def test_real_manifest_accepts_one_retained_artifact_for_all_sixteen_channels(self):
+        manifest=json.loads(Path("config/code-analysis/required-channels.json").read_text(
+            encoding="utf-8"))
+        artifact_names={
+            "ruff":"ruff-results.json", "pyright":"pyright-results.json",
+            "eslint":"eslint-results.json", "typescript":"tsc-results.txt",
+            "bandit":"bandit-results.json", "codeql":"codeql-python.sarif",
+            "semgrep":"semgrep-results.json", "osv":"osv-results.sarif",
+            "gitleaks":"gitleaks-results.sarif", "trivy":"trivy-fs.sarif",
+            "checkov":"checkov-results.sarif", "hadolint":"hadolint.sarif",
+            "vulture":"vulture-results.txt", "radon":"radon-cc.json",
+            "xenon":"xenon-results.txt", "coverage":"coverage.json",
+        }
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            for channel,name in artifact_names.items():
+                folder=root/channel
+                folder.mkdir()
+                (folder/name).write_text("{}",encoding="utf-8")
+            contract=build_evidence_contract(manifest,root,"repo/fork","abc",["1","2","3","4"])
+            built=build_channel_status(manifest,root,contract=contract,
+                                       repository="repo/fork",commit="abc")
+            self.assertEqual(len(built["channels"]),16)
+            self.assertTrue(all(row["status"] == "COMPLETED" for row in built["channels"]))
     def test_enterprise_workflow_policy_and_advisory_check_contract(self):
         self.assertEqual(audit_workflows(),[])
         layout=json.loads((Path(__file__).resolve().parents[2]/"config/code-analysis/service-layout.json").read_text(encoding="utf-8"))
@@ -119,7 +196,21 @@ class MonitoringTests(unittest.TestCase):
         self.assertIn("tail -n 30 pipeline-diagnostic.log",aggregation)
         self.assertIn("REDACTED",aggregation)
         coderabbit=(Path(__file__).resolve().parents[2]/".coderabbit.yaml").read_text(encoding="utf-8")
-        self.assertNotIn("base_branches:",coderabbit)
+        self.assertIn('base_branches:\n      - ".*"',coderabbit)
+        self.assertIn("timeout_ms: 900000",coderabbit)
+
+    def test_analysis_workflows_use_no_deprecated_node20_action_pins(self):
+        deprecated={
+            "11d5960a326750d5838078e36cf38b85af677262",
+            "a26af69be951a213d495a4c3e4e4022e16d87065",
+            "49933ea5288caeca8642d1e84afbd3f7d6820020",
+            "6d786de4d6f3531a740e445b53a42b622bbbace8",
+        }
+        for number in range(1,10):
+            for path in Path(".github/workflows").glob(f"0{number}-*.yml"):
+                text=path.read_text(encoding="utf-8")
+                for sha in deprecated:
+                    self.assertNotIn(sha,text,path.name)
     def test_invalid_current_fails_closed(self):
         base=evidence([]);base["baseline_id"]="base";bad=evidence([]);bad["schema_version"]="future"
         with self.assertRaises(EvidenceError): compare(bad,base,None,status(),{"decisions":[]})
@@ -138,6 +229,10 @@ class MonitoringTests(unittest.TestCase):
         unit=Path("deploy/code-analysis-dashboard/agentic-findings-pull.service").read_text(encoding="utf-8")
         self.assertIn('127.0.0.1:8787:8080',compose);self.assertIn("read_only: true",compose)
         self.assertIn("cap_drop:\n      - ALL",compose);self.assertIn("/healthz",compose)
+        nginx=Path("deploy/code-analysis-dashboard/nginx.conf").read_text(encoding="utf-8")
+        timer=Path("deploy/code-analysis-dashboard/agentic-findings-pull.timer").read_text(encoding="utf-8")
+        self.assertIn("if (!-f /srv/current/index.html) { return 503; }",nginx)
+        self.assertIn("OnUnitInactiveSec=5min",timer)
         self.assertIn("LoadCredential=github-token:",unit);self.assertIn("NoNewPrivileges=true",unit)
         self.assertNotIn("GH_TOKEN=",unit);self.assertNotIn("github-token",unit.split("ExecStart=",1)[1].splitlines()[0])
 
@@ -221,6 +316,19 @@ class MonitoringTests(unittest.TestCase):
         self.assertIn("potential projects failed|Missing required packages", dependency)
         self.assertIn('[[ "$scan_exit" -le 1 ]]', dependency)
 
+    def test_manual_cross_branch_jobs_never_execute_target_only_analysis_tooling(self):
+        quality=Path(".github/workflows/01-code-quality.yml").read_text(encoding="utf-8")
+        self.assertIn("python .analysis-tooling/scripts/code_analysis/audit_workflows.py",
+                      quality)
+        self.assertNotIn("run: python scripts/code_analysis/audit_workflows.py", quality)
+        self.assertGreaterEqual(quality.count("scripts/code_analysis"), 2)
+
+        for workflow_name in ("01-code-quality.yml", "02-security-sast.yml",
+                              "03-dependency-security.yml", "04-code-health.yml"):
+            workflow=Path(".github/workflows",workflow_name).read_text(encoding="utf-8")
+            self.assertIn("inputs.scan_sha || github.event.pull_request.head.sha || github.sha",
+                          workflow)
+
     def test_original_proposal_tools_are_explicitly_accounted_for(self):
         catalog=json.loads(Path("config/code-analysis/proposal-tool-catalog.json").read_text(encoding="utf-8"))
         tools={row["tool"]:row for row in catalog["tools"]}
@@ -250,11 +358,62 @@ class MonitoringTests(unittest.TestCase):
             current=json.loads((output/"normalized"/"current-snapshot.json").read_text(encoding="utf-8"))
             additional={row["tool"]:row for row in current["additional_channels"]}
             self.assertEqual(additional["Snyk"]["status"],"CONFIGURED_COMPLETE")
-            self.assertEqual(additional["CodeRabbit"]["status"],"PENDING_ACTIVATION")
+            self.assertEqual(additional["CodeRabbit"]["status"],"PENDING_REVIEW")
             self.assertEqual(additional["CodeRabbit"]["evidence_source"],"AI_ADVISORY")
             dashboard=(publication/"current"/"index.html").read_text(encoding="utf-8")
-            self.assertIn("Additional analysis lanes",dashboard)
+            self.assertIn("Security controls &amp; optional assurance",dashboard)
+            self.assertIn("Operational assurance",dashboard)
+            self.assertIn("Required scanner evidence",dashboard)
+            self.assertIn("Critical and high review queue",dashboard)
             self.assertIn("Scanner distribution",dashboard)
+
+    def test_real_sixteen_channel_pipeline_builds_complete_dashboard(self):
+        sarif=json.dumps({"version":"2.1.0","runs":[]})
+        files={
+            "quality/ruff-results.json":"[]",
+            "quality/pyright-results.json":json.dumps({"generalDiagnostics":[]}),
+            "quality/eslint-results.json":"[]",
+            "quality/tsc-results.txt":"",
+            "quality/bandit-results.json":json.dumps({"results":[]}),
+            "sast/codeql-python.sarif":sarif,
+            "sast/semgrep-results.json":json.dumps({"results":[]}),
+            "supply/osv-results.sarif":sarif,
+            "supply/gitleaks-results.sarif":sarif,
+            "supply/trivy-fs.sarif":sarif,
+            "supply/checkov-results.sarif":sarif,
+            "supply/hadolint.sarif":sarif,
+            "health/vulture-results.txt":"",
+            "health/radon-cc.json":"{}",
+            "health/xenon-results.txt":"",
+            "health/coverage.json":json.dumps({"files":{}}),
+            "optional/snyk-status.json":json.dumps({
+                "schema_version":"1","scanner_family":"Snyk",
+                "status":"NOT_CONFIGURED","reason":"test fixture",
+            }),
+        }
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);artifacts=root/"artifacts"
+            for relative,content in files.items():
+                target=artifacts/relative
+                target.parent.mkdir(parents=True,exist_ok=True)
+                target.write_text(content,encoding="utf-8")
+            output=root/"output";publication=root/"published"
+            build_pipeline(Namespace(
+                artifacts=artifacts,output=output,
+                repository="combustrrr/Agentic-Kibana",commit="a"*40,
+                branch="Testing",workflow_run_id=["1","2","3","4"],
+                manifest=Path("config/code-analysis/required-channels.json"),
+                tool_catalog=Path("config/code-analysis/proposal-tool-catalog.json"),
+                publication_root=publication,
+            ))
+            channel_status=json.loads((output/"channel-status.json").read_text(encoding="utf-8"))
+            snapshot=json.loads((output/"normalized/current-snapshot.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(channel_status["channels"]),16)
+            self.assertTrue(all(row["status"] == "COMPLETED"
+                                for row in channel_status["channels"]))
+            self.assertTrue(snapshot["publishable"])
+            self.assertEqual(snapshot["finding_count"],0)
+            self.assertTrue((publication/"current/index.html").is_file())
 
     def test_pull_worker_rejects_zip_path_traversal(self):
         with tempfile.TemporaryDirectory() as d:
@@ -285,6 +444,15 @@ class MonitoringTests(unittest.TestCase):
                 if previous_token is not None: os.environ["GH_TOKEN"]=previous_token
                 if previous_file is None: os.environ.pop("GH_TOKEN_FILE",None)
                 else: os.environ["GH_TOKEN_FILE"]=previous_file
+
+    def test_pull_worker_ignores_corrupt_optional_state(self):
+        with tempfile.TemporaryDirectory() as d:
+            state=Path(d)/"state.json"
+            state.write_text("{broken",encoding="utf-8")
+            self.assertEqual(read_state(state),{})
+            state.write_text(json.dumps({"schema_version":"future","artifact_id":1}),
+                             encoding="utf-8")
+            self.assertEqual(read_state(state),{})
 
     def test_dashboard_artifact_identity_is_source_branch_scoped(self):
         branch="feature/static-code-analysis"
@@ -320,6 +488,50 @@ class MonitoringTests(unittest.TestCase):
         self.assertEqual(artifact["id"],210)
         self.assertEqual(commit,current)
 
+    def test_pull_worker_paginates_busy_multi_branch_history(self):
+        branch="feature/rare";key=artifact_branch_key(branch);current="c"*40
+        first_page=[{"id":number} for number in range(100)]
+        responses=[{"commit":{"sha":current}}, {"workflow_runs":first_page}]
+        responses.extend({"artifacts":[]} for _ in first_page)
+        responses.extend([
+            {"workflow_runs":[{"id":101}]},
+            {"artifacts":[{"id":999,"expired":False,
+                            "name":f"current-findings-dashboard-{key}-{current}-101"}]},
+        ])
+        with patch("scripts.code_analysis.pull_worker.request_json",side_effect=responses) as request:
+            run,artifact,commit=select_artifact("combustrrr/Agentic-Kibana",branch,"token")
+        self.assertEqual((run["id"],artifact["id"],commit),(101,999,current))
+        self.assertTrue(any("page=2" in call.args[0] for call in request.call_args_list))
+
+    def test_manual_artifact_selection_requires_successful_aggregator_and_current_head(self):
+        branch="feature/manual";commit="d"*40;artifact_id=777
+        artifact={"id":artifact_id,"expired":False,
+                  "name":f"current-findings-dashboard-{artifact_branch_key(branch)}-{commit}-55",
+                  "workflow_run":{"id":55}}
+        run={"id":55,"conclusion":"success",
+             "path":".github/workflows/05-issue-aggregation.yml"}
+        with patch("scripts.code_analysis.pull_worker.request_json",side_effect=[
+                artifact,{"commit":{"sha":commit}},run]):
+            selected=select_artifact_by_id("combustrrr/Agentic-Kibana",branch,artifact_id,"token")
+        self.assertEqual(selected,(run,artifact,commit))
+
+        stale="e"*40
+        with patch("scripts.code_analysis.pull_worker.request_json",side_effect=[
+                artifact,{"commit":{"sha":stale}}]):
+            with self.assertRaisesRegex(RuntimeError,"but latest"):
+                select_artifact_by_id("combustrrr/Agentic-Kibana",branch,artifact_id,"token")
+
+    def test_manual_artifact_selection_rejects_wrong_workflow(self):
+        branch="feature/manual";commit="f"*40
+        artifact={"id":778,"expired":False,
+                  "name":f"current-findings-dashboard-{artifact_branch_key(branch)}-{commit}-56",
+                  "workflow_run":{"id":56}}
+        with patch("scripts.code_analysis.pull_worker.request_json",side_effect=[
+                artifact,{"commit":{"sha":commit}},
+                {"id":56,"conclusion":"success","path":".github/workflows/01-code-quality.yml"}]):
+            with self.assertRaisesRegex(RuntimeError,"not from a successful dashboard"):
+                select_artifact_by_id("combustrrr/Agentic-Kibana",branch,778,"token")
+
     def test_every_branch_uses_exact_pr_head_and_automatic_aggregation(self):
         for name in ("01-code-quality.yml","02-security-sast.yml",
                      "03-dependency-security.yml","04-code-health.yml"):
@@ -338,6 +550,23 @@ class MonitoringTests(unittest.TestCase):
         self.assertIn("github.event.workflow_run.event == 'pull_request'",aggregate)
         self.assertNotIn('contains(fromJSON',aggregate)
         self.assertIn("branch_hash=",aggregate)
+        self.assertIn("steps.analysis-artifact.outputs.artifact-id",aggregate)
+        self.assertIn("Artifact ID for validated manual recovery",aggregate)
+
+    def test_security_expansion_is_structured_and_runtime_lanes_stay_isolated(self):
+        dependency=Path(".github/workflows/03-dependency-security.yml").read_text(encoding="utf-8")
+        for marker in ("shipping-image-security:","workflow-security-posture:",
+                       "backend.cdx.json","webui.spdx.json","zizmor==1.29.0",
+                       "secret_scanning_push_protection","shipping-image-provenance.intoto.json"):
+            self.assertIn(marker,dependency)
+        self.assertNotIn("secret-scanning-alerts.json",dependency)
+        dynamic=Path(".github/workflows/07-api-fuzzing.yml").read_text(encoding="utf-8")
+        self.assertIn('cron: "17 4 * * 6"',dynamic)
+        self.assertIn("atheris==3.0.0",dynamic)
+        self.assertIn("-runs=25000",dynamic)
+        self.assertNotIn("\n  pull_request:\n",dynamic)
+        model=Path(".github/codeql/extensions/agentic-soc-python/models/security.model.yml")
+        self.assertTrue(model.is_file())
 
     def test_one_click_manual_analysis_dispatches_all_scanners(self):
         workflow=Path(".github/workflows/08-full-code-analysis.yml").read_text(encoding="utf-8")
@@ -362,6 +591,19 @@ class MonitoringTests(unittest.TestCase):
         self.assertIn("Open dashboard build and download the searchable artifact",workflow)
         self.assertNotIn("issues: write",workflow)
         self.assertNotIn("contents: write",workflow)
+
+    def test_default_branch_supervises_every_latest_fork_branch_head(self):
+        workflow=Path(".github/workflows/08-full-code-analysis.yml").read_text(encoding="utf-8")
+        self.assertIn('cron: "7,22,37,52 * * * *"',workflow)
+        self.assertIn("if: github.event_name == 'schedule'",workflow)
+        self.assertIn('gh api --paginate "repos/${GITHUB_REPOSITORY}/branches?per_page=100"',workflow)
+        self.assertIn("[.name, .commit.sha] | @tsv",workflow)
+        self.assertIn('check_namespace="agentic-soc-current-findings-v1"',workflow)
+        self.assertIn('title="Analyze branch · $branch · $sha"',workflow)
+        self.assertIn('-f expected_sha="$sha"',workflow)
+        self.assertIn('if [[ -n "$EXPECTED_SHA"',workflow)
+        self.assertIn("failures >= 3",workflow)
+        self.assertNotIn("pull_request_target:",workflow)
 
     def test_coderabbit_exact_head_comments_are_separate_ai_advisories(self):
         commit="a"*40;repository="combustrrr/Agentic-Kibana";branch="feature/review"
@@ -395,6 +637,8 @@ class MonitoringTests(unittest.TestCase):
         self.assertIn("collect_coderabbit.py",aggregate)
         refresh=Path(".github/workflows/09-coderabbit-advisory-refresh.yml").read_text(encoding="utf-8")
         self.assertIn("pull_request_review:",refresh)
+        self.assertIn("GH_REPO: ${{ github.repository }}",refresh)
+        self.assertNotIn("uses: actions/checkout@",refresh)
         self.assertIn("github.event.review.commit_id == github.event.pull_request.head.sha",refresh)
         self.assertIn("09-coderabbit-advisory-refresh",str(Path(".github/workflows/09-coderabbit-advisory-refresh.yml")))
         self.assertNotIn("issues: write",refresh)

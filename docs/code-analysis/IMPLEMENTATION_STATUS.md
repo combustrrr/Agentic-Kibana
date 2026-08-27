@@ -123,6 +123,18 @@ branch's root source tree. Manual runs carry a deterministic branch/SHA display 
 which is used for run discovery because GitHub associates `workflow_dispatch` metadata
 with the workflow-definition ref rather than the separately pinned source commit.
 
+### Latest-head fleet supervisor
+
+The trusted default-branch definition of `08-full-code-analysis.yml` runs every 15
+minutes. It paginates the complete fork branch list, derives the deterministic dashboard
+Check identity for each current SHA, and dispatches only uncovered heads. Scheduled work
+never checks out or executes branch source itself; it passes the observed branch and SHA
+to the existing bounded orchestrator. Active branch/SHA runs are deduplicated and failed
+exact heads have a three-attempt ceiling, while a later commit is treated independently.
+This closes the GitHub trigger gap for clean or old branches that do not contain the
+analysis workflow files. Native same-repository PR events remain the exact-head fast
+path; untrusted fork-PR execution is not elevated through `pull_request_target`.
+
 ### QA VM and local analysis
 
 The same `scripts/code_analysis/pipeline.py` is used by Actions and the QA/local worker.
@@ -157,15 +169,29 @@ Additional lanes:
 - **Snyk Open Source + Snyk Code:** optional, scan-only, and now verified in fork
   Actions. It contributes SARIF when available but does not determine the 16-channel
   publishability gate.
-- **Schemathesis:** manual dynamic lane; JUnit failures normalize as `DYNAMIC`, including
-  explicit API-500 classification. It is not static coverage.
+- **Schemathesis:** manual/weekly isolated dynamic lane with 250 examples; JUnit
+  failures normalize as `DYNAMIC`, including explicit API-500 classification. It is
+  not static coverage.
 - **CodeRabbit:** automatic/incremental cloud-review configuration, exact-head GitHub
   review evidence collection, and dashboard refresh are implemented. Findings remain
   a separate `AI_ADVISORY` lane and do not corroborate deterministic results. Repository
   owner GitHub App authorization and first live review remain externally pending.
+- **Shipping security:** the exact backend and web UI shipping images are built and
+  scanned; CycloneDX/SPDX inventories, bounded denied-license policy results, and
+  unsigned local provenance are retained.
+- **Repository posture:** zizmor and OpenSSF Scorecard produce optional SARIF. A
+  read-only GitHub API check records secret-scanning and push-protection state and only
+  alert numbers, never detected secret material.
+- **Custom security models:** CodeQL data extensions and Semgrep taint rules model
+  FastAPI request input, SQL/path/SSRF sinks, authorization boundaries, React HTML
+  injection, and LLM output reaching execution.
 - **SonarQube and CodeScene:** deferred until a stable machine-readable export proves
   useful findings not already represented.
-- **Atheris:** deferred research; no bounded production-relevant fuzz harness is active.
+- **Atheris:** a bounded weekly/manual Linux harness exercises deterministic
+  case-decision state transitions for 25,000 inputs and retains crash evidence.
+- **KICS/tfsec:** not activated. Checkov and Trivy config already cover IaC; KICS is
+  deferred while its current Action has a public compromise advisory, and a future
+  standalone comparison must demonstrate unique findings.
 - **PR-Agent/Qodo/Qodana:** evaluated or documented alternatives, not active channels.
 
 GitHub-native CodeQL, Copilot Autofix, AI findings, Dependabot, dependency graph, and
@@ -273,21 +299,23 @@ product is unavailable. Snyk remains optional until unique detection value is me
 ### CodeRabbit
 
 `.coderabbit.yaml` enables cloud automatic review and incremental review after every
-push to an eligible PR, with automatic pausing disabled. Request-changes behavior,
+push to an eligible PR, explicitly includes every fork base branch, and disables
+automatic pausing. Request-changes behavior,
 chat auto-replies, and bot reviews remain disabled. Code-sharing approval was received.
-GitHub Checks context is explicitly enabled. Exact-head inline CodeRabbit comments now
+GitHub Checks context is explicitly enabled with the maximum 15-minute scanner wait.
+Exact-head inline CodeRabbit comments now
 normalize through a read-only GitHub evidence collector and a CodeRabbit review event
-requests a dashboard-only refresh; AI results remain separate and never corroborate
-deterministic findings. The local CLI/WSL path is not part of the deployment design. A
-fork-only GitHub App installation and real PR review remain incomplete and must not be
-claimed as verified.
+requests a dashboard-only refresh with explicit repository context; AI results remain
+separate and never corroborate deterministic findings. The local CLI/WSL path is not
+part of the deployment design. The repository owner reports the fork-only GitHub App
+installed; a real exact-head PR review remains the required verification evidence.
 
 ## 12. Deferred roadmap
 
 Separate approval is required for:
 
 1. QA-VM deployment and company VPN/OIDC configuration.
-2. CodeRabbit GitHub App activation and AI-advisory evidence-adapter evaluation.
+2. CodeRabbit exact-head cloud review proof and AI-advisory evidence-adapter evaluation.
 3. Non-redundant SonarQube or CodeScene export ingestion.
 4. Human triage operations, persistence, or DefectDojo evaluation.
 5. Precision/false-positive measurement.

@@ -10,12 +10,29 @@ from typing import Any
 
 import yaml
 
+try:
+    from scripts.code_analysis.audit_workflows import audit as audit_analysis_workflows
+except ModuleNotFoundError:  # Direct `python scripts/check_ci_contract.py` execution.
+    from code_analysis.audit_workflows import audit as audit_analysis_workflows
+
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_DIR = ROOT / ".github" / "workflows"
 SHA_REF = re.compile(r"^[0-9a-f]{40}$")
 IMAGE_REF = re.compile(r"^.+@sha256:[0-9a-f]{64}$")
-EXPECTED_WORKFLOWS = {"ci.yml", "docs.yml", "release.yml"}
+CORE_WORKFLOWS = {"ci.yml", "docs.yml", "release.yml"}
+ANALYSIS_WORKFLOWS = {f"0{number}-{name}.yml" for number, name in (
+    (1, "code-quality"),
+    (2, "security-sast"),
+    (3, "dependency-security"),
+    (4, "code-health"),
+    (5, "issue-aggregation"),
+    (6, "canary-validation"),
+    (7, "api-fuzzing"),
+    (8, "full-code-analysis"),
+    (9, "coderabbit-advisory-refresh"),
+)}
+EXPECTED_WORKFLOWS = CORE_WORKFLOWS | ANALYSIS_WORKFLOWS
 SHIPPING_DOCKERFILES = (
     ROOT / "backend" / "Dockerfile",
     ROOT / "webui" / "Dockerfile",
@@ -787,13 +804,17 @@ def main() -> int:
     paths = _workflow_paths()
     for path in paths:
         workflow = _load(path)
-        _assert_common(path, workflow)
+        if path.name in CORE_WORKFLOWS:
+            _assert_common(path, workflow)
         if path.name == "ci.yml":
             _assert_ci(path, workflow)
         elif path.name == "release.yml":
             _assert_release(path, workflow)
         elif path.name == "docs.yml":
             _assert_docs(path, workflow)
+    analysis_errors = audit_analysis_workflows()
+    if analysis_errors:
+        raise ValueError("code-analysis workflow policy failed: " + "; ".join(analysis_errors))
     for path in SHIPPING_DOCKERFILES:
         _assert_dockerfile_bases(path)
     _assert_webui_build_platforms(ROOT / "webui" / "Dockerfile")

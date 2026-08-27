@@ -11,6 +11,11 @@ permissions:
   contents: read
   pull-requests: read
 
+# This dispatcher intentionally has no checkout. Give GitHub CLI an explicit trusted
+# repository context so it never depends on absent local .git metadata.
+env:
+  GH_REPO: ${{ github.repository }}
+
 jobs:
   refresh:
     name: Refresh exact-head AI advisory evidence

@@ -17,7 +17,7 @@
 | `python/prompt_injection.py` | LLM output in eval()/subprocess | `code-injection` | Semgrep (custom rule) |
 | `typescript/xss_dangerously.tsx` | dangerouslySetInnerHTML | `xss` | ESLint, CodeQL |
 | `Dockerfile.insecure` | Running as root, no tag | `dockerfile-root` | Checkov (`CKV_DOCKER_3`); Hadolint may report related pinning/package rules but does not report an absent `USER` |
-| `requirements-vulnerable.txt` | Known-vulnerable packages | `dependency-vuln` | OSV-Scanner, Snyk |
+| `requirements-vulnerable.fixture` | Known-vulnerable packages (copied to a temporary lockfile only during canary validation) | `dependency-vuln` | OSV-Scanner, Snyk |
 
 ## Validation
 

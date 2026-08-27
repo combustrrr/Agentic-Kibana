@@ -1,5 +1,5 @@
 name: Full Code Analysis (Manual)
-run-name: Analyze branch · ${{ inputs.scan_branch || github.ref_name }}
+run-name: Analyze branch · ${{ inputs.scan_branch || github.ref_name }} · ${{ inputs.expected_sha || 'latest' }}
 
 on:
   workflow_dispatch:
@@ -8,11 +8,18 @@ on:
         description: "Fork branch to scan; blank uses the branch selected in Run workflow"
         required: false
         type: string
+      expected_sha:
+        description: "Supervisor-observed branch head; blank resolves the latest head at start"
+        required: false
+        type: string
+  schedule:
+    - cron: "7,22,37,52 * * * *"
 
 # One operator action pins a branch head, runs the four read-only scanner groups,
 # waits for them, and builds the exact-commit dashboard.
 permissions:
   actions: write
+  checks: read
   contents: read
 
 concurrency:
@@ -20,8 +27,92 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  discover-latest-branch-heads:
+    name: Discover unanalysed latest branch heads
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      WORKFLOW_REF: ${{ github.event.repository.default_branch }}
+    steps:
+      - name: Dispatch uncovered branch heads
+        shell: bash
+        run: |
+          set -euo pipefail
+          check_name="Code Analysis Dashboard"
+          check_namespace="agentic-soc-current-findings-v1"
+          dispatched=0
+          covered=0
+          active=0
+          exhausted=0
+          failed_retry=0
+
+          mapfile -t branch_heads < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/branches?per_page=100" \
+              --jq '.[] | [.name, .commit.sha] | @tsv' | LC_ALL=C sort
+          )
+          runs="$(gh run list --workflow 08-full-code-analysis.yml \
+            --event workflow_dispatch --limit 100 \
+            --json displayTitle,status,conclusion,url)"
+          for branch_head in "${branch_heads[@]}"; do
+            IFS=$'\t' read -r branch sha <<<"$branch_head"
+            if [[ ! "$sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+              echo "::warning::Skipping branch with invalid head identity: $branch"
+              continue
+            fi
+            sha="${sha,,}"
+            check_key="${GITHUB_REPOSITORY}:${sha}:${check_name}:${check_namespace}"
+            external_id="$(printf '%s' "$check_key" | sha256sum | cut -d' ' -f1)"
+            checks="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?filter=latest&per_page=100")"
+            conclusion="$(jq -r --arg name "$check_name" --arg external "$external_id" \
+              '[.check_runs[] | select(.name == $name and .external_id == $external)] | first | .conclusion // empty' \
+              <<<"$checks")"
+            if [[ "$conclusion" == neutral || "$conclusion" == success ]]; then
+              ((covered+=1))
+              continue
+            fi
+
+            title="Analyze branch · $branch · $sha"
+            active_url="$(jq -r --arg title "$title" \
+              '[.[] | select(.displayTitle == $title and (.status == "queued" or .status == "in_progress"))] | first | .url // empty' \
+              <<<"$runs")"
+            if [[ -n "$active_url" ]]; then
+              ((active+=1))
+              continue
+            fi
+
+            failures="$(jq -r --arg title "$title" \
+              '[.[] | select(.displayTitle == $title and .status == "completed" and .conclusion != "success")] | length' \
+              <<<"$runs")"
+            if (( failures >= 3 )); then
+              ((exhausted+=1))
+              echo "::warning::Retry limit reached for $branch at $sha"
+              continue
+            fi
+            if [[ -n "$conclusion" ]]; then ((failed_retry+=1)); fi
+            gh workflow run 08-full-code-analysis.yml \
+              --ref "$WORKFLOW_REF" \
+              -f scan_branch="$branch" \
+              -f expected_sha="$sha"
+            ((dispatched+=1))
+          done
+
+          {
+            echo "## Latest-head branch analysis supervisor"
+            echo
+            echo "- Fork branches observed: ${#branch_heads[@]}"
+            echo "- Already covered: $covered"
+            echo "- Already active: $active"
+            echo "- Retry limit reached: $exhausted"
+            echo "- Failed heads retried: $failed_retry"
+            echo "- Newly dispatched: $dispatched"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   dispatch:
     name: Scan branch head and build dashboard
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     # This orchestration job intentionally does not check out source. Give gh an
@@ -34,6 +125,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REQUESTED_BRANCH: ${{ inputs.scan_branch }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
           SELECTED_REF: ${{ github.ref_name }}
         shell: bash
         run: |
@@ -48,6 +140,10 @@ jobs:
           sha="$(jq -r '.commit.sha // empty' <<<"$payload")"
           if [[ ! "$sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
             echo "The selected branch has no valid head commit" >&2
+            exit 1
+          fi
+          if [[ -n "$EXPECTED_SHA" && "${sha,,}" != "${EXPECTED_SHA,,}" ]]; then
+            echo "Branch moved from supervisor-observed $EXPECTED_SHA to $sha; a later sweep will analyze the new head" >&2
             exit 1
           fi
           echo "branch=$branch" >> "$GITHUB_OUTPUT"

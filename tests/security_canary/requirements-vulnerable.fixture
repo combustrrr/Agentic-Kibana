@@ -4,7 +4,8 @@
 # This file DELIBERATELY lists known-vulnerable packages.
 # It exists to validate that the scanner pipeline detects them.
 #
-# Expected detections: OSV-Scanner, Snyk, Dependabot
+# Expected detections: OSV-Scanner and Snyk. The non-lockfile extension prevents
+# repository dependency discovery from treating deliberate canaries as product risk.
 # ============================================================
 
 flask==0.12.2          # CVE-2023-30893: Flask debug mode XSS

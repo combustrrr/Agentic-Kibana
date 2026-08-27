@@ -28,6 +28,7 @@ API = "https://api.github.com"
 MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
 MAX_EXTRACTED_BYTES = 250 * 1024 * 1024
 MAX_ARCHIVE_FILES = 10_000
+MAX_RUN_PAGES = 10
 
 
 def request_json(url: str, token: str) -> dict:
@@ -110,22 +111,63 @@ def artifact_commit(name: str, branch: str) -> str:
 def select_artifact(repository: str, branch: str, token: str) -> tuple[dict, dict, str]:
     # workflow_run jobs themselves are attached to the default branch. Filtering the
     # API by the analyzed branch would therefore hide valid feature/Testing snapshots.
-    query = urllib.parse.urlencode({"status": "success", "per_page": 30})
     prefix = f"current-findings-dashboard-{artifact_branch_key(branch)}-"
     expected_commit = branch_head_sha(repository, branch, token)
-    runs = request_json(f"{API}/repos/{repository}/actions/workflows/05-issue-aggregation.yml/runs?{query}", token)
-    for run in runs.get("workflow_runs", []):
-        artifacts = request_json(f"{API}/repos/{repository}/actions/runs/{run['id']}/artifacts", token)
-        candidates = [row for row in artifacts.get("artifacts", [])
-                      if row.get("name", "").startswith(prefix) and not row.get("expired")]
-        for artifact in sorted(candidates, key=lambda row: row["id"], reverse=True):
-            analyzed_commit = artifact_commit(artifact["name"], branch)
-            if analyzed_commit == expected_commit:
-                return run, artifact, analyzed_commit
+    for page in range(1, MAX_RUN_PAGES + 1):
+        query = urllib.parse.urlencode({"status": "success", "per_page": 100, "page": page})
+        runs = request_json(
+            f"{API}/repos/{repository}/actions/workflows/05-issue-aggregation.yml/runs?{query}",
+            token,
+        )
+        page_runs = runs.get("workflow_runs", [])
+        for run in page_runs:
+            artifacts = request_json(
+                f"{API}/repos/{repository}/actions/runs/{run['id']}/artifacts?per_page=100",
+                token,
+            )
+            candidates = [row for row in artifacts.get("artifacts", [])
+                          if row.get("name", "").startswith(prefix)
+                          and not row.get("expired")]
+            for artifact in sorted(candidates, key=lambda row: row["id"], reverse=True):
+                analyzed_commit = artifact_commit(artifact["name"], branch)
+                if analyzed_commit == expected_commit:
+                    return run, artifact, analyzed_commit
+        if len(page_runs) < 100:
+            break
     raise RuntimeError(
         f"no non-expired validated dashboard artifact found for latest {branch} commit "
         f"{expected_commit}"
     )
+
+
+def select_artifact_by_id(repository: str, branch: str, artifact_id: int,
+                          token: str) -> tuple[dict, dict, str]:
+    """Resolve an operator-selected artifact without weakening current-head safety."""
+    artifact = request_json(
+        f"{API}/repos/{repository}/actions/artifacts/{artifact_id}", token
+    )
+    if artifact.get("expired"):
+        raise RuntimeError(f"dashboard artifact {artifact_id} is expired")
+    name = str(artifact.get("name") or "")
+    analyzed_commit = artifact_commit(name, branch)
+    expected_commit = branch_head_sha(repository, branch, token)
+    if analyzed_commit != expected_commit:
+        raise RuntimeError(
+            f"artifact {artifact_id} analyzes {analyzed_commit}, but latest {branch} "
+            f"is {expected_commit}"
+        )
+    run_id = artifact.get("workflow_run", {}).get("id")
+    if not isinstance(run_id, int):
+        raise RuntimeError(f"dashboard artifact {artifact_id} has no workflow-run identity")
+    run = request_json(f"{API}/repos/{repository}/actions/runs/{run_id}", token)
+    workflow_path = str(run.get("path") or "").replace("\\", "/")
+    if run.get("conclusion") != "success" or not workflow_path.endswith(
+        "/05-issue-aggregation.yml"
+    ):
+        raise RuntimeError(
+            f"artifact {artifact_id} is not from a successful dashboard aggregation run"
+        )
+    return run, artifact, analyzed_commit
 
 
 def write_state(path: Path, state: dict) -> None:
@@ -133,6 +175,18 @@ def write_state(path: Path, state: dict) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     temporary.replace(path)
+
+
+def read_state(path: Path) -> dict:
+    """Read optional optimization state; corruption must not strand publication."""
+    if not path.is_file():
+        return {}
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        print(f"ignoring corrupt pull state: {path}")
+        return {}
+    return state if isinstance(state, dict) and state.get("schema_version") == "1" else {}
 
 
 def read_token() -> str:
@@ -151,6 +205,10 @@ def main() -> None:
     parser.add_argument("--branch", default="feature/static-code-analysis")
     parser.add_argument("--publication-root", type=Path, required=True)
     parser.add_argument("--state-file", type=Path, required=True)
+    parser.add_argument("--artifact-id", type=int,
+                        help="manually select an exact dashboard artifact for the current branch head")
+    parser.add_argument("--force", action="store_true",
+                        help="revalidate and republish even when this artifact is already current")
     args = parser.parse_args()
     token = read_token()
     if not token:
@@ -158,12 +216,20 @@ def main() -> None:
             "GH_TOKEN or GH_TOKEN_FILE is required "
             "(Actions read-only fine-grained token or GitHub App token)"
         )
-    run, artifact, analyzed_commit = select_artifact(args.repository, args.branch, token)
-    if args.state_file.is_file():
-        state = json.loads(args.state_file.read_text(encoding="utf-8"))
-        if state.get("artifact_id") == artifact["id"]:
-            print(f"dashboard already current: artifact {artifact['id']}")
-            return
+    if args.artifact_id is not None:
+        if args.artifact_id <= 0:
+            raise SystemExit("--artifact-id must be a positive GitHub artifact ID")
+        run, artifact, analyzed_commit = select_artifact_by_id(
+            args.repository, args.branch, args.artifact_id, token
+        )
+    else:
+        run, artifact, analyzed_commit = select_artifact(
+            args.repository, args.branch, token
+        )
+    state = read_state(args.state_file)
+    if not args.force and state.get("artifact_id") == artifact["id"]:
+        print(f"dashboard already current: artifact {artifact['id']}")
+        return
     with tempfile.TemporaryDirectory(prefix="findings-pull-") as directory:
         root = Path(directory)
         archive = root / "artifact.zip"

@@ -7,6 +7,85 @@
 
 rules:
 
+  - id: agentic-soc-fastapi-ssrf-taint
+    message: FastAPI-controlled input reaches an outbound HTTP request URL. Enforce scheme, host, port, redirect, and private-address policy.
+    severity: ERROR
+    languages: [python]
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQUEST.query_params[...]
+          - pattern: $REQUEST.path_params[...]
+          - pattern: await $REQUEST.json()
+    pattern-sinks:
+      - pattern-either:
+          - pattern: httpx.get($URL, ...)
+          - pattern: httpx.post($URL, ...)
+          - pattern: $CLIENT.get($URL, ...)
+          - pattern: $CLIENT.post($URL, ...)
+          - pattern: $CLIENT.request(..., $URL, ...)
+    metadata:
+      category: security
+      cwe: CWE-918
+
+  - id: agentic-soc-fastapi-path-traversal-taint
+    message: FastAPI-controlled input reaches a filesystem path sink without a proven containment barrier.
+    severity: ERROR
+    languages: [python]
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQUEST.query_params[...]
+          - pattern: $REQUEST.path_params[...]
+          - pattern: await $REQUEST.json()
+    pattern-sinks:
+      - pattern-either:
+          - pattern: open($PATH, ...)
+          - pattern: Path($PATH).read_text(...)
+          - pattern: Path($PATH).read_bytes(...)
+          - pattern: FileResponse($PATH, ...)
+    metadata:
+      category: security
+      cwe: CWE-22
+
+  - id: agentic-soc-llm-output-to-execution-taint
+    message: LLM-derived output reaches a code or command execution sink.
+    severity: ERROR
+    languages: [python]
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $MODEL.invoke(...)
+          - pattern: await $MODEL.ainvoke(...)
+          - pattern: $RESPONSE.content
+    pattern-sinks:
+      - pattern-either:
+          - pattern: eval($VALUE)
+          - pattern: exec($VALUE)
+          - pattern: os.system($VALUE)
+          - pattern: subprocess.run($VALUE, ...)
+          - pattern: subprocess.Popen($VALUE, ...)
+    metadata:
+      category: agent-security
+      cwe: CWE-94
+
+  - id: agentic-soc-react-location-to-html-taint
+    message: Browser-controlled location data reaches a React or DOM HTML execution sink.
+    severity: ERROR
+    languages: [typescript]
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: window.location.$FIELD
+          - pattern: new URLSearchParams(...).get(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: '<$ELEMENT dangerouslySetInnerHTML={{__html: $VALUE}} />'
+          - pattern: $ELEMENT.innerHTML = $VALUE
+    metadata:
+      category: security
+      cwe: CWE-79
+
   # ── SQLAlchemy / aiosqlite — Raw SQL injection ─────────────────────────────
 
   - id: kavach-sqlalchemy-raw-string-execute

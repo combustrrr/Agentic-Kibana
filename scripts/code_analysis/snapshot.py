@@ -39,6 +39,8 @@ def build_additional_channels(catalog: dict, artifacts: Path | None,
             status = "MANUAL_DYNAMIC"
         elif state == "OPTIONAL_VERIFIED":
             status = "NOT_IN_CURRENT_SNAPSHOT"
+        elif state == "OPTIONAL_CONFIGURED":
+            status = "COMPLETED_OPTIONAL" if observation_counts.get(tool, 0) else "PENDING_REVIEW"
         elif state == "OPTIONAL_NOT_CONFIGURED":
             status = "PENDING_ACTIVATION"
         else:

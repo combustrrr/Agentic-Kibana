@@ -18,6 +18,10 @@ reviews:
     auto_incremental_review: true
     auto_pause_after_reviewed_commits: 0
     drafts: false
+    # The default covers only the repository default branch. This fork analyzes PRs
+    # targeting every maintained branch, so make that scope explicit.
+    base_branches:
+      - ".*"
     description_keyword: ""
     ignore_usernames:
       - "dependabot[bot]"
@@ -40,5 +44,7 @@ reviews:
   tools:
     github-checks:
       enabled: true
+      # Required scanner groups commonly exceed CodeRabbit's 90-second default.
+      timeout_ms: 900000
 chat:
   auto_reply: false

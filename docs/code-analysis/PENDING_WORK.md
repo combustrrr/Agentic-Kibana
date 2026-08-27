@@ -15,28 +15,38 @@ approved hosting belongs in the near-term backlog.
 coverage, advisory Check semantics, deployment hardening, and the executable workflow
 policy are implemented locally. Manual `Testing` runs #1/#2 exposed and drove fixes for
 checkout-free CLI repository context, default-branch workflow definitions, separate
-trusted `.analysis-tooling`, and manual run identity. Commit `14874b1` is on the fork
-analysis/default branches; a new end-to-end cloud rerun is the immediate acceptance gate.
+trusted `.analysis-tooling`, and manual run identity. A later failed dashboard exposed
+generic nested CodeQL/Checkov SARIF paths, and a documentation-to-code audit found that
+the Ruff job still invoked its policy script from the selected source branch. Local fixes
+now canonicalize those SARIF outputs, run every analysis helper from trusted tooling,
+bound only the supplementary GitHub Security SARIF view to GitHub's limit while retaining
+complete dashboard evidence, isolate deliberate dependency canaries from repository
+dependency discovery, and move analysis actions off deprecated Node 20 runtimes. These
+post-`14874b1` changes also register all nine analysis workflows with the repository-wide
+CI workflow allowlist and delegate their policy to the dedicated analysis auditor; this
+closes the shared `Workflow & shell contracts` failure visible across fork PRs. They
+require one new end-to-end cloud run before acceptance.
 
 **Exit criteria:**
 
 - all four scanner workflows succeed for the exact commit;
 - aggregation publishes a snapshot containing `additional_channels`;
 - Snyk displays its actual current status and evidence counts;
-- CodeRabbit displays `PENDING_ACTIVATION` and `AI_ADVISORY`;
+- CodeRabbit displays `PENDING_REVIEW` and `AI_ADVISORY` until exact-head evidence arrives;
 - required completion remains 16/16 and optional lanes do not affect publishability;
 - the Check links to the new real-data artifact.
 
 ### P0.2 Activate and verify CodeRabbit cloud PR review
 
-**Current state:** privacy/code-sharing approval received. Automatic cloud review and
-incremental review after every PR push are configured, without request-changes
-authority. Exact-head inline review-comment ingestion and dashboard refresh are
-implemented. The GitHub App installation and a real fork PR review remain unverified.
+**Current state:** privacy/code-sharing approval received and the repository owner reports
+the GitHub App installed. Automatic cloud review and incremental review after every PR
+push now explicitly cover every base branch, without request-changes authority. GitHub
+Checks wait for the scanner window, and exact-head inline review-comment ingestion plus
+checkout-free dashboard refresh are implemented. A real fork PR review remains unverified.
 
 **Exit criteria:**
 
-- install/authorize the CodeRabbit GitHub App on this fork only;
+- confirm the installed CodeRabbit GitHub App is authorized for this fork only;
 - open or update an eligible fork PR and verify automatic incremental review after a push;
 - verify dashboard adapter output is `AI_ADVISORY`, retains native evidence, rejects
   stale comments, and never contributes deterministic corroboration;
@@ -90,7 +100,8 @@ implemented. The GitHub App installation and a real fork PR review remain unveri
 
 ### P1.5 Verify GitHub-native secret posture
 
-- Confirm secret-scanning alerts and push-protection state on the fork.
+- Run the implemented read-only posture job and confirm secret-scanning and
+  push-protection state on the fork; an owner must enable disabled settings.
 - Keep Gitleaks as retained cross-platform evidence.
 - Do not expose detected secret values in dashboard artifacts.
 
@@ -100,13 +111,15 @@ implemented. The GitHub App installation and a real fork PR review remain unveri
 
 - Boot the bounded test backend in an isolated environment.
 - Run the existing manual workflow and verify `DYNAMIC` dashboard visibility.
-- Measure duration/flakiness before considering scheduled or per-commit execution.
+- Measure duration/flakiness before considering automatic dynamic execution. The
+  scheduled latest-head supervisor covers the required static scanners only.
 
-### P2.2 Atheris harness research
+### P2.2 Atheris execution validation
 
-- Select pure parsers/state-machine functions with bounded inputs and no external side
-  effects.
-- Add corpus, time/memory limits, crash artifact sanitization, and reproducibility.
+- Observe the first scheduled/manual Linux campaign for the implemented deterministic
+  case-decision harness and retain its status/crash artifact.
+- Extend only to pure parsers or state machines with bounded inputs and no external
+  side effects.
 - Keep outside the static publishability gate.
 
 ### P2.3 Other AI review tools

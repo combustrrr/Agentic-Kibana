@@ -110,7 +110,7 @@ EXPECTED_DETECTIONS: list[CanaryExpectation] = [
     ),
     # ── Vulnerable dependency ────────────────────────────────────────────────
     CanaryExpectation(
-        file_suffix="canary/requirements-vulnerable.txt",
+        file_suffix="canary-input/requirements-vulnerable.txt",
         concept="dependency-vuln",
         required_tools=["OSV-Scanner", "Snyk"],
         min_detections=1,
@@ -190,7 +190,7 @@ def main(findings_dir: str, verbose: bool) -> None:
     findings = load_findings(findings_path)
 
     print(f"\n{'='*60}")
-    print(f" Canary Coverage Validation")
+    print(" Canary Coverage Validation")
     print(f"{'='*60}")
     print(f"   Loaded {len(findings)} findings from {findings_dir}")
     print(f"   Checking {len(EXPECTED_DETECTIONS)} canary expectations\n")

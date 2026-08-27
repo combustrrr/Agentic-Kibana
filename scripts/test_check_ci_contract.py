@@ -136,11 +136,18 @@ class WorkflowPolicyTests(unittest.TestCase):
     def test_required_workflow_cannot_be_removed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "ci.yml").touch()
-            (root / "docs.yml").touch()
+            for name in policy.EXPECTED_WORKFLOWS - {"release.yml"}:
+                (root / name).touch()
             with mock.patch.object(policy, "WORKFLOW_DIR", root):
                 with self.assertRaisesRegex(ValueError, "missing=\\['release.yml'\\]"):
                     policy._workflow_paths()
+
+    def test_analysis_workflows_are_explicitly_allowed_and_policy_checked(self) -> None:
+        self.assertEqual(len(policy.ANALYSIS_WORKFLOWS), 9)
+        self.assertEqual(policy.audit_analysis_workflows(), [])
+        self.assertEqual(
+            {path.name for path in policy._workflow_paths()}, policy.EXPECTED_WORKFLOWS
+        )
 
     def test_mutable_action_reference_is_rejected(self) -> None:
         workflow = _ci_workflow()

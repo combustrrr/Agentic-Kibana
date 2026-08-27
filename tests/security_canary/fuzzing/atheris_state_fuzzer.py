@@ -15,7 +15,12 @@ CI: runs in the 07-api-fuzzing.yml workflow (weekly + on API changes).
 """
 
 import sys
-import atheris
+from dataclasses import dataclass
+
+try:
+    import atheris
+except ImportError:
+    atheris = None
 
 # ─────────────────────────────────────────────────────────────
 # Fuzzing targets — imports from the Kavach backend
@@ -24,9 +29,9 @@ import atheris
 # Import the actual state machine logic under test
 # (These imports require the backend package to be available)
 try:
-    from app.engine.case_manager import CaseManager, decide
-    from app.models import Case, Verdict, AutoClosePolicy
-    from app.constants import CaseStatus, CaseVerdict
+    from app.config import AutoClosePolicy
+    from app.constants import Verdict
+    from app.engine.case_manager import decide
     _BACKEND_AVAILABLE = True
 except ImportError:
     _BACKEND_AVAILABLE = False
@@ -83,62 +88,17 @@ def _parse_fuzz_input(data: bytes) -> FuzzCaseInput | None:
         return None
 
 
-def _construct_case(fuzz_input: FuzzCaseInput):
-    """Build a Case object with fuzzed parameters."""
-    from app.models import Case
-    from app.constants import CaseStatus, CaseVerdict
-
-    verdict_enum = {
-        "TRUE_POSITIVE": CaseVerdict.TRUE_POSITIVE,
-        "FALSE_POSITIVE": CaseVerdict.FALSE_POSITIVE,
-        "NEEDS_HUMAN": CaseVerdict.NEEDS_HUMAN,
-    }[fuzz_input.verdict]
-
-    status_enum = {
-        "NEW": CaseStatus.NEW,
-        "OPEN": CaseStatus.OPEN,
-        "INVESTIGATING": CaseStatus.INVESTIGATING,
-        "NEEDS_HUMAN": CaseStatus.NEEDS_HUMAN,
-        "RESOLVED": CaseStatus.RESOLVED,
-        "CLOSED": CaseStatus.CLOSED,
-    }[fuzz_input.status]
-
-    # Construct a minimal Case with fuzzed fields
-    case = Case(
-        id=f"fuzz-case-{fuzz_input.verdict}",
-        cluster_signature="fuzz-cluster",
-        verdict=verdict_enum,
-        confidence=fuzz_input.confidence,
-        risk_score=fuzz_input.risk_score,
-        status=status_enum,
-        raw_rule_id="fuzz-rule",
-        summary="Fuzzer-generated case",
-    )
-    return case
-
-
 def _run_decide(fuzz_input: FuzzCaseInput):
     """
     Run the deterministic case_manager.decide() function with fuzzed input.
     This is the core decision function that should never crash.
     """
     if not _BACKEND_AVAILABLE:
-        # Fallback: simulate the decision logic
-        policy = AutoClosePolicy(
-            enable_auto_close=True,
-            min_confidence=0.8,
-            max_risk_score=10.0,
-        )
-        return decide(fuzz_input.verdict, fuzz_input.confidence, fuzz_input.risk_score, policy)
-
-    case = _construct_case(fuzz_input)
-    policy = AutoClosePolicy(
-        enable_auto_close=True,
-        min_confidence=0.5,
-        max_risk_score=10.0,
-    )
+        raise RuntimeError("backend decision target is unavailable")
+    verdict = Verdict(fuzz_input.verdict)
+    policy = AutoClosePolicy()
     return decide(
-        verdict=fuzz_input.verdict,
+        verdict=verdict,
         confidence=fuzz_input.confidence,
         risk_score=fuzz_input.risk_score,
         policy=policy,
@@ -187,5 +147,7 @@ if __name__ == "__main__":
         sys.exit(0)
 
     # Full atheris fuzzing
+    if atheris is None:
+        raise SystemExit("Atheris is required unless --no-atheris is supplied")
     atheris.Setup(sys.argv, TestOneInput)
     atheris.Fuzz()

@@ -3,7 +3,7 @@
 > **Current phase:** Current-findings snapshot platform accepted on the fork; QA-VM hosting pending
 > **Branch:** `feature/static-code-analysis`
 > **Operating mode:** fork-only, read-only full-codebase detection and visualization
-> **Last updated:** 2026-08-26
+> **Last updated:** 2026-08-27
 
 This plan records implementation truth, not proposal intent. The consolidated handoff is
 [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md). A workflow file or Compose
@@ -15,12 +15,12 @@ required manifest has 16 channels and does not mean every shortlisted proposal t
 
 | Phase | Status | Work completed | Work remaining / exit condition |
 |---|---|---|---|
-| 0 — Dormant setup | **Complete** | Fork safety established; `feature/static-code-analysis` retained; fork default synchronized; existing `ci.yml` untouched; custom Semgrep, CodeQL, Bandit, Ruff, Gitleaks and canary configuration added. | Superseded by the active fork push/PR/manual trigger model; schedules remain disabled. |
+| 0 — Dormant setup | **Complete** | Fork safety established; `feature/static-code-analysis` retained; fork default synchronized; existing `ci.yml` untouched; custom Semgrep, CodeQL, Bandit, Ruff, Gitleaks and canary configuration added. | Superseded by active fork push/PR/manual triggers plus the static latest-head supervisor. |
 | 1 — Manual baseline and diagnosis service | **Complete for collection; remediation deferred** | All four scanner families manually exercised; raw artifacts retained; recursive normalizer repaired; file+line+concept fingerprints; 298+ overlaps proven; searchable all-findings dashboard; 14/14 configured channels; 81.16% parent-process runtime coverage; bounded dry-run issue plan; review-only Ruff patch. | False-positive classification and application finding fixes remain intentionally out of scope. Shortlisted services not yet implemented are tracked below, not counted as Phase 1 coverage. |
 | 2 — Canary validation | **Complete: 10/10 defined expectations** | The historical 7/10 run exposed SQL injection, path traversal, and React XSS gaps. Project-specific detection/normalization work closed them; run `32938363577` passed all 10 end-to-end expectations. | Preserve the canary contract as scanner configuration changes. Do not turn 10/10 defined fixtures into a universal security-coverage claim. |
 | 3 — Selective advisory activation | **Complete** | Fork PRs #1/#2 verified exact-commit scanner collection and one idempotent advisory Check. Historical run `32578162932` produced 8,535 canonical findings and rebuild `32580941289` updated the same Check. | Superseded by the current full-snapshot product; baseline/lifecycle/triage work is deferred rather than required for acceptance. |
 | 4 — Current findings platform | **Accepted on fork** | Added publishable `snapshot-v1` provenance and reconciliation, exact-commit artifact hashing, structured TypeScript/Xenon evidence, improved all-findings/evidence dashboard, bounded rendering, atomic publication, and a localhost-only container profile. All required workflows and 10/10 canaries passed; run `32940124398` published the improved real-data artifact. | Validate the same image on the company QA VM behind VPN/OIDC. |
-| 5 — Additional detection surfaces | **Started; Snyk verified** | The proposal catalog is explicit. Pinned scan-only Snyk SCA/Code ran successfully in fork run `32965286130`; CI retains per-surface status and cannot hide partial analysis. Schemathesis JUnit ingestion is structured but remains an isolated dynamic lane. CodeRabbit cloud auto/incremental PR review is configured. | Install and verify the CodeRabbit GitHub App on the fork. Add SonarQube, CodeScene, or Atheris only after exportable, visible, non-redundant evidence is demonstrated. |
+| 5 — Additional detection surfaces | **Implemented; cloud proof pending** | Pinned Snyk remains verified. Exact-commit shipping-image Trivy, CycloneDX/SPDX policy evidence, unsigned local provenance, GitHub secret-protection posture observation, zizmor, OpenSSF Scorecard, custom CodeQL/Semgrep models, weekly isolated Schemathesis, and bounded Atheris are configured as non-required lanes. CodeRabbit is configured and the owner reports the App installed. | Observe successful fork runs, verify one exact-head CodeRabbit review, and measure unique findings. GitHub settings must be enabled by an owner; workflows only verify posture. |
 
 ## Shortlisted tool implementation inventory
 
@@ -50,8 +50,13 @@ Statuses use these meanings:
 | Health | Vulture | **Verified** | Actual text format parser added; findings appear centrally. |
 | Health | Coverage.py | **Verified** | Stable parent-process JSON/XML retained; dashboard shows 81.16%. Child-process coverage is not claimed. |
 | Active testing | Schemathesis | **Implemented; isolated dynamic lane** | Manual workflow JUnit failures normalize as `DYNAMIC`, including API-500 classification; it is not part of static publishability. |
-| Active testing | Atheris | **Not implemented** | Mentioned in proposal/docs only; no executable fuzz harness or workflow. |
-| AI review | CodeRabbit | **Cloud auto-review configured; App verification pending** | Eligible PRs are configured for automatic review and incremental review after every push, with no request-changes workflow. The fork-only GitHub App is not yet verified. |
+| Active testing | Atheris | **Implemented; execution proof pending** | Weekly/manual trusted-default-branch Linux job runs a bounded 25,000-input deterministic case-decision harness and retains crash/status artifacts. It remains outside static publishability. |
+| Shipping images | Trivy image scan | **Implemented; execution proof pending** | Builds the actual backend and web UI Dockerfiles at the selected SHA, scans both image objects, and retains full-severity SARIF. |
+| Supply chain | CycloneDX, SPDX, license policy, provenance | **Implemented; execution proof pending** | Generates both SBOM formats, checks a bounded denied-license policy, and retains an unsigned in-toto/SLSA-shaped statement tied to source SHA and local image IDs. This is not signed SLSA provenance. |
+| Workflow/repository posture | zizmor, OpenSSF Scorecard | **Implemented; execution proof pending** | Pinned exact-commit workflow SARIF and repository supply-chain SARIF are retained as optional evidence. |
+| Platform secret prevention | GitHub secret scanning / push protection | **Verification implemented; owner activation external** | Read-only metadata and alert-number collection records enabled/disabled/unavailable state without retaining secret values. |
+| IaC comparison | KICS/tfsec | **Deferred by measurement gate** | Checkov plus Trivy config remain active. The current KICS Action is not used while a public compromise advisory is open; any future standalone evaluation must prove unique findings. tfsec is not added merely to duplicate Trivy's integrated checks. |
+| AI review | CodeRabbit | **Configured; installed reported; review proof pending** | Every fork PR target is configured for automatic/incremental review, GitHub Checks wait up to 15 minutes, and request-changes is disabled. One exact-head bot review remains the verification gate. |
 | AI review | PR-Agent | **Not implemented** | Fallback is documented only. |
 | Behavioral health | CodeScene | **Partial scaffold** | Compose draft exists; no license/configured service, scan, or dashboard integration. |
 | Finding management | DefectDojo | **Partial scaffold** | Compose draft exists; no deployed service, importer, persistence, or lifecycle sync. |
@@ -97,7 +102,7 @@ and `scripts/code_analysis/validate_canary.py`. Current expectations cover:
 9. insecure Dockerfile/root
 10. vulnerable dependencies
 
-### Phase 2 safety and acceptance
+### Phase 2 original safety and acceptance (historical)
 
 - Run only by `workflow_dispatch` on the fork feature branch.
 - Do not uncomment push, PR, schedule, or `workflow_run` triggers.
@@ -131,12 +136,13 @@ Phase 3 was explicitly approved for monitoring-only work. Its original PR-only p
 has since been superseded by the accepted current-snapshot trigger contract:
 
 - run full scanner workflows on pushes where the branch carries the approved definitions;
-- use the exact-head manual orchestrator for clean mirror branches without those files;
+- use the scheduled exact-head supervisor (or the same manual orchestrator on demand)
+  for clean mirror branches without those files;
 - run them against the exact head of every eligible pull request;
 - provide one-click **Full Code Analysis (Manual)** for a selected branch head and
   retain individual/manual dashboard dispatches for diagnosis or rebuild;
 - aggregate only successful same-commit artifacts using `workflow_run.head_sha`;
-- keep schedules disabled and keep API fuzzing isolated/manual;
+- schedule only the trusted static latest-head supervisor; keep API fuzzing isolated/manual;
 - keep GitHub Issues read-only and retain only a dry-run plan;
 - retain the downloadable HTML dashboard artifact for 30 days;
 - keep ownership entirely in the fork, with no upstream or production mutation.

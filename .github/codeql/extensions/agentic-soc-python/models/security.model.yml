@@ -1,0 +1,21 @@
+extensions:
+  - addsTo:
+      pack: codeql/python-all
+      extensible: sourceModel
+    data:
+      - ["fastapi.Request", "Member[query_params]", "remote"]
+      - ["fastapi.Request", "Member[path_params]", "remote"]
+      - ["fastapi.Request", "Member[headers]", "remote"]
+      - ["starlette.requests.Request", "Member[query_params]", "remote"]
+      - ["starlette.requests.Request", "Member[path_params]", "remote"]
+      - ["langchain_core.messages.ai.AIMessage", "Member[content]", "remote"]
+  - addsTo:
+      pack: codeql/python-all
+      extensible: sinkModel
+    data:
+      - ["sqlalchemy.ext.asyncio.AsyncSession", "Member[execute].Argument[0]", "sql-injection"]
+      - ["aiosqlite.Connection", "Member[execute].Argument[0]", "sql-injection"]
+      - ["builtins", "Member[open].Argument[0]", "path-injection"]
+      - ["starlette.responses.HTMLResponse!", "Call.Argument[0,content:]", "html-injection"]
+      - ["builtins", "Member[eval].Argument[0]", "code-injection"]
+      - ["builtins", "Member[exec].Argument[0]", "code-injection"]

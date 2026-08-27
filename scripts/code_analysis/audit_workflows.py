@@ -14,6 +14,12 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 ANALYSIS_WORKFLOWS = {f"0{number}-" for number in range(1, 10)}
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 USES = re.compile(r"^([^@]+)@(.+)$")
+BANNED_NODE20_ACTION_SHAS = {
+    "11d5960a326750d5838078e36cf38b85af677262",  # actions/checkout v4
+    "a26af69be951a213d495a4c3e4e4022e16d87065",  # actions/setup-python v5
+    "49933ea5288caeca8642d1e84afbd3f7d6820020",  # actions/setup-node v4
+    "6d786de4d6f3531a740e445b53a42b622bbbace8",  # github/codeql-action v3
+}
 UNTRUSTED_INLINE = re.compile(r"\$\{\{\s*(?:github\.event|inputs\.)")
 SERVICE_LAYERS = {
     "contracts",
@@ -102,6 +108,11 @@ def audit() -> list[str]:
                 match = USES.match(action)
                 if not match or not FULL_SHA.fullmatch(match.group(2)):
                     errors.append(f"{relative}: job {job_name} uses mutable action {action}")
+                elif (any(path.name.startswith(prefix) for prefix in ANALYSIS_WORKFLOWS)
+                      and match.group(2) in BANNED_NODE20_ACTION_SHAS):
+                    errors.append(
+                        f"{relative}: job {job_name} uses deprecated Node 20 action {action}"
+                    )
             script = str(step.get("run") or "")
             if UNTRUSTED_INLINE.search(script):
                 errors.append(
@@ -119,8 +130,15 @@ def audit() -> list[str]:
     auto_review = ((coderabbit.get("reviews") or {}).get("auto_review") or {})
     if auto_review.get("enabled") != "true":
         errors.append(".coderabbit.yaml: automatic cloud review must remain enabled")
-    if auto_review.get("base_branches"):
-        errors.append(".coderabbit.yaml: base_branches must not silently exclude fork PR targets")
+    if auto_review.get("base_branches") != [".*"]:
+        errors.append(".coderabbit.yaml: base_branches must explicitly cover every PR target")
+    github_checks = ((coderabbit.get("reviews") or {}).get("tools") or {}).get(
+        "github-checks"
+    ) or {}
+    if github_checks.get("enabled") != "true":
+        errors.append(".coderabbit.yaml: GitHub Checks integration must remain enabled")
+    if github_checks.get("timeout_ms") != "900000":
+        errors.append(".coderabbit.yaml: GitHub Checks must wait for the scanner window")
 
     for relative in ("deploy/defectdojo-compose.yml", "deploy/codescene-compose.yml"):
         text = (ROOT / relative).read_text(encoding="utf-8")

@@ -60,6 +60,12 @@ finding count, retained artifact names, workflow-run references, scanner version
 and SHA-256 artifact proof. A green `16/16` therefore means structured evidence from
 all 16 required channels was validated, not merely that four workflow shells ran.
 
+Optional evidence now includes exact-commit shipping-image Trivy scans, CycloneDX and
+SPDX SBOMs with license-policy results and unsigned local provenance, zizmor, OpenSSF
+Scorecard, GitHub secret-scanning/push-protection posture, Snyk, and CodeRabbit. Weekly
+isolated Schemathesis and Atheris jobs remain dynamic evidence. None of these optional
+lanes can turn a missing required channel green.
+
 An artifact is not enough by itself: malformed scanner output now fails normalization
 and cannot publish a dashboard. Radon complexity blocks and Coverage.py file-level
 coverage gaps are normalized as visible findings rather than appearing only as a green
@@ -112,9 +118,16 @@ branch's current GitHub head, so a slower older run cannot become the latest das
 
 ### Automatic and manual operation
 
-- **Automatic where workflow definitions exist:** a branch push runs all four scanners;
-  an eligible PR update analyzes its exact head; successful exact-commit evidence
-  triggers dashboard aggregation.
+- **Automatic latest-head coverage:** a trusted default-branch supervisor discovers
+  every fork branch every 15 minutes and dispatches the existing full-analysis
+  orchestrator for any current head without a valid dashboard Check. The observed SHA
+  is carried into the dispatch, active work is deduplicated by branch/SHA, and a broken
+  exact head is attempted at most three times. A newer commit receives its own attempt.
+- **Immediate coverage where workflow definitions exist:** a branch push runs all four
+  scanners; an eligible same-repository PR update analyzes its exact head; successful
+  exact-commit evidence triggers dashboard aggregation. GitHub does not execute newly
+  added push/PR workflow definitions from a branch that does not contain them, which is
+  why the default-branch supervisor is the completeness backstop.
 - **Manual full scan:** Actions → **Full Code Analysis (Manual)** → **Run workflow**.
   Select the workflow ref, optionally enter any fork `scan_branch`, and press the green
   **Run workflow** button. The orchestrator locks the branch's latest commit, dispatches
@@ -124,6 +137,16 @@ branch's current GitHub head, so a slower older run cannot become the latest das
 - **Manual dashboard-only rebuild:** Actions → **Code Analysis Dashboard** → **Run
   workflow**, with the exact `scan_branch` and `scan_sha`. This reuses existing scanner
   evidence and fails closed if a required exact-commit run is unavailable.
+- **Manual artifact publication:** a dashboard host operator may select a known GitHub
+  artifact ID with `pull_worker.py --artifact-id ID --force`. The artifact must come
+  from a successful dashboard aggregation and still match the branch's current head;
+  all archive, provenance, and atomic-publication checks remain mandatory. See
+  [`QA_VM.md`](QA_VM.md#manual-artifact-recovery).
+
+The dashboard leads with security posture, critical/high counts, affected areas,
+freshness, and the exact publication path. Hotspots and distribution bars apply filters
+directly, while searchable findings, scanner coverage, optional lanes, source links,
+workflow runs, artifact hashes, and raw downloads remain available for investigation.
 
 ## Safety
 

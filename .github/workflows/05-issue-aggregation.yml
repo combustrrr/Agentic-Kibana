@@ -39,12 +39,12 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout this fork branch
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.11"
 
@@ -192,6 +192,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           MONITORED_SHA: ${{ inputs.scan_sha || github.event.workflow_run.head_sha || github.sha }}
           ARTIFACT_URL: ${{ steps.analysis-artifact.outputs.artifact-url }}
+          ARTIFACT_ID: ${{ steps.analysis-artifact.outputs.artifact-id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         shell: bash
         run: |
@@ -206,6 +207,7 @@ jobs:
             printf '## Current Code Quality & Security Snapshot\n\nA publishable snapshot could not be produced. The previous hosted snapshot must remain active.\n' > dashboard/github-summary.md
           fi
           printf '\n[Download the full searchable dashboard artifact](%s)\n' "$ARTIFACT_URL" >> dashboard/github-summary.md
+          printf '\nArtifact ID for validated manual recovery: `%s`\n' "${ARTIFACT_ID:-unavailable}" >> dashboard/github-summary.md
           existing="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${MONITORED_SHA}/check-runs?filter=latest&per_page=100")"
           check_id="$(jq -r --arg name "$check_name" --arg external "$external_id" \
             '[.check_runs[] | select(.name == $name and .external_id == $external)] | first | .id // empty' <<<"$existing")"
@@ -236,6 +238,7 @@ jobs:
           SUMMARY_BRANCH: ${{ inputs.scan_branch || github.event.workflow_run.head_branch || github.ref_name }}
           SUMMARY_SHA: ${{ inputs.scan_sha || github.event.workflow_run.head_sha || github.sha }}
           SUMMARY_ARTIFACT_URL: ${{ steps.analysis-artifact.outputs.artifact-url }}
+          SUMMARY_ARTIFACT_ID: ${{ steps.analysis-artifact.outputs.artifact-id }}
         shell: bash
         run: |
           set -euo pipefail
@@ -251,6 +254,7 @@ jobs:
             printf '%s\n' "- Monitored branch: \`${SUMMARY_BRANCH}\`"
             printf '%s\n' "- Monitored commit: \`${SUMMARY_SHA}\`"
             printf '%s\n' "- Full dashboard artifact: ${SUMMARY_ARTIFACT_URL:-not published}"
+            printf '%s\n' "- Validated artifact ID: ${SUMMARY_ARTIFACT_ID:-not published}"
             echo "- Issue writes: \`disabled\`"
             echo "- Autofix generation/application: \`disabled\`"
             echo "- Merge blocking: \`disabled\`"
