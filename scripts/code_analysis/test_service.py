@@ -322,6 +322,9 @@ class MonitoringTests(unittest.TestCase):
                       quality)
         self.assertNotIn("run: python scripts/code_analysis/audit_workflows.py", quality)
         self.assertGreaterEqual(quality.count("scripts/code_analysis"), 2)
+        for trusted_policy_input in (".coderabbit.yaml", ".github/workflows",
+                                     "config/code-analysis", "deploy"):
+            self.assertIn(trusted_policy_input, quality)
 
         for workflow_name in ("01-code-quality.yml", "02-security-sast.yml",
                               "03-dependency-security.yml", "04-code-health.yml"):
@@ -560,6 +563,9 @@ class MonitoringTests(unittest.TestCase):
                        "secret_scanning_push_protection","shipping-image-provenance.intoto.json"):
             self.assertIn(marker,dependency)
         self.assertNotIn("secret-scanning-alerts.json",dependency)
+        posture=dependency.split("  workflow-security-posture:",1)[1].split(
+            "  openssf-scorecard:",1)[0]
+        self.assertIn("security-events: write", posture)
         dynamic=Path(".github/workflows/07-api-fuzzing.yml").read_text(encoding="utf-8")
         self.assertIn('cron: "17 4 * * 6"',dynamic)
         self.assertIn("atheris==3.0.0",dynamic)

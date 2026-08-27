@@ -49,8 +49,12 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           path: .analysis-tooling
           sparse-checkout: |
+            .coderabbit.yaml
+            .github/workflows
             .ci
             backend/ruff-analysis.toml
+            config/code-analysis
+            deploy
             scripts/code_analysis
           sparse-checkout-cone-mode: false
 

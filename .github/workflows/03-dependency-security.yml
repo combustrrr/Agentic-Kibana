@@ -553,7 +553,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      security-events: read
+      security-events: write
     steps:
       - name: Checkout selected source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
