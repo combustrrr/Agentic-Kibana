@@ -12,12 +12,16 @@ DENIED_LICENSES = {
     "AGPL-3.0", "AGPL-3.0-only", "AGPL-3.0-or-later",
     "GPL-2.0", "GPL-2.0-only", "GPL-2.0-or-later",
 }
+DENIED_LICENSES_NORMALIZED = {license_id.upper() for license_id in DENIED_LICENSES}
 SPDX_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+-]*")
 
 
 def _denied_license(expression: str) -> bool:
     """Match complete SPDX identifiers, never substrings such as LGPL containing GPL."""
-    return any(token in DENIED_LICENSES for token in SPDX_TOKEN.findall(expression))
+    return any(
+        token.removesuffix("+").upper() in DENIED_LICENSES_NORMALIZED
+        for token in SPDX_TOKEN.findall(expression)
+    )
 
 
 def _licenses(document: dict[str, Any]) -> list[tuple[str, str]]:

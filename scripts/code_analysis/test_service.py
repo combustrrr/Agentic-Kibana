@@ -11,7 +11,7 @@ from scripts.code_analysis.collect_coderabbit import collect as collect_coderabb
 from scripts.code_analysis.dashboard import generate, github_summary, validate_snapshot, write_dashboard
 from scripts.code_analysis.evidence_contract import build as build_evidence_contract
 from scripts.code_analysis.monitoring import EvidenceError, build_snapshot, canonicalize, check_key, compare, defectdojo_fixture, effective_triage, stable_id
-from scripts.code_analysis.normalizer import CodeRabbitParser, CoverageParser, RadonParser, SchemathesisParser, TscParser, XenonParser, main as normalize_cli
+from scripts.code_analysis.normalizer import CodeRabbitParser, CoverageParser, RadonParser, SarifParser, SchemathesisParser, TscParser, XenonParser, main as normalize_cli
 from scripts.code_analysis.pipeline import build as build_pipeline
 from scripts.code_analysis.provenance import build as build_provenance
 from scripts.code_analysis.publish_snapshot import publish
@@ -141,6 +141,17 @@ class MonitoringTests(unittest.TestCase):
         self.assertFalse(_denied_license("LGPL-2.1-or-later"))
         self.assertTrue(_denied_license("MIT OR GPL-2.0-only"))
         self.assertTrue(_denied_license("AGPL-3.0-or-later"))
+        self.assertTrue(_denied_license("GPL-2.0+"))
+        self.assertTrue(_denied_license("gpl-2.0-only"))
+
+    def test_shipping_image_sarif_uses_its_optional_scanner_family(self):
+        with tempfile.TemporaryDirectory() as d:
+            sarif_path=Path(d)/"trivy-backend-image.sarif"
+            sarif_path.write_text(json.dumps({"runs":[{"tool":{"driver":{"name":"Trivy"}},
+                "results":[{"ruleId":"CVE-1","message":{"text":"image issue"}}]}]}),
+                encoding="utf-8")
+            findings=SarifParser().parse(sarif_path,tool_override="Shipping Image Trivy")
+            self.assertEqual(findings[0].source_tool,"Shipping Image Trivy")
 
     def test_dashboard_is_bounded_and_exposes_all_current_findings(self):
         result=snapshot([raw("CodeQL"),raw("Semgrep")])
@@ -455,6 +466,17 @@ class MonitoringTests(unittest.TestCase):
             safe_extract(archive,destination,include_prefix="dashboard")
             self.assertEqual((destination/"dashboard/index.html").read_text(),"dashboard")
             self.assertFalse((destination/"normalized").exists())
+
+    def test_pull_worker_rejects_prefix_traversal_aliases(self):
+        for member in ("dashboard/../normalized/large.json",
+                       "dashboard\\..\\normalized\\large.json"):
+            with self.subTest(member=member), tempfile.TemporaryDirectory() as d:
+                root=Path(d);archive=root/"artifact.zip";destination=root/"out"
+                destination.mkdir()
+                with zipfile.ZipFile(archive,"w") as bundle:
+                    bundle.writestr(member,"escape")
+                with self.assertRaisesRegex(ValueError,"unsafe artifact path"):
+                    safe_extract(archive,destination,include_prefix="dashboard")
 
     def test_pull_worker_reads_protected_token_file(self):
         with tempfile.TemporaryDirectory() as d:

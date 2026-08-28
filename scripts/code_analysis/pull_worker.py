@@ -16,7 +16,7 @@ import tempfile
 import urllib.parse
 import urllib.request
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 try:
     from publish_snapshot import publish
@@ -83,23 +83,24 @@ def safe_extract(archive: Path, destination: Path, include_prefix: str | None = 
         if len(members) > MAX_ARCHIVE_FILES:
             raise ValueError("dashboard artifact contains too many files")
         normalized_prefix = (include_prefix or "").replace("\\", "/").strip("/")
-        selected = [
-            member for member in members
-            if not normalized_prefix
-            or member.filename.replace("\\", "/").startswith(normalized_prefix + "/")
-        ]
-        if sum(member.file_size for member in selected) > MAX_EXTRACTED_BYTES:
-            raise ValueError("dashboard artifact exceeds the extraction limit")
+        selected: list[tuple[zipfile.ZipInfo, Path]] = []
         for member in members:
             unix_mode = member.external_attr >> 16
             if unix_mode and (unix_mode & 0o170000) == 0o120000:
                 raise ValueError(f"dashboard artifact contains a symlink: {member.filename}")
             normalized = member.filename.replace("\\", "/")
+            parts = PurePosixPath(normalized).parts
+            if any(part in {".", ".."} for part in parts):
+                raise ValueError(f"unsafe artifact path: {member.filename}")
             target = (destination / normalized).resolve()
             if target != root and root not in target.parents:
                 raise ValueError(f"unsafe artifact path: {member.filename}")
-            if member not in selected:
+            if normalized_prefix and (not parts or parts[0] != normalized_prefix):
                 continue
+            selected.append((member, target))
+        if sum(member.file_size for member, _target in selected) > MAX_EXTRACTED_BYTES:
+            raise ValueError("dashboard artifact exceeds the extraction limit")
+        for member, target in selected:
             if member.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
             else:

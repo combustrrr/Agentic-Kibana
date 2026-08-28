@@ -398,14 +398,15 @@ class SarifParser:
         "checkov": "Checkov",
     }
 
-    def parse(self, sarif_path: Path, tool_hint: str = "") -> list[Finding]:
+    def parse(self, sarif_path: Path, tool_hint: str = "",
+              tool_override: str = "") -> list[Finding]:
         findings: list[Finding] = []
         with sarif_path.open() as f:
             sarif = json.load(f)
 
         for run in sarif.get("runs", []):
             driver = run.get("tool", {}).get("driver", {})
-            raw_tool = driver.get("name", tool_hint)
+            raw_tool = tool_override or driver.get("name", tool_hint)
             tool_name = self.TOOL_NAME_MAP.get(raw_tool.lower(), raw_tool)
 
             rules: dict[str, dict[str, Any]] = {
@@ -1026,7 +1027,16 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
     for sarif_file in input_path.rglob("*.sarif"):
         try:
             tool_hint = sarif_file.stem.split("-")[0]
-            findings = sarif_parser.parse(sarif_file, tool_hint=tool_hint)
+            tool_override = (
+                "Shipping Image Trivy"
+                if sarif_file.name in {
+                    "trivy-backend-image.sarif", "trivy-webui-image.sarif"
+                }
+                else ""
+            )
+            findings = sarif_parser.parse(
+                sarif_file, tool_hint=tool_hint, tool_override=tool_override
+            )
             retain(findings, sarif_file)
             parsed_files.add(sarif_file)
             if verbose:
