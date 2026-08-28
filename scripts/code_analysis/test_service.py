@@ -602,6 +602,7 @@ class MonitoringTests(unittest.TestCase):
         self.assertIn("SECURITY_POSTURE_TOKEN",dependency)
         self.assertIn("status=CONFIGURED_PARTIAL",dependency)
         self.assertIn(".snyk-venv/bin/python",dependency)
+        self.assertIn("github.ref_name == github.event.repository.default_branch",dependency)
         self.assertNotIn("secret-scanning-alerts.json",dependency)
         posture=dependency.split("  workflow-security-posture:",1)[1].split(
             "  openssf-scorecard:",1)[0]

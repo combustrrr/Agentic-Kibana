@@ -654,6 +654,9 @@ jobs:
 
   openssf-scorecard:
     name: OpenSSF Scorecard (Repository Supply Chain)
+    # scorecard-action rejects push refs outside the default branch. PR analysis and
+    # manual exact-SHA orchestration remain supported, as does the default push.
+    if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
