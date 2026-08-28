@@ -88,7 +88,7 @@ file and canonical concept.
 
 ### Canary expectations
 
-The source of truth is [`../../tests/security_canary/COVERAGE.md`](../../tests/security_canary/COVERAGE.md)
+The source of truth is `tests/security_canary/COVERAGE.md` in the repository
 and `scripts/code_analysis/validate_canary.py`. Current expectations cover:
 
 1. SQL injection

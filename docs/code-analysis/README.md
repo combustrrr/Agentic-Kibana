@@ -104,7 +104,8 @@ pipeline command, systemd boundary, and VM deployment contract.
   PR APIs and trigger a dashboard refresh into the separate `AI_ADVISORY` view. Fork-only
   GitHub App execution remains unverified. SonarQube, CodeScene, and
   additional tools enter only after an exportable, non-redundant contribution is verified.
-- [`proposal-tool-catalog.json`](../../config/code-analysis/proposal-tool-catalog.json)
+- `config/code-analysis/proposal-tool-catalog.json` (repository source; intentionally
+  outside the packaged documentation tree)
   accounts explicitly for every selected proposal tool and its activation boundary.
 
 Scanners run in GitHub Actions or a dedicated QA worker, not in the Agentic SOC

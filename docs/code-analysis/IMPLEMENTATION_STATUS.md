@@ -143,7 +143,7 @@ and atomically publishes it. GitHub needs no inbound path to the VM.
 
 ## 5. Implemented scanner web
 
-The manifest [`required-channels.json`](../../config/code-analysis/required-channels.json)
+The repository manifest `config/code-analysis/required-channels.json`
 defines 16 required structured channels. The number is data, not hard-coded logic.
 
 | Surface | Required tools/channels | State |
