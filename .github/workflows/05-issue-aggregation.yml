@@ -225,7 +225,7 @@ jobs:
             --arg url "$details_url" \
             --arg conclusion "$conclusion" \
             --rawfile summary dashboard/github-summary.md \
-            '{name:$name, head_sha:$sha, external_id:$external, status:"completed", conclusion:$conclusion, details_url:$url, output:{title:"Current findings snapshot", summary:$summary}}' \
+            "{name:\$name, head_sha:\$sha, external_id:\$external, status:\"completed\", conclusion:\$conclusion, details_url:\$url, output:{title:\"Current findings snapshot\", summary:\$summary}}" \
             > check-run.json
           if [[ -n "$check_id" ]]; then
             gh api --method PATCH "repos/${GITHUB_REPOSITORY}/check-runs/${check_id}" --input check-run.json >/dev/null
