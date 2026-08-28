@@ -72,6 +72,7 @@ jobs:
               *) echo "Unknown scanner workflow: $workflow" >&2; exit 1 ;;
             esac
             for attempt in $(seq 1 40); do
+              : "$attempt"  # The bounded counter is intentionally used only to cap polling.
               if [[ "$MANUAL_SCAN" == "true" ]]; then
                 runs="$(gh run list --workflow "$workflow" --event workflow_dispatch --status success --limit 30 --json databaseId,displayTitle)"
                 run_id="$(jq -r --arg title "$run_title" '[.[] | select(.displayTitle == $title)] | first | .databaseId // empty' <<<"$runs")"
@@ -209,6 +210,7 @@ jobs:
           printf '\n[Download the full searchable dashboard artifact](%s)\n' "$ARTIFACT_URL" >> dashboard/github-summary.md
           printf '\nArtifact ID for validated manual recovery: `%s`\n' "${ARTIFACT_ID:-unavailable}" >> dashboard/github-summary.md
           existing="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${MONITORED_SHA}/check-runs?filter=latest&per_page=100")"
+          # shellcheck disable=SC2016 # jq variables are intentionally expanded by jq.
           check_id="$(jq -r --arg name "$check_name" --arg external "$external_id" \
             '[.check_runs[] | select(.name == $name and .external_id == $external)] | first | .id // empty' <<<"$existing")"
           conclusion="failure"

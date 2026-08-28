@@ -209,6 +209,7 @@ jobs:
               *) echo "Unknown scanner workflow: $workflow" >&2; exit 1 ;;
             esac
             for attempt in $(seq 1 30); do
+              : "$attempt"  # The bounded counter is intentionally used only to cap polling.
               runs="$(gh run list --workflow "$workflow" \
                 --event workflow_dispatch --limit 20 \
                 --json databaseId,createdAt,displayTitle,url)"

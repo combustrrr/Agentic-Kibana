@@ -182,10 +182,10 @@ jobs:
       - name: Post coverage summary
         if: always()
         run: |
-          echo "## 🛡️ Canary Coverage Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 🛡️ Canary Coverage Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
           if [ -f canary-normalized/deduplicated-findings.json ]; then
             COUNT=$(python -c "import json; d=json.load(open('canary-normalized/deduplicated-findings.json')); print(len(d))")
-            echo "- **Total canary findings (deduplicated):** $COUNT" >> $GITHUB_STEP_SUMMARY
+            echo "- **Total canary findings (deduplicated):** $COUNT" >> "$GITHUB_STEP_SUMMARY"
           fi
-          echo "- **Run date:** $(date -u +%Y-%m-%d)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Run date:** $(date -u +%Y-%m-%d)" >> "$GITHUB_STEP_SUMMARY"
