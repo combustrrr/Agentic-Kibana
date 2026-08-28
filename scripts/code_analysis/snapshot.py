@@ -7,7 +7,10 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from monitoring import build_snapshot, canonicalize, load_json, write_json
+try:
+    from monitoring import build_snapshot, canonicalize, load_json, write_json
+except ModuleNotFoundError:  # package import in repository tests
+    from scripts.code_analysis.monitoring import build_snapshot, canonicalize, load_json, write_json
 
 
 def build_additional_channels(catalog: dict, artifacts: Path | None,
@@ -32,7 +35,10 @@ def build_additional_channels(catalog: dict, artifacts: Path | None,
         if state == "ACTIVE_REQUIRED":
             continue
         tool = str(configured.get("tool") or "Unknown")
-        native = status_by_family.get(tool, {})
+        evidence_families = [tool, *map(str, configured.get("evidence_families") or [])]
+        native = next((status_by_family.get(family, {}) for family in evidence_families
+                       if status_by_family.get(family)), {})
+        observed = sum(observation_counts.get(family, 0) for family in evidence_families)
         if native:
             status = str(native.get("status") or "UNKNOWN")
         elif state == "ACTIVE_DYNAMIC":
@@ -40,7 +46,7 @@ def build_additional_channels(catalog: dict, artifacts: Path | None,
         elif state == "OPTIONAL_VERIFIED":
             status = "NOT_IN_CURRENT_SNAPSHOT"
         elif state == "OPTIONAL_CONFIGURED":
-            status = "COMPLETED_OPTIONAL" if observation_counts.get(tool, 0) else "PENDING_REVIEW"
+            status = "COMPLETED_OPTIONAL" if observed else "PENDING_REVIEW"
         elif state == "OPTIONAL_NOT_CONFIGURED":
             status = "PENDING_ACTIVATION"
         else:
@@ -53,9 +59,10 @@ def build_additional_channels(catalog: dict, artifacts: Path | None,
             "status": status,
             "reason": str(native.get("reason") or configured.get("activation") or configured.get("note") or ""),
             "finding_count": sum(
-                tool in row.get("supporting_scanner_families", []) for row in findings
+                any(family in row.get("supporting_scanner_families", [])
+                    for family in evidence_families) for row in findings
             ),
-            "observation_count": observation_counts.get(tool, 0),
+            "observation_count": observed,
             "evidence_source": "AI_ADVISORY" if tool == "CodeRabbit" else "DETERMINISTIC",
         })
     return rows

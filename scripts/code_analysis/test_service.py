@@ -1,4 +1,4 @@
-import json, os, tempfile, unittest, zipfile
+import json, os, tempfile, unittest, urllib.request, zipfile
 from argparse import Namespace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,8 +15,11 @@ from scripts.code_analysis.normalizer import CodeRabbitParser, CoverageParser, R
 from scripts.code_analysis.pipeline import build as build_pipeline
 from scripts.code_analysis.provenance import build as build_provenance
 from scripts.code_analysis.publish_snapshot import publish
-from scripts.code_analysis.pull_worker import artifact_branch_key, artifact_commit, read_state, read_token, safe_extract, select_artifact, select_artifact_by_id
-from scripts.code_analysis.validate_sbom import evaluate as evaluate_sbom
+from scripts.code_analysis.pull_worker import (_CredentialIsolatingRedirectHandler,
+    artifact_branch_key, artifact_commit, read_state, read_token, safe_extract,
+    select_artifact, select_artifact_by_id)
+from scripts.code_analysis.validate_sbom import _denied_license, evaluate as evaluate_sbom
+from scripts.code_analysis.snapshot import build_additional_channels
 
 MANIFEST={"schema_version":"1","required_static_channels":[
     {"channel":"codeql","scanner_family":"CodeQL","surface":"semantic","artifact_patterns":["*codeql*.sarif"]},
@@ -132,6 +135,13 @@ class MonitoringTests(unittest.TestCase):
         self.assertEqual(sbom_status["formats"],["CycloneDX","SPDX"])
         self.assertEqual(sarif["runs"][0]["tool"]["driver"]["name"],"SBOM Policy")
         self.assertEqual(len(sarif["runs"][0]["results"]),1)
+
+    def test_sbom_policy_matches_complete_spdx_identifiers_not_lgpl_substrings(self):
+        self.assertFalse(_denied_license("LGPL-2.0-only"))
+        self.assertFalse(_denied_license("LGPL-2.1-or-later"))
+        self.assertTrue(_denied_license("MIT OR GPL-2.0-only"))
+        self.assertTrue(_denied_license("AGPL-3.0-or-later"))
+
     def test_dashboard_is_bounded_and_exposes_all_current_findings(self):
         result=snapshot([raw("CodeQL"),raw("Semgrep")])
         with tempfile.TemporaryDirectory() as d:
@@ -436,6 +446,16 @@ class MonitoringTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,"too many files"):
                     safe_extract(symlink,destination)
 
+    def test_pull_worker_extracts_only_the_served_dashboard_tree(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);archive=root/"artifact.zip";destination=root/"out";destination.mkdir()
+            with zipfile.ZipFile(archive,"w") as bundle:
+                bundle.writestr("dashboard/index.html","dashboard")
+                bundle.writestr("normalized/large.json","not served")
+            safe_extract(archive,destination,include_prefix="dashboard")
+            self.assertEqual((destination/"dashboard/index.html").read_text(),"dashboard")
+            self.assertFalse((destination/"normalized").exists())
+
     def test_pull_worker_reads_protected_token_file(self):
         with tempfile.TemporaryDirectory() as d:
             token_file=Path(d)/"github-token";token_file.write_text("read-only-token\n",encoding="utf-8")
@@ -447,6 +467,22 @@ class MonitoringTests(unittest.TestCase):
                 if previous_token is not None: os.environ["GH_TOKEN"]=previous_token
                 if previous_file is None: os.environ.pop("GH_TOKEN_FILE",None)
                 else: os.environ["GH_TOKEN_FILE"]=previous_file
+
+    def test_pull_worker_never_forwards_github_auth_to_artifact_storage(self):
+        handler=_CredentialIsolatingRedirectHandler()
+        request=urllib.request.Request(
+            "https://api.github.com/repos/org/repo/actions/artifacts/1/zip",
+            headers={"Authorization":"Bearer secret-token"},
+        )
+        storage=handler.redirect_request(
+            request,None,302,"Found",{},"https://artifact.example/signed/archive.zip"
+        )
+        self.assertIsNotNone(storage)
+        self.assertIsNone(storage.get_header("Authorization"))
+        github=handler.redirect_request(
+            request,None,302,"Found",{},"https://api.github.com/redirected"
+        )
+        self.assertEqual(github.get_header("Authorization"),"Bearer secret-token")
 
     def test_pull_worker_ignores_corrupt_optional_state(self):
         with tempfile.TemporaryDirectory() as d:
@@ -562,6 +598,10 @@ class MonitoringTests(unittest.TestCase):
                        "backend.cdx.json","webui.spdx.json","zizmor==1.29.0",
                        "secret_scanning_push_protection","shipping-image-provenance.intoto.json"):
             self.assertIn(marker,dependency)
+        self.assertIn("shipping-image-trivy-status.json",dependency)
+        self.assertIn("SECURITY_POSTURE_TOKEN",dependency)
+        self.assertIn("status=CONFIGURED_PARTIAL",dependency)
+        self.assertIn(".snyk-venv/bin/python",dependency)
         self.assertNotIn("secret-scanning-alerts.json",dependency)
         posture=dependency.split("  workflow-security-posture:",1)[1].split(
             "  openssf-scorecard:",1)[0]
@@ -573,6 +613,16 @@ class MonitoringTests(unittest.TestCase):
         self.assertNotIn("\n  pull_request:\n",dynamic)
         model=Path(".github/codeql/extensions/agentic-soc-python/models/security.model.yml")
         self.assertTrue(model.is_file())
+
+    def test_optional_catalog_can_map_native_scanner_family_aliases(self):
+        rows=build_additional_channels(
+            {"tools":[{"tool":"OpenSSF Scorecard","state":"OPTIONAL_CONFIGURED",
+                        "evidence_families":["Scorecard"]}]},None,
+            {"observations":[{"scanner_family":"Scorecard"}],"canonical_findings":[],
+             "ai_advisories":[]},
+        )
+        self.assertEqual(rows[0]["status"],"COMPLETED_OPTIONAL")
+        self.assertEqual(rows[0]["observation_count"],1)
 
     def test_one_click_manual_analysis_dispatches_all_scanners(self):
         workflow=Path(".github/workflows/08-full-code-analysis.yml").read_text(encoding="utf-8")

@@ -84,7 +84,15 @@ Owner action:
 2. Verify secret scanning alerts are enabled.
 3. Enable push protection only after the company approves a blocking secret-only
    control; this does not make the advisory code-analysis Check blocking.
-4. Do not change settings on the upstream repository as part of fork evaluation.
+4. If the workflow's default `GITHUB_TOKEN` cannot observe those settings or list
+   alerts, add a repository Actions secret named `SECURITY_POSTURE_TOKEN` containing
+   a read-only fine-grained token scoped only to this fork. It needs repository
+   administration metadata read access and secret-scanning-alert read access; it must
+   not have settings-write, contents-write, or upstream-repository access.
+5. Re-run Dependency & Supply Chain Security and confirm the retained posture status is
+   `CONFIGURED_COMPLETE`. `CONFIGURED_PARTIAL` means the settings or alert surface was
+   not observable; it is never interpreted as protection being disabled.
+6. Do not change settings on the upstream repository as part of fork evaluation.
 
 ## Schemathesis
 

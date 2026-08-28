@@ -31,6 +31,22 @@ MAX_ARCHIVE_FILES = 10_000
 MAX_RUN_PAGES = 10
 
 
+class _CredentialIsolatingRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Keep GitHub auth on API redirects but never forward it to artifact storage."""
+
+    def redirect_request(self, request, fp, code, msg, headers, new_url):
+        redirected = super().redirect_request(request, fp, code, msg, headers, new_url)
+        if redirected is None:
+            return None
+        source = urllib.parse.urlsplit(request.full_url)
+        target = urllib.parse.urlsplit(new_url)
+        if (source.scheme.lower(), source.hostname, source.port) != (
+            target.scheme.lower(), target.hostname, target.port
+        ):
+            redirected.remove_header("Authorization")
+        return redirected
+
+
 def request_json(url: str, token: str) -> dict:
     request = urllib.request.Request(url, headers={
         "Accept": "application/vnd.github+json",
@@ -47,7 +63,8 @@ def download(url: str, token: str, destination: Path) -> None:
         "Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
         "User-Agent": "agentic-soc-findings-pull-worker/1",
     })
-    with urllib.request.urlopen(request, timeout=120) as response, destination.open("wb") as output:
+    opener = urllib.request.build_opener(_CredentialIsolatingRedirectHandler())
+    with opener.open(request, timeout=120) as response, destination.open("wb") as output:
         declared = int(response.headers.get("Content-Length", "0") or 0)
         if declared > MAX_ARCHIVE_BYTES:
             raise ValueError("dashboard artifact exceeds the download limit")
@@ -59,13 +76,19 @@ def download(url: str, token: str, destination: Path) -> None:
             output.write(chunk)
 
 
-def safe_extract(archive: Path, destination: Path) -> None:
+def safe_extract(archive: Path, destination: Path, include_prefix: str | None = None) -> None:
     root = destination.resolve()
     with zipfile.ZipFile(archive) as bundle:
         members = bundle.infolist()
         if len(members) > MAX_ARCHIVE_FILES:
             raise ValueError("dashboard artifact contains too many files")
-        if sum(member.file_size for member in members) > MAX_EXTRACTED_BYTES:
+        normalized_prefix = (include_prefix or "").replace("\\", "/").strip("/")
+        selected = [
+            member for member in members
+            if not normalized_prefix
+            or member.filename.replace("\\", "/").startswith(normalized_prefix + "/")
+        ]
+        if sum(member.file_size for member in selected) > MAX_EXTRACTED_BYTES:
             raise ValueError("dashboard artifact exceeds the extraction limit")
         for member in members:
             unix_mode = member.external_attr >> 16
@@ -75,6 +98,8 @@ def safe_extract(archive: Path, destination: Path) -> None:
             target = (destination / normalized).resolve()
             if target != root and root not in target.parents:
                 raise ValueError(f"unsafe artifact path: {member.filename}")
+            if member not in selected:
+                continue
             if member.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
             else:
@@ -236,7 +261,9 @@ def main() -> None:
         extracted = root / "extracted"
         extracted.mkdir()
         download(artifact["archive_download_url"], token, archive)
-        safe_extract(archive, extracted)
+        # Aggregation retains normalized intermediates for auditability, but the QA host
+        # serves only the bounded dashboard tree. Never extract duplicate intermediates.
+        safe_extract(archive, extracted, include_prefix="dashboard")
         dashboard = extracted / "dashboard"
         publish(dashboard, args.publication_root, args.repository, analyzed_commit, args.branch)
     write_state(args.state_file, {"schema_version": "1", "repository": args.repository,

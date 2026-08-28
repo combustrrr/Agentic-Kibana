@@ -1,6 +1,6 @@
 # Code Analysis — Pending Work
 
-> **Prioritization date:** 2026-08-26  
+> **Prioritization date:** 2026-08-28
 > **Primary objective:** improve issue detection and the unified current-findings view  
 > **Not an active objective:** fixing findings or reducing the count to zero
 
@@ -9,34 +9,44 @@ approved hosting belongs in the near-term backlog.
 
 ## P0 — Finish current platform delivery
 
-### P0.1 Publish and verify the enterprise-hardened real-data board
+### P0.1 Repair and re-prove outbound dashboard publication
 
-**Current state:** workflow security, immutable dependencies, least privilege, branch
-coverage, advisory Check semantics, deployment hardening, and the executable workflow
-policy are implemented locally. Manual `Testing` runs #1/#2 exposed and drove fixes for
-checkout-free CLI repository context, default-branch workflow definitions, separate
-trusted `.analysis-tooling`, and manual run identity. A later failed dashboard exposed
-generic nested CodeQL/Checkov SARIF paths, and a documentation-to-code audit found that
-the Ruff job still invoked its policy script from the selected source branch. Local fixes
-now canonicalize those SARIF outputs, run every analysis helper from trusted tooling,
-bound only the supplementary GitHub Security SARIF view to GitHub's limit while retaining
-complete dashboard evidence, isolate deliberate dependency canaries from repository
-dependency discovery, and move analysis actions off deprecated Node 20 runtimes. These
-post-`14874b1` changes also register all nine analysis workflows with the repository-wide
-CI workflow allowlist and delegate their policy to the dedicated analysis auditor; this
-closes the shared `Workflow & shell contracts` failure visible across fork PRs. They
-require one new end-to-end cloud run before acceptance.
+**Current state:** the enterprise dashboard itself is accepted. Exact-Testing
+orchestrator run `33102796200` and aggregation run `33103518514` succeeded for SHA
+`0972ac0ab405161fc22255e622eae0bb52713d03`; artifact `9659488883` validates at 16/16
+required channels with 37,372 canonical findings and 38,268 observations. GitHub CLI
+download works. The Python pull worker receives HTTP 401 when `urllib` follows GitHub's
+authenticated artifact redirect on this Windows host.
 
 **Exit criteria:**
 
-- all four scanner workflows succeed for the exact commit;
-- aggregation publishes a snapshot containing `additional_channels`;
-- Snyk displays its actual current status and evidence counts;
-- CodeRabbit displays `PENDING_REVIEW` and `AI_ADVISORY` until exact-head evidence arrives;
-- required completion remains 16/16 and optional lanes do not affect publishability;
-- the Check links to the new real-data artifact.
+- reproduce the redirect behavior with a unit test that never contacts GitHub;
+- follow redirects without forwarding GitHub authorization to the signed storage host;
+- retain archive size, path, symlink, exact-branch/SHA, successful-run, and atomic
+  last-known-good protections;
+- validate manual `--artifact-id` recovery on Windows and the supported Ubuntu QA host.
 
-### P0.2 Activate and verify CodeRabbit cloud PR review
+### P0.2 Reconcile optional security-control truth
+
+The first complete expansion run produced evidence, but four supervisor statuses need
+resolution before the optional-control board is fully trustworthy:
+
+- **GitHub secret protection:** API evidence is `UNAVAILABLE` for secret scanning,
+  push protection, and alerts. Confirm repository settings and token visibility; never
+  broaden retained data beyond state/count/alert number.
+- **Snyk:** Code analysis succeeded, but Open Source SCA is `CONFIGURED_PARTIAL` because
+  three Python manifests reported `Missing required packages`; npm projects completed.
+  Build isolated dependency environments or use supported lock/export inputs, then
+  measure overlap and unique findings.
+- **Shipping Image Trivy / OpenSSF Scorecard:** jobs and artifacts succeeded, but their
+  dashboard catalog rows remain `PENDING_REVIEW`. Add truthful family/status mapping or
+  native status documents and regression fixtures.
+- **SBOM policy:** 568 packages yielded 1,265 license observations and 396 denied-license
+  observations (298 canonical findings). Review duplicate CycloneDX/SPDX evidence,
+  validate package/license attribution, define approved exceptions, and keep policy
+  findings visible until an owner decision.
+
+### P0.3 Activate and verify CodeRabbit cloud PR review
 
 **Current state:** privacy/code-sharing approval received and the repository owner reports
 the GitHub App installed. Automatic cloud review and incremental review after every PR
@@ -53,7 +63,7 @@ checkout-free dashboard refresh are implemented. A real fork PR review remains u
 - determine whether it adds non-redundant findings;
 - confirm the app has no upstream-company repository access and cannot apply patches.
 
-### P0.3 Deploy the dashboard to the company QA VM
+### P0.4 Deploy the dashboard to the company QA VM
 
 **Dependency:** company-provided Ubuntu LTS VM.
 
@@ -68,11 +78,24 @@ checkout-free dashboard refresh are implemented. A real fork PR review remains u
 - restart test proves the current snapshot remains available;
 - failed refresh test proves the prior snapshot remains served.
 
+### P0.5 Reconcile fork pull requests after the default-branch upgrade
+
+- Twelve open Dependabot PRs remain. Their displayed checks predate the accepted
+  `acc4aa5` default-branch workflow contract and several show superseded CI failures.
+- Rebase/regenerate each candidate, review breaking major-version upgrades separately,
+  and close only demonstrably superseded duplicates.
+- Do not bulk merge dependency changes; require current CI, scanner, release-image, and
+  compatibility evidence per PR.
+- GitHub Issues are disabled on the fork, so the dashboard remains the findings backlog
+  unless a separate issue-synchronization objective is approved.
+
 ## P1 — Improve detection breadth and evidence quality
 
 ### P1.1 Measure Snyk's unique contribution
 
-- Download the authenticated `snyk-results` artifact from a verified run.
+- Use exact-Testing artifact `9659304881` from run `33102828962` as the current baseline.
+- Repair the three unresolved Python dependency manifests; Snyk Code succeeded and npm
+  SCA completed, but the overall SCA surface is truthfully `CONFIGURED_PARTIAL`.
 - Reconcile Snyk observations/canonical findings in the custom dashboard.
 - Measure overlap with OSV, CodeQL, Semgrep, and other existing families.
 - Keep Snyk optional unless unique value and acceptable reliability are demonstrated.
@@ -110,9 +133,9 @@ checkout-free dashboard refresh are implemented. A real fork PR review remains u
 ### P2.1 Schemathesis operational evaluation
 
 - Boot the bounded test backend in an isolated environment.
-- Run the existing manual workflow and verify `DYNAMIC` dashboard visibility.
-- Measure duration/flakiness before considering automatic dynamic execution. The
-  scheduled latest-head supervisor covers the required static scanners only.
+- Run the manual/weekly workflow and verify `DYNAMIC` dashboard visibility.
+- Measure duration/flakiness before considering per-commit dynamic execution. The
+  latest-head supervisor intentionally covers required static scanners only.
 
 ### P2.2 Atheris execution validation
 
@@ -136,6 +159,9 @@ checkout-free dashboard refresh are implemented. A real fork PR review remains u
 - Autofix, patches, dependency auto-merge, Copilot Autofix invocation, or AI remediation.
 - Blocking branch protection or required custom Checks.
 - Upstream/company repository integration or production deployment.
+- Product-finding remediation, release assignment, and security-fix PRs. The accepted
+  dashboard supplies the backlog, but changing Agentic SOC source requires a separate
+  remediation objective, human triage, and normal reviewed commits.
 
 ## Explicit non-goals
 

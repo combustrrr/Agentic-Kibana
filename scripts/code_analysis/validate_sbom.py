@@ -4,10 +4,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
-DENIED_LICENSES = {"AGPL-3.0", "AGPL-3.0-only", "AGPL-3.0-or-later", "GPL-2.0"}
+DENIED_LICENSES = {
+    "AGPL-3.0", "AGPL-3.0-only", "AGPL-3.0-or-later",
+    "GPL-2.0", "GPL-2.0-only", "GPL-2.0-or-later",
+}
+SPDX_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+-]*")
+
+
+def _denied_license(expression: str) -> bool:
+    """Match complete SPDX identifiers, never substrings such as LGPL containing GPL."""
+    return any(token in DENIED_LICENSES for token in SPDX_TOKEN.findall(expression))
 
 
 def _licenses(document: dict[str, Any]) -> list[tuple[str, str]]:
@@ -46,7 +56,10 @@ def evaluate(paths: list[Path]) -> tuple[dict[str, Any], dict[str, Any]]:
         else:
             raise ValueError(f"unsupported SBOM format: {path}")
         observed.extend((path.name, name, license_id) for name, license_id in _licenses(document))
-    denied = [row for row in observed if any(token in row[2] for token in DENIED_LICENSES)]
+    # SPDX commonly repeats the same value in declared and concluded fields. Preserve
+    # cross-format evidence but do not manufacture duplicate findings within one SBOM.
+    observed = list(dict.fromkeys(observed))
+    denied = [row for row in observed if _denied_license(row[2])]
     status = {
         "schema_version": "1", "scanner_family": "SBOM Policy",
         "status": "POLICY_FINDINGS" if denied else "COMPLETED_OPTIONAL",
