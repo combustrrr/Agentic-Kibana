@@ -63,9 +63,6 @@ def build(args: argparse.Namespace) -> Path:
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
-    if args.publication_root:
-        run([python, str(HERE / "publish_snapshot.py"), "--source", str(output / "dashboard"),
-             "--publication-root", str(args.publication_root)])
     return output
 
 
@@ -81,7 +78,6 @@ def main() -> None:
                         default=Path("config/code-analysis/required-channels.json"))
     parser.add_argument("--tool-catalog", type=Path,
                         default=Path("config/code-analysis/proposal-tool-catalog.json"))
-    parser.add_argument("--publication-root", type=Path)
     args = parser.parse_args()
     built = build(args)
     print(f"publishable pipeline output: {built}")

@@ -50,28 +50,19 @@ corroboration and never gains patch, commit, blocking-check, or remediation auth
 - Native CI and documentation validation cover the fork default `claude/main` without
   removing the original `main` and `Testing` contracts.
 
-## QA VM profile
+## Artifact-only delivery
 
-The supported host is Ubuntu LTS, initially 8 vCPU, 16 GiB RAM, and 200 GiB SSD. The
-outbound-only pull worker uses an Actions-read-only credential supplied through systemd,
-validates archive size/path/symlink limits, and atomically retains the last valid
-dashboard. The nginx container binds to `127.0.0.1:8787`, runs unprivileged and
-read-only, drops all capabilities, bounds CPU/memory/PIDs/logs, denies non-read methods,
-and requires the company VPN/OIDC HTTPS proxy before developer access. Readiness is
-content-aware (`503` before the first validated publication); refresh retries are based
-on systemd unit inactivity, corrupt optimization state cannot strand the worker, and a
-bounded paginated Actions search prevents other branches from hiding the selected
-branch's latest exact-head artifact.
+GitHub Actions is the only supported Issue Wall execution, storage, authorization, and
+delivery boundary. No workstation listener, local cache service, pull worker, nginx
+container, or QA host is deployed.
 
 ## Deployment gates
 
 1. Run `python scripts/code_analysis/audit_workflows.py` and all analysis-service tests.
-2. Validate Compose files using the QA VM's `docker compose config`.
-3. Authorize CodeRabbit and prove an exact-head review reaches `AI_ADVISORY`.
-4. Use a read-only GitHub credential stored at mode `0600`.
-5. Verify loopback health and company access control.
-6. Run a manual scan and reconcile 16 channels, run links, hashes, and finding counts.
-7. Restart the worker/container and prove the last valid snapshot remains available.
+2. Authorize CodeRabbit and prove an exact-head review reaches `AI_ADVISORY`.
+3. Run a manual scan and reconcile 16 channels, run links, hashes, and finding counts.
+4. Download the authenticated artifact and verify its launch guide, snapshot, raw
+   observations, and self-contained `index.html`.
 
 DefectDojo and CodeScene remain deferred. Their profiles require explicit secrets and
 immutable image-digest variables and bind only to localhost. They are not part of the

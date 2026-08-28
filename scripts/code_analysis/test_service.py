@@ -1,4 +1,4 @@
-import json, os, tempfile, unittest, urllib.request, zipfile
+import json, tempfile, unittest
 from argparse import Namespace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,16 +10,10 @@ from scripts.code_analysis.channel_status import build as build_channel_status
 from scripts.code_analysis.collect_coderabbit import collect as collect_coderabbit
 from scripts.code_analysis.dashboard import artifact_readme, generate, github_summary, validate_snapshot, write_dashboard
 from scripts.code_analysis.evidence_contract import build as build_evidence_contract
-from scripts.code_analysis.local_service import (dispatch as dispatch_local_scan,
-    remote_branch_identity, repository_from_remote)
 from scripts.code_analysis.monitoring import EvidenceError, build_snapshot, canonicalize, check_key, compare, defectdojo_fixture, effective_triage, scanner_family, stable_id
 from scripts.code_analysis.normalizer import CodeRabbitParser, CoverageParser, RadonParser, SarifParser, SchemathesisParser, TscParser, XenonParser, main as normalize_cli, normalize_concept
 from scripts.code_analysis.pipeline import build as build_pipeline
 from scripts.code_analysis.provenance import build as build_provenance
-from scripts.code_analysis.publish_snapshot import publish
-from scripts.code_analysis.pull_worker import (_CredentialIsolatingRedirectHandler,
-    artifact_branch_key, artifact_commit, read_state, read_token, safe_extract,
-    select_artifact, select_artifact_by_id)
 from scripts.code_analysis.validate_sbom import _denied_license, evaluate as evaluate_sbom
 from scripts.code_analysis.snapshot import build_additional_channels
 
@@ -38,33 +32,6 @@ def snapshot(items=None, channel_state=None):
     return build_snapshot(current,channels,provenance)
 
 class MonitoringTests(unittest.TestCase):
-    def test_local_service_accepts_standard_github_remote_forms(self):
-        expected="owner/repository"
-        self.assertEqual(repository_from_remote("https://github.com/owner/repository.git"),expected)
-        self.assertEqual(repository_from_remote("git@github.com:owner/repository.git"),expected)
-        self.assertEqual(repository_from_remote("ssh://git@github.com/owner/repository.git"),expected)
-        with self.assertRaisesRegex(ValueError,"owner/repository"):
-            repository_from_remote("https://example.com/owner/repository")
-
-    @patch("scripts.code_analysis.local_service.run")
-    def test_local_service_dispatches_exact_commit_through_trusted_orchestrator(self,runner):
-        sha="a"*40
-        dispatch_local_scan("owner/repository","Testing",sha,"feature/static-code-analysis")
-        self.assertEqual(runner.call_args_list[0].args[0],
-                         ["gh","api",f"repos/owner/repository/commits/{sha}","--silent"])
-        command=runner.call_args_list[1].args[0]
-        self.assertIn("08-full-code-analysis.yml",command)
-        self.assertIn("scan_branch=Testing",command)
-        self.assertIn(f"expected_sha={sha}",command)
-
-    @patch("scripts.code_analysis.local_service.run",return_value="b"*40)
-    def test_local_service_resolves_selected_branch_from_github(self,runner):
-        self.assertEqual(remote_branch_identity("owner/repository","feature/a b"),
-                         ("feature/a b","b"*40))
-        self.assertEqual(runner.call_args.args[0],[
-            "gh","api","repos/owner/repository/branches/feature%2Fa%20b",
-            "--jq",".commit.sha"])
-
     def test_identity_is_canonical_and_missing_symbol_explicit(self):
         a=raw();b={**a,"file":"backend\\app\\a.py"}
         self.assertEqual(stable_id("repo",a),stable_id("repo",b));self.assertIn("sid-v1:",stable_id("repo",a))
@@ -265,6 +232,11 @@ class MonitoringTests(unittest.TestCase):
     def test_enterprise_workflow_policy_and_advisory_check_contract(self):
         self.assertEqual(audit_workflows(),[])
         self.assertEqual(audit_runtime_isolation(),[])
+        for retired in ("scripts/code_analysis/local_service.py",
+                        "scripts/code_analysis/pull_worker.py",
+                        "scripts/code_analysis/publish_snapshot.py",
+                        "deploy/code-analysis-dashboard","web-of-scanners.ps1"):
+            self.assertFalse(Path(retired).exists(),retired)
         layout=json.loads((Path(__file__).resolve().parents[2]/"config/code-analysis/service-layout.json").read_text(encoding="utf-8"))
         self.assertEqual(layout["boundary"],"read-only-external")
         self.assertIn("domain",layout["layers"])
@@ -286,7 +258,7 @@ class MonitoringTests(unittest.TestCase):
             root=Path(directory)
             (root/"backend/app").mkdir(parents=True)
             (root/"backend/app/main.py").write_text(
-                "from scripts.code_analysis.local_service import serve\n",encoding="utf-8")
+                "from scripts.code_analysis.dashboard import generate\n",encoding="utf-8")
             with patch.object(policy,"ROOT",root), patch.object(
                     policy,"RUNTIME_BOUNDARY_FILES",()):
                 errors=policy.audit_runtime_isolation()
@@ -318,18 +290,6 @@ class MonitoringTests(unittest.TestCase):
         self.assertIn("checks: write",permissions);self.assertIn("contents: read",permissions);self.assertIn("actions: read",permissions)
         self.assertNotIn("issues: write",text);self.assertNotIn("pull-requests: write",text);self.assertNotIn("contents: write",text)
 
-    def test_qa_vm_profile_is_loopback_read_only_and_credential_scoped(self):
-        compose=Path("deploy/code-analysis-dashboard/compose.yml").read_text(encoding="utf-8")
-        unit=Path("deploy/code-analysis-dashboard/agentic-findings-pull.service").read_text(encoding="utf-8")
-        self.assertIn('127.0.0.1:8787:8080',compose);self.assertIn("read_only: true",compose)
-        self.assertIn("cap_drop:\n      - ALL",compose);self.assertIn("/healthz",compose)
-        nginx=Path("deploy/code-analysis-dashboard/nginx.conf").read_text(encoding="utf-8")
-        timer=Path("deploy/code-analysis-dashboard/agentic-findings-pull.timer").read_text(encoding="utf-8")
-        self.assertIn("if (!-f /srv/current/index.html) { return 503; }",nginx)
-        self.assertIn("OnUnitInactiveSec=5min",timer)
-        self.assertIn("LoadCredential=github-token:",unit);self.assertIn("NoNewPrivileges=true",unit)
-        self.assertNotIn("GH_TOKEN=",unit);self.assertNotIn("github-token",unit.split("ExecStart=",1)[1].splitlines()[0])
-
     def test_snapshot_reconciles_findings_and_observations(self):
         result=snapshot([raw("CodeQL"),raw("Semgrep")])
         self.assertTrue(result["publishable"]);self.assertEqual(result["finding_count"],1)
@@ -340,20 +300,13 @@ class MonitoringTests(unittest.TestCase):
         current=evidence([raw()]);provenance={"commit_sha":"other","workflow_run_ids":["1"],"artifact_hashes":[{"path":"a","sha256":"a"*64}]}
         with self.assertRaises(EvidenceError): build_snapshot(current,status(),provenance)
 
-    def test_provenance_hashes_and_publication_roll_back(self):
+    def test_provenance_hashes_and_artifact_bundle(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);artifacts=root/"artifacts";artifacts.mkdir();(artifacts/"a.json").write_text("one")
             provenance=build_provenance(artifacts,"abc",["1"]);self.assertEqual(len(provenance["artifact_hashes"][0]["sha256"]),64)
-            first=root/"first";write_dashboard(snapshot(),first);published=root/"published";publish(first,published)
-            self.assertTrue((published/"current"/"index.html").is_file())
-            bad=root/"bad";bad.mkdir();(bad/"current-snapshot.json").write_text("{}")
-            with self.assertRaises(ValueError): publish(bad,published)
-            self.assertTrue((published/"current"/"index.html").is_file())
-            with self.assertRaisesRegex(ValueError,"repository"):
-                publish(first,published,"wrong/repository","abc")
-            with self.assertRaisesRegex(ValueError,"branch"):
-                publish(first,published,"combustrrr/Agentic-Kibana","abc","wrong-branch")
-            self.assertTrue((published/"current"/"index.html").is_file())
+            bundle=root/"dashboard";write_dashboard(snapshot(),bundle)
+            self.assertTrue((bundle/"index.html").is_file())
+            self.assertTrue((bundle/"START_HERE.md").is_file())
 
     def test_tsc_and_xenon_are_structured(self):
         with tempfile.TemporaryDirectory() as d:
@@ -436,7 +389,7 @@ class MonitoringTests(unittest.TestCase):
         for row in tools.values():
             if row["state"] == "ACTIVE_REQUIRED": self.assertIn(row["channel"],channels)
 
-    def test_shared_pipeline_builds_and_atomically_publishes(self):
+    def test_shared_pipeline_builds_artifact_bundle(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);artifacts=root/"artifacts";artifacts.mkdir()
             (artifacts/"codeql.sarif").write_text(json.dumps({"version":"2.1.0","runs":[]}),encoding="utf-8")
@@ -446,18 +399,17 @@ class MonitoringTests(unittest.TestCase):
                 "status":"CONFIGURED_COMPLETE","surfaces":{"sca":"success","code":"success"}
             }),encoding="utf-8")
             manifest=root/"manifest.json";manifest.write_text(json.dumps(MANIFEST),encoding="utf-8")
-            output=root/"run";publication=root/"published"
+            output=root/"run"
             build_pipeline(Namespace(artifacts=artifacts,output=output,repository="repo/fork",commit="abc",
-                                     branch="feature",workflow_run_id=["1"],manifest=manifest,
-                                     publication_root=publication))
+                                     branch="feature",workflow_run_id=["1"],manifest=manifest))
             self.assertTrue((output/"normalized"/"current-snapshot.json").is_file())
-            self.assertTrue((publication/"current"/"index.html").is_file())
+            self.assertTrue((output/"dashboard"/"index.html").is_file())
             current=json.loads((output/"normalized"/"current-snapshot.json").read_text(encoding="utf-8"))
             additional={row["tool"]:row for row in current["additional_channels"]}
             self.assertEqual(additional["Snyk"]["status"],"CONFIGURED_COMPLETE")
             self.assertEqual(additional["CodeRabbit"]["status"],"PENDING_REVIEW")
             self.assertEqual(additional["CodeRabbit"]["evidence_source"],"AI_ADVISORY")
-            dashboard=(publication/"current"/"index.html").read_text(encoding="utf-8")
+            dashboard=(output/"dashboard"/"index.html").read_text(encoding="utf-8")
             self.assertIn("Security controls &amp; optional assurance",dashboard)
             self.assertIn("Operational assurance",dashboard)
             self.assertIn("Required scanner evidence",dashboard)
@@ -494,14 +446,13 @@ class MonitoringTests(unittest.TestCase):
                 target=artifacts/relative
                 target.parent.mkdir(parents=True,exist_ok=True)
                 target.write_text(content,encoding="utf-8")
-            output=root/"output";publication=root/"published"
+            output=root/"output"
             build_pipeline(Namespace(
                 artifacts=artifacts,output=output,
                 repository="combustrrr/Agentic-Kibana",commit="a"*40,
                 branch="Testing",workflow_run_id=["1","2","3","4"],
                 manifest=Path("config/code-analysis/required-channels.json"),
                 tool_catalog=Path("config/code-analysis/proposal-tool-catalog.json"),
-                publication_root=publication,
             ))
             channel_status=json.loads((output/"channel-status.json").read_text(encoding="utf-8"))
             snapshot=json.loads((output/"normalized/current-snapshot.json").read_text(encoding="utf-8"))
@@ -510,161 +461,7 @@ class MonitoringTests(unittest.TestCase):
                                 for row in channel_status["channels"]))
             self.assertTrue(snapshot["publishable"])
             self.assertEqual(snapshot["finding_count"],0)
-            self.assertTrue((publication/"current/index.html").is_file())
-
-    def test_pull_worker_rejects_zip_path_traversal(self):
-        with tempfile.TemporaryDirectory() as d:
-            root=Path(d);archive=root/"bad.zip";destination=root/"out";destination.mkdir()
-            with zipfile.ZipFile(archive,"w") as bundle: bundle.writestr("../escape.txt","bad")
-            with self.assertRaises(ValueError): safe_extract(archive,destination)
-
-    def test_pull_worker_rejects_symlink_and_archive_limit(self):
-        with tempfile.TemporaryDirectory() as d:
-            root=Path(d);destination=root/"out";destination.mkdir()
-            symlink=root/"link.zip"
-            with zipfile.ZipFile(symlink,"w") as bundle:
-                entry=zipfile.ZipInfo("dashboard/link");entry.create_system=3
-                entry.external_attr=(0o120777 << 16);bundle.writestr(entry,"target")
-            with self.assertRaisesRegex(ValueError,"symlink"): safe_extract(symlink,destination)
-            with patch("scripts.code_analysis.pull_worker.MAX_ARCHIVE_FILES",0):
-                with self.assertRaisesRegex(ValueError,"too many files"):
-                    safe_extract(symlink,destination)
-
-    def test_pull_worker_extracts_only_the_served_dashboard_tree(self):
-        with tempfile.TemporaryDirectory() as d:
-            root=Path(d);archive=root/"artifact.zip";destination=root/"out";destination.mkdir()
-            with zipfile.ZipFile(archive,"w") as bundle:
-                bundle.writestr("dashboard/index.html","dashboard")
-                bundle.writestr("normalized/large.json","not served")
-            safe_extract(archive,destination,include_prefix="dashboard")
-            self.assertEqual((destination/"dashboard/index.html").read_text(),"dashboard")
-            self.assertFalse((destination/"normalized").exists())
-
-    def test_pull_worker_rejects_prefix_traversal_aliases(self):
-        for member in ("dashboard/../normalized/large.json",
-                       "dashboard\\..\\normalized\\large.json"):
-            with self.subTest(member=member), tempfile.TemporaryDirectory() as d:
-                root=Path(d);archive=root/"artifact.zip";destination=root/"out"
-                destination.mkdir()
-                with zipfile.ZipFile(archive,"w") as bundle:
-                    bundle.writestr(member,"escape")
-                with self.assertRaisesRegex(ValueError,"unsafe artifact path"):
-                    safe_extract(archive,destination,include_prefix="dashboard")
-
-    def test_pull_worker_reads_protected_token_file(self):
-        with tempfile.TemporaryDirectory() as d:
-            token_file=Path(d)/"github-token";token_file.write_text("read-only-token\n",encoding="utf-8")
-            previous_token=os.environ.pop("GH_TOKEN",None);previous_file=os.environ.get("GH_TOKEN_FILE")
-            try:
-                os.environ["GH_TOKEN_FILE"]=str(token_file)
-                self.assertEqual(read_token(),"read-only-token")
-            finally:
-                if previous_token is not None: os.environ["GH_TOKEN"]=previous_token
-                if previous_file is None: os.environ.pop("GH_TOKEN_FILE",None)
-                else: os.environ["GH_TOKEN_FILE"]=previous_file
-
-    def test_pull_worker_never_forwards_github_auth_to_artifact_storage(self):
-        handler=_CredentialIsolatingRedirectHandler()
-        request=urllib.request.Request(
-            "https://api.github.com/repos/org/repo/actions/artifacts/1/zip",
-            headers={"Authorization":"Bearer secret-token"},
-        )
-        storage=handler.redirect_request(
-            request,None,302,"Found",{},"https://artifact.example/signed/archive.zip"
-        )
-        self.assertIsNotNone(storage)
-        self.assertIsNone(storage.get_header("Authorization"))
-        github=handler.redirect_request(
-            request,None,302,"Found",{},"https://api.github.com/redirected"
-        )
-        self.assertEqual(github.get_header("Authorization"),"Bearer secret-token")
-
-    def test_pull_worker_ignores_corrupt_optional_state(self):
-        with tempfile.TemporaryDirectory() as d:
-            state=Path(d)/"state.json"
-            state.write_text("{broken",encoding="utf-8")
-            self.assertEqual(read_state(state),{})
-            state.write_text(json.dumps({"schema_version":"future","artifact_id":1}),
-                             encoding="utf-8")
-            self.assertEqual(read_state(state),{})
-
-    def test_dashboard_artifact_identity_is_source_branch_scoped(self):
-        branch="feature/static-code-analysis"
-        key=artifact_branch_key(branch)
-        self.assertTrue(key.startswith("feature-static-code-analysis-"))
-        self.assertEqual(len(key.rsplit("-",1)[1]),12)
-        self.assertNotEqual(artifact_branch_key("feature/a-b"),artifact_branch_key("feature-a/b"))
-        sha="c37bc75618d44e4a117cc40d20949b37f25ad549"
-        name=f"current-findings-dashboard-{key}-{sha}-32945417621"
-        self.assertEqual(artifact_commit(name,branch),sha)
-        with self.assertRaisesRegex(ValueError,"invalid identity"):
-            artifact_commit(f"current-findings-dashboard-{key}-short-1",branch)
-        workflow=Path(".github/workflows/05-issue-aggregation.yml").read_text(encoding="utf-8")
-        self.assertIn("current-findings-dashboard-${{ steps.snapshot-key.outputs.branch-key }}",workflow)
-        self.assertIn('echo "commit-key=${MONITORED_SHA,,}"',workflow)
-        self.assertNotIn('urlencode({"branch": branch',
-                         Path("scripts/code_analysis/pull_worker.py").read_text(encoding="utf-8"))
-
-    def test_pull_worker_never_publishes_a_late_older_commit_as_current(self):
-        branch="feature/example";key=artifact_branch_key(branch)
-        current="a"*40;older="b"*40
-        responses=[
-            {"commit":{"sha":current}},
-            {"workflow_runs":[{"id":22},{"id":21}]},
-            {"artifacts":[{"id":220,"expired":False,
-                            "name":f"current-findings-dashboard-{key}-{older}-22"}]},
-            {"artifacts":[{"id":210,"expired":False,
-                            "name":f"current-findings-dashboard-{key}-{current}-21"}]},
-        ]
-        with patch("scripts.code_analysis.pull_worker.request_json",side_effect=responses):
-            run,artifact,commit=select_artifact("combustrrr/Agentic-Kibana",branch,"token")
-        self.assertEqual(run["id"],21)
-        self.assertEqual(artifact["id"],210)
-        self.assertEqual(commit,current)
-
-    def test_pull_worker_paginates_busy_multi_branch_history(self):
-        branch="feature/rare";key=artifact_branch_key(branch);current="c"*40
-        first_page=[{"id":number} for number in range(100)]
-        responses=[{"commit":{"sha":current}}, {"workflow_runs":first_page}]
-        responses.extend({"artifacts":[]} for _ in first_page)
-        responses.extend([
-            {"workflow_runs":[{"id":101}]},
-            {"artifacts":[{"id":999,"expired":False,
-                            "name":f"current-findings-dashboard-{key}-{current}-101"}]},
-        ])
-        with patch("scripts.code_analysis.pull_worker.request_json",side_effect=responses) as request:
-            run,artifact,commit=select_artifact("combustrrr/Agentic-Kibana",branch,"token")
-        self.assertEqual((run["id"],artifact["id"],commit),(101,999,current))
-        self.assertTrue(any("page=2" in call.args[0] for call in request.call_args_list))
-
-    def test_manual_artifact_selection_requires_successful_aggregator_and_current_head(self):
-        branch="feature/manual";commit="d"*40;artifact_id=777
-        artifact={"id":artifact_id,"expired":False,
-                  "name":f"current-findings-dashboard-{artifact_branch_key(branch)}-{commit}-55",
-                  "workflow_run":{"id":55}}
-        run={"id":55,"conclusion":"success",
-             "path":".github/workflows/05-issue-aggregation.yml"}
-        with patch("scripts.code_analysis.pull_worker.request_json",side_effect=[
-                artifact,{"commit":{"sha":commit}},run]):
-            selected=select_artifact_by_id("combustrrr/Agentic-Kibana",branch,artifact_id,"token")
-        self.assertEqual(selected,(run,artifact,commit))
-
-        stale="e"*40
-        with patch("scripts.code_analysis.pull_worker.request_json",side_effect=[
-                artifact,{"commit":{"sha":stale}}]):
-            with self.assertRaisesRegex(RuntimeError,"but latest"):
-                select_artifact_by_id("combustrrr/Agentic-Kibana",branch,artifact_id,"token")
-
-    def test_manual_artifact_selection_rejects_wrong_workflow(self):
-        branch="feature/manual";commit="f"*40
-        artifact={"id":778,"expired":False,
-                  "name":f"current-findings-dashboard-{artifact_branch_key(branch)}-{commit}-56",
-                  "workflow_run":{"id":56}}
-        with patch("scripts.code_analysis.pull_worker.request_json",side_effect=[
-                artifact,{"commit":{"sha":commit}},
-                {"id":56,"conclusion":"success","path":".github/workflows/01-code-quality.yml"}]):
-            with self.assertRaisesRegex(RuntimeError,"not from a successful dashboard"):
-                select_artifact_by_id("combustrrr/Agentic-Kibana",branch,778,"token")
+            self.assertTrue((output/"dashboard/index.html").is_file())
 
     def test_every_branch_uses_exact_pr_head_and_automatic_aggregation(self):
         for name in ("01-code-quality.yml","02-security-sast.yml",

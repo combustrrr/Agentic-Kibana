@@ -25,16 +25,10 @@
       "scripts/code_analysis/bound_sarif.py",
       "scripts/code_analysis/validate_sbom.py",
       "scripts/code_analysis/dashboard.py",
-      "scripts/code_analysis/dashboard_template.html",
-      "scripts/code_analysis/publish_snapshot.py"
+      "scripts/code_analysis/dashboard_template.html"
     ],
     "infrastructure_adapters": [
-      "scripts/code_analysis/pull_worker.py",
-      "scripts/code_analysis/local_service.py",
-      "deploy/code-analysis-dashboard/compose.yml",
-      "deploy/code-analysis-dashboard/nginx.conf",
-      "deploy/code-analysis-dashboard/agentic-findings-pull.service",
-      "deploy/code-analysis-dashboard/agentic-findings-pull.timer"
+      ".github/workflows/05-issue-aggregation.yml"
     ],
     "verification": [
       "scripts/code_analysis/audit_workflows.py",
@@ -45,12 +39,9 @@
     "compatibility_entrypoints": [
       "scripts/code_analysis/normalizer.py",
       "scripts/code_analysis/pipeline.py",
-      "scripts/code_analysis/publish_snapshot.py",
-      "scripts/code_analysis/pull_worker.py",
       "scripts/code_analysis/collect_coderabbit.py",
       "scripts/code_analysis/validate_canary.py",
-      "scripts/code_analysis/audit_workflows.py",
-      "web-of-scanners.ps1"
+      "scripts/code_analysis/audit_workflows.py"
     ]
   },
   "forbidden_runtime_dependencies": [

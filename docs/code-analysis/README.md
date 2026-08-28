@@ -15,12 +15,11 @@
 | What the platform is and how it works | [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) |
 | What has actually been completed | [`WORK_COMPLETED.md`](WORK_COMPLETED.md) |
 | Why the architecture uses these boundaries | [`ADRS.md`](ADRS.md) |
-| Production/QA-VM security and deployment gates | [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) |
+| Cloud artifact security and readiness gates | [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) |
 | External service package and dependency architecture | [`SERVICE_ARCHITECTURE.md`](SERVICE_ARCHITECTURE.md) |
 | What remains, in priority order | [`PENDING_WORK.md`](PENDING_WORK.md) |
 | Authoritative phase/status table | [`EXECUTION_PLAN.md`](EXECUTION_PLAN.md) |
 | Where and how the dashboard is viewed | [`MONITORING_UI.md`](MONITORING_UI.md) |
-| Local and company VM hosting contract | [`QA_VM.md`](QA_VM.md) |
 | External service activation state | [`EXTERNAL_ACTIVATION.md`](EXTERNAL_ACTIVATION.md) |
 | Snyk overlap and retention decision | [`SNYK_UNIQUE_CONTRIBUTION.md`](SNYK_UNIQUE_CONTRIBUTION.md) |
 
@@ -87,9 +86,7 @@ A snapshot is publishable only when required workflows succeeded, artifacts shar
 exact commit and valid hashes, normalization completes, and counts reconcile. Failed
 refreshes cannot replace the last publishable hosted snapshot.
 
-See [`MONITORING_UI.md`](MONITORING_UI.md) for local and future QA-VM hosting.
-See [`QA_VM.md`](QA_VM.md) for the outbound-only pull worker, shared local/Actions
-pipeline command, systemd boundary, and VM deployment contract.
+See [`MONITORING_UI.md`](MONITORING_UI.md) for the authenticated GitHub artifact flow.
 
 ## Discovery lanes
 
@@ -139,11 +136,6 @@ branch's current GitHub head, so a slower older run cannot become the latest das
 - **Manual dashboard-only rebuild:** Actions → **Code Analysis Dashboard** → **Run
   workflow**, with the exact `scan_branch` and `scan_sha`. This reuses existing scanner
   evidence and fails closed if a required exact-commit run is unavailable.
-- **Manual artifact publication:** a dashboard host operator may select a known GitHub
-  artifact ID with `pull_worker.py --artifact-id ID --force`. The artifact must come
-  from a successful dashboard aggregation and still match the branch's current head;
-  all archive, provenance, and atomic-publication checks remain mandatory. See
-  [`QA_VM.md`](QA_VM.md#manual-artifact-recovery).
 
 The dashboard leads with security posture, critical/high counts, affected areas,
 freshness, and the exact publication path. Hotspots and distribution bars apply filters

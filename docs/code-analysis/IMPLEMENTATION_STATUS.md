@@ -249,16 +249,14 @@ Only the separate required-channel board contributes to the publishability fract
 Rendering is bounded to 50/100/250 rows; the browser never mounts the complete 8,000+
 or 10,000-row dataset simultaneously.
 
-Until the QA VM is ready, developers open the **Code Analysis Dashboard** Check on the
-commit and download the linked Actions artifact. Local evaluation is available at
-`http://127.0.0.1:8787` using the hardened read-only nginx Compose profile. The intended
-daily surface is the same image on the company QA VM behind VPN/OIDC.
+Developers open the **Code Analysis Dashboard** Check on the commit and download the
+linked authenticated Actions artifact. This is the only supported Issue Wall surface;
+local and QA-host serving were retired by owner decision on 2026-08-29.
 
-## 9. Hosting decision and VM sizing
+## 9. Delivery decision
 
-The agreed initial host is Ubuntu LTS with **8 vCPU, 16 GiB RAM, and 200 GiB SSD** plus
-outbound HTTPS access to GitHub. It is sufficient for the dashboard, pull worker, local
-scanner evaluation, and one evaluation service. Do not co-locate production-grade
+No Issue Wall host is operated. GitHub Actions supplies scanner compute, aggregation,
+artifact retention, access control, and audit history. Do not co-locate production-grade
 SonarQube, DefectDojo, their databases, and untrusted scans until resource and security
 boundaries are measured.
 
@@ -314,13 +312,12 @@ installed; a real exact-head PR review remains the required verification evidenc
 
 Separate approval is required for:
 
-1. QA-VM deployment and company VPN/OIDC configuration.
-2. CodeRabbit exact-head cloud review proof and AI-advisory evidence-adapter evaluation.
-3. Non-redundant SonarQube or CodeScene export ingestion.
-4. Human triage operations, persistence, or DefectDojo evaluation.
-5. Precision/false-positive measurement.
-6. Review-only remediation suggestions.
-7. Sandboxed patches and, only after measured evidence, narrowly scoped automation.
+1. CodeRabbit exact-head cloud review proof and AI-advisory evidence-adapter evaluation.
+2. Non-redundant SonarQube or CodeScene export ingestion.
+3. Human triage operations, persistence, or DefectDojo evaluation.
+4. Precision/false-positive measurement.
+5. Review-only remediation suggestions.
+6. Sandboxed patches and, only after measured evidence, narrowly scoped automation.
 
 No later phase should weaken the current evidence-preservation, exact-commit,
 fail-closed publication, fork isolation, or read-only defaults.

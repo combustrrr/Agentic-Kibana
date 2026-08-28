@@ -48,6 +48,13 @@ RUNTIME_BOUNDARY_FILES = (
     "docker-compose.yml",
     "docker-compose.agnostic.yml",
 )
+RETIRED_LOCAL_SURFACES = (
+    "scripts/code_analysis/local_service.py",
+    "scripts/code_analysis/pull_worker.py",
+    "scripts/code_analysis/publish_snapshot.py",
+    "deploy/code-analysis-dashboard",
+    "web-of-scanners.ps1",
+)
 
 
 def _walk_steps(document: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
@@ -61,6 +68,9 @@ def _walk_steps(document: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
 def audit_service_layout() -> list[str]:
     """Validate the external-service ownership and application isolation contract."""
     errors: list[str] = []
+    for retired in RETIRED_LOCAL_SURFACES:
+        if (ROOT / retired).exists():
+            errors.append(f"{retired}: local Issue Wall surface is retired")
     relative = "config/code-analysis/service-layout.json"
     path = ROOT / relative
     try:

@@ -67,20 +67,11 @@ cannot be claimed under the current vendor policy.
 - determine whether it adds non-redundant findings;
 - confirm the app has no upstream-company repository access and cannot apply patches.
 
-### P0.4 Deploy the dashboard to the company QA VM
+### P0.4 Local/QA-host dashboard deployment
 
-**Dependency:** company-provided Ubuntu LTS VM.
-
-**Exit criteria:**
-
-- 8 vCPU / 16 GiB RAM / 200 GiB SSD or measured equivalent;
-- outbound GitHub HTTPS and no inbound GitHub webhook requirement;
-- repository-scoped read credential loaded from a protected file/systemd credential;
-- pull worker verifies and atomically publishes an exact-commit artifact;
-- container binds `127.0.0.1` and runs read-only with dropped capabilities;
-- company VPN/OIDC protects developer access;
-- restart test proves the current snapshot remains available;
-- failed refresh test proves the prior snapshot remains served.
+**Retired by owner decision 2026-08-29.** No workstation server, local artifact cache,
+pull worker, nginx container, VM host, or private hosted copy is supported. Issue Wall
+is generated, retained, authorized, audited, and downloaded only through GitHub Actions.
 
 ### P0.5 Reconcile fork pull requests after the default-branch upgrade
 
@@ -101,32 +92,13 @@ severity-first Fix queue over canonical finding identities plus developer contro
 full scanner orchestration, dashboard-only rebuild, live workflow activity, and the
 scheduled latest-head supervisor. Controls link to GitHub's authenticated Actions pages;
 the static board stores no token and receives no workflow-write authority. The supported
-deployment remains the loopback-only nginx container behind company VPN/OIDC on the QA
-VM. For the current zero-hosting path, every Actions artifact includes an offline
+delivery path is exclusively the authenticated GitHub Actions artifact. Every artifact includes an offline
 `dashboard/START_HERE.md` guide and a self-contained `dashboard/index.html`; GitHub run
-summaries point directly to that flow. P0.4 still owns any later external host proof.
-The separate local developer control plane is also complete: root
-`web-of-scanners.ps1` can dispatch the trusted exact-commit orchestrator, wait for and
-validate its artifact, atomically refresh ignored local state, and serve Issue Wall on
-loopback. It is tooling-only and has no application runtime, image, Compose, import, or
-deployment dependency. Developers can list GitHub branches and select one explicitly;
-the service resolves its authoritative remote head and keeps the visualization local.
-
-### P0.7 Local Issue Wall enterprise control experience
-
-**Backlog added 2026-08-29.** Preserve the CLI as the automation contract while adding
-an optional loopback control page that can select a permitted branch, show the resolved
-commit before confirmation, dispatch Web of Scanners, display workflow/job progress,
-cancel an authorized run, refresh the validated artifact, and switch among locally
-retained branch snapshots. Add bounded retention, per-run audit metadata, clear stale/
-failed/partial states, single-instance locking, and browser-visible diagnostics. Keep
-GitHub authentication process-side, require explicit confirmation before workflow
-dispatch/cancellation, use least-privilege repository permissions, and never expose a
-token to HTML or JavaScript. The control page and local evidence must remain completely
-outside Agentic SOC runtime, APIs, images, dependencies, telemetry, and deployment.
-This boundary is policy-enforced: runtime source, dependency manifests, Dockerfiles, and
-application Compose definitions are checked for reverse coupling on every analysis
-policy run. Any future integration must remain observer-to-repository only.
+summaries point directly to that flow. Local serving, local artifact caches, the QA-host
+nginx profile, and the local control-page backlog were retired on 2026-08-29. Branch
+selection, workflow progress, cancellation, audit, retention, and access control remain
+GitHub-native responsibilities. Runtime source, dependency manifests, Dockerfiles, and
+application Compose definitions continue to be checked for reverse coupling.
 
 ## P1 — Improve detection breadth and evidence quality
 
