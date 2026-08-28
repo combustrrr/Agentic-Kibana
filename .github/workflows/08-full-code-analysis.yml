@@ -281,8 +281,8 @@ jobs:
           echo "dashboard-url=$dashboard_url" >> "$GITHUB_OUTPUT"
           {
             echo
-            echo "### Dashboard"
-            echo "- [Open dashboard build and download the searchable artifact]($dashboard_url)"
+            echo "### Issue Wall"
+            echo "- [Open the Issue Wall build and download the offline artifact]($dashboard_url)"
           } >> manual-analysis-summary.md
           gh run watch "$dashboard_id" --exit-status
 

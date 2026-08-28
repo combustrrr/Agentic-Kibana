@@ -22,6 +22,7 @@
 | Where and how the dashboard is viewed | [`MONITORING_UI.md`](MONITORING_UI.md) |
 | Local and company VM hosting contract | [`QA_VM.md`](QA_VM.md) |
 | External service activation state | [`EXTERNAL_ACTIVATION.md`](EXTERNAL_ACTIVATION.md) |
+| Snyk overlap and retention decision | [`SNYK_UNIQUE_CONTRIBUTION.md`](SNYK_UNIQUE_CONTRIBUTION.md) |
 
 ## Objective
 

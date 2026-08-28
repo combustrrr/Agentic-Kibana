@@ -7,6 +7,12 @@ The QA VM is an outbound-only findings host. It is **not** an Agentic SOC runtim
 dependency and, because the fork is public, it must not be registered as a persistent
 self-hosted GitHub Actions runner.
 
+The served page is the developer issue wall as well as the evidence dashboard. Its
+workflow controls are ordinary links to GitHub Actions. Developers authenticate with
+GitHub before selecting a branch or dispatching work; the VM retains only the separate
+Actions-read credential used by the pull worker. This split keeps workflow-write
+authority out of nginx, the browser bundle, and the host publication directory.
+
 ## Supported flows
 
 ### GitHub-hosted collection (default)
@@ -43,6 +49,23 @@ Run it from a locked-down `systemd` oneshot service on a timer. The service acco
 needs write access only to `/opt/agentic-soc-findings/repo/var/code-analysis` and
 `/var/lib/agentic-soc-findings`; bind the dashboard container to `127.0.0.1` and put
 company VPN/OIDC authentication in front of it.
+
+For company use, configure the reverse proxy to require the developer group and deny
+anonymous access. The board's links then open GitHub's permission-gated workflow pages:
+
+- **Run all scanners** — `08-full-code-analysis.yml`, which pins a selected branch head,
+  runs all four required scanner groups, and builds the dashboard;
+- **Build dashboard** — `05-issue-aggregation.yml`, for an exact-commit rebuild from
+  already successful scanner evidence;
+- **Live workflow activity** — the repository Actions run list; and
+- **Continuous monitoring** — the scheduled supervisor in
+  `08-full-code-analysis.yml`, currently sweeping at minutes 7, 22, 37, and 52.
+
+Do not replace these links with unauthenticated client-side API calls. If one-click
+dispatch without GitHub's confirmation page is later required, place it in a separate
+OIDC-authenticated server-side control service with narrowly scoped workflow-write
+credentials, CSRF protection, an allowlisted repository/workflow/branch contract, and
+an audit log; that service is not part of the current static-host profile.
 
 ## Supervisor activation checklist
 

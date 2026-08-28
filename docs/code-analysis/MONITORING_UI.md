@@ -1,4 +1,56 @@
-# Current Findings Dashboard
+# Issue Wall
+
+The coordinated scanner and evidence system is the **Web of Scanners**. Its external,
+developer-only portal is **Issue Wall**.
+
+## Local developer service
+
+Issue Wall can run as a separate loopback-only developer service without installing or
+starting Agentic SOC. From the repository root on Windows:
+
+```powershell
+# Scan the exact current commit in the trusted GitHub runners, wait for validated
+# evidence, publish it locally, open Issue Wall, and keep serving until Ctrl+C.
+.\web-of-scanners.ps1 start -Scan -Open
+```
+
+The selected commit must already exist in the configured GitHub fork because the Web of
+Scanners deliberately analyzes an immutable remote commit rather than an uncommitted
+working tree. GitHub CLI must be installed and authenticated with permission to dispatch
+Actions and read artifacts. The launcher obtains the credential from `GH_TOKEN` or the
+GitHub CLI process, keeps it out of files and dashboard content, and publishes only an
+artifact that passes the existing exact-repository, branch, commit, workflow, archive,
+and snapshot checks.
+
+Useful operations:
+
+```powershell
+.\web-of-scanners.ps1 status             # compare local HEAD with the served artifact
+.\web-of-scanners.ps1 branches           # list selectable branches from GitHub
+.\web-of-scanners.ps1 start -Scan -Open -Branch Testing
+.\web-of-scanners.ps1 scan               # dispatch only; do not start a server
+.\web-of-scanners.ps1 refresh            # retrieve the latest accepted artifact
+.\web-of-scanners.ps1 serve -Open        # serve the already retrieved Issue Wall
+```
+
+The HTTP listener is fixed to `127.0.0.1:8787` by default, disables directory listings,
+adds restrictive browser headers, and refuses a non-loopback bind. Runtime material is
+stored only under ignored `tmp/web-of-scanners-local/`. This is quality infrastructure:
+it is not imported by the backend or web UI, included in application Compose profiles,
+installed as an application dependency, or reachable from the application runtime.
+An explicit `-Branch` selection is resolved through GitHub to that branch's current
+40-character head before dispatch. It never reuses the current checkout SHA under a
+different branch label. The resulting visualization is still downloaded and served
+only on the developer workstation.
+
+### Enforced one-way boundary
+
+The relationship is deliberately one-way: Web of Scanners may read the repository and
+its immutable GitHub evidence, while Agentic SOC may not import, start, package, call,
+or depend on Web of Scanners. Repository policy scans backend and web UI runtime source,
+dependency manifests, Dockerfiles, and application Compose definitions and fails CI if
+an analysis-service path or launcher is introduced there. Analysis workflows and the
+local launcher remain external developer/quality infrastructure.
 
 The code-analysis product is one read-only, full-codebase snapshot. It does not create
 one GitHub Issue per scanner result and it does not use baseline or lifecycle state to
@@ -26,6 +78,17 @@ coverage, optional-control evidence, and the critical/high review queue are visi
 a glance. Optional detail is collapsed by default to prevent scanner noise from
 overwhelming the operational view.
 
+The **Fix queue** is a severity-first issue wall over the same complete canonical
+snapshot. It previews the first five identities in each severity and hands a selected
+column back to the full searchable evidence table. It does not create GitHub Issues,
+hide the remaining backlog, or persist a second finding lifecycle.
+
+The **Web of Scanners** bar links authenticated developers to GitHub's native
+Actions pages for the full four-scanner orchestration, dashboard-only rebuild, live run
+activity, and scheduled continuous-monitoring supervisor. The static page never holds
+a GitHub token and cannot call the dispatch API directly. GitHub therefore remains the
+permission, branch-selection, confirmation, audit, and run-status authority.
+
 The board has two channel sections:
 
 - **Required scanner channels** are the manifest-controlled 16-channel publication gate.
@@ -49,7 +112,11 @@ docker compose -f deploy/code-analysis-dashboard/compose.yml up --build -d
 ```
 
 Open <http://127.0.0.1:8787>. The container is read-only and binds only to localhost.
-The future QA VM uses the same image behind company-approved OIDC/VPN access.
+The supported QA VM uses the same image behind company-approved OIDC/VPN access. This
+is the developer-only hosting target: the nginx container stays loopback-only, while
+the access proxy supplies identity and HTTPS. Do not expose port 8787 publicly or move
+a dispatch credential into browser JavaScript to make the workflow links look like
+direct API buttons.
 
 ## GitHub output
 
@@ -60,7 +127,8 @@ hosted dashboard, not the artifact ZIP, is the intended daily developer surface.
 For a scanned commit, open **Checks → Code Analysis Dashboard**. The Check identifies
 the analyzed SHA and links to the immutable
 `current-findings-dashboard-<branch>-<sha>-<run-id>` artifact. Download it and open
-`dashboard/index.html`; this is the complete current-snapshot UI, while GitHub's
+`dashboard/START_HERE.md`, then `dashboard/index.html`; this is the complete offline
+Issue Wall, while GitHub's
 Security and quality count remains a separate native-alert surface. Verified examples
 include dashboard runs `32938363593` (platform acceptance) and `32940124398` (improved
 real-data UI).

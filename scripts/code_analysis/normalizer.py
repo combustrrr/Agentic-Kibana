@@ -102,6 +102,8 @@ CONCEPT_MAP: dict[str, str] = {
     "B609":                                      "path-traversal",
     "B604":                                      "path-traversal",
     "agentic-soc-unvalidated-file-path":         "path-traversal",
+    "python/PT":                                "path-traversal",  # Snyk Code
+    "python/TarSlip/test":                      "path-traversal",  # Snyk Code
 
     # ── Hardcoded Secrets / Credentials ──────────────────────
     "HardcodedPassword":                         "hardcoded-secret",
@@ -123,6 +125,13 @@ CONCEPT_MAP: dict[str, str] = {
     "S105":                                      "hardcoded-secret",  # Ruff
     "S106":                                      "hardcoded-secret",
     "S107":                                      "hardcoded-secret",
+    "python/NoHardcodedPasswords/test":          "hardcoded-secret",  # Snyk Code
+    "python/HardcodedNonCryptoSecret/test":      "hardcoded-secret",  # Snyk Code
+    "python/NoHardcodedCredentials":             "hardcoded-secret",  # Snyk Code
+    "python/NoHardcodedCredentials/test":        "hardcoded-secret",  # Snyk Code
+    "javascript/HardcodedNonCryptoSecret":       "hardcoded-secret",  # Snyk Code
+    "javascript/HardcodedNonCryptoSecret/test":  "hardcoded-secret",  # Snyk Code
+    "javascript/NoHardcodedPasswords/test":      "hardcoded-secret",  # Snyk Code
 
     # ── Eval / Code Injection ────────────────────────────────
     "python/code-injection":                     "code-injection",
@@ -162,6 +171,7 @@ CONCEPT_MAP: dict[str, str] = {
     "B605":                                      "command-injection",
     "S603":                                      "command-injection",
     "kavach-subprocess-shell-true":              "command-injection",
+    "python/CommandInjection":                   "command-injection",  # Snyk Code
 
     # ── Insecure Crypto / Hashing ────────────────────────────
     "python/weak-cryptography":                  "weak-crypto",
@@ -170,6 +180,10 @@ CONCEPT_MAP: dict[str, str] = {
     "B324":                                      "weak-crypto",
     "InsecureHashUsage":                         "weak-crypto",
     "kavach-weak-crypto-hash":                   "weak-crypto",
+    "python/InsecureHash":                       "weak-crypto",  # Snyk Code
+
+    # -- Open Redirect --
+    "javascript/OR":                             "open-redirect",  # Snyk Code
 
     # ── CORS ─────────────────────────────────────────────────
     "kavach-cors-wildcard":                      "cors-wildcard",

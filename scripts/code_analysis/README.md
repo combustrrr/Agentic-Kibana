@@ -13,6 +13,11 @@ in `config/code-analysis/service-layout.json`:
 - **application** verifies exact-commit evidence and assembles publishable snapshots;
 - **presentation** builds and atomically publishes the bounded read-only dashboard;
 - **infrastructure adapters** pull immutable Actions artifacts and serve them externally;
+
+`local_service.py` is the developer control plane for the same boundary. It dispatches
+the trusted exact-commit orchestrator, retrieves only an accepted dashboard artifact,
+and serves Issue Wall on loopback. The root `web-of-scanners.ps1` wrapper is the Windows
+entry point. Neither file is part of Agentic SOC startup or shipping runtime.
 - **verification** enforces workflow policy, canaries, scale, and regressions.
 
 New code must respect dependency direction:

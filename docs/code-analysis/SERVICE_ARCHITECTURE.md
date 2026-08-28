@@ -35,6 +35,7 @@ scripts/code_analysis/
   dashboard_template.html   bounded developer UI
   publish_snapshot.py       atomic publication
   pull_worker.py            outbound-only GitHub adapter
+  local_service.py          loopback-only developer control plane
   audit_workflows.py        architecture/security policy
   validate_canary.py        detection-web contract
   benchmark_monitoring.py   scale gate
@@ -46,6 +47,7 @@ deploy/code-analysis-dashboard/
   *.service / *.timer       outbound QA-VM pull worker
 
 docs/code-analysis/         operator, architecture, evidence, and handoff docs
+web-of-scanners.ps1         developer compatibility entry point; never product startup
 ```
 
 ## Dependency rule
@@ -54,6 +56,11 @@ The domain is deterministic and infrastructure-free. Adapters translate scanner 
 GitHub data at the boundary. Application modules validate and assemble a snapshot.
 Presentation consumes only that validated contract. Infrastructure performs outbound
 retrieval and atomic publication. Nothing imports the Agentic SOC backend or frontend.
+All implementation and deployment ownership stays in `.github/workflows/0[1-9]-*`,
+`config/code-analysis/`, `scripts/code_analysis/`, `deploy/code-analysis-dashboard/`,
+and `docs/code-analysis/`, with the single root PowerShell compatibility entry point.
+No analysis implementation file is owned by `backend/`, `webui/`, or an application
+Compose profile.
 
 ## Developer diagnosis path
 

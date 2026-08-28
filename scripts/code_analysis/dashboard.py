@@ -33,17 +33,43 @@ def github_summary(snapshot: dict) -> str:
         row for row in additional
         if row.get("status") in {"CONFIGURED_COMPLETE", "COMPLETED_OPTIONAL"}
     ]
-    lines = ["## Current Code Quality & Security Snapshot", "",
+    lines = ["## Issue Wall — Web of Scanners", "",
              f"- **Snapshot commit:** `{snapshot['commit_sha']}`",
              f"- **Required channels complete:** {sum(c['status'] == 'COMPLETED' for c in channels)}/{len(channels)}",
              f"- **Canonical findings:** {snapshot['finding_count']:,}",
              f"- **Raw observations:** {snapshot['observation_count']:,}",
              f"- **AI advisories:** {snapshot['ai_advisory_count']:,}",
              f"- **Additional lanes observed:** {len(observed_additional)}/{len(additional)} (not part of required coverage)",
-             "- **Mode:** read-only; no Issues, patches, comments, history, or remediation", "",
+             "- **Mode:** read-only; no Issues, patches, comments, history, or remediation",
+             "- **Offline launch:** download and extract the artifact, then open `dashboard/index.html`", "",
              "| Severity | Findings |", "|---|---:|",
              *[f"| {key} | {value:,} |" for key, value in sorted(severities.items())]]
     return "\n".join(lines) + "\n"
+
+
+def artifact_readme(snapshot: dict) -> str:
+    """Return the offline-first launch guide shipped beside Issue Wall."""
+    validate_snapshot(snapshot)
+    return "\n".join([
+        "# Start here — Issue Wall",
+        "",
+        "This is the read-only developer portal for the Web of Scanners.",
+        "",
+        "1. Extract the complete GitHub Actions artifact.",
+        "2. Open `dashboard/index.html` in a modern browser.",
+        "3. Use the Fix queue, filters, and evidence drawer to review findings.",
+        "4. Use the Web of Scanners controls to open GitHub's authenticated Actions pages.",
+        "",
+        f"- Repository: `{snapshot['repository_identity']}`",
+        f"- Branch: `{snapshot['branch']}`",
+        f"- Exact commit: `{snapshot['commit_sha']}`",
+        f"- Canonical findings: {snapshot['finding_count']:,}",
+        f"- Raw observations: {snapshot['observation_count']:,}",
+        "",
+        "Keep the files together. Issue Wall is self-contained and does not require a local server.",
+        "The JSON downloads are evidence records, not instructions to execute scanner output.",
+        "",
+    ])
 
 
 def _generate_legacy(snapshot: dict, output: Path) -> None:
@@ -71,6 +97,7 @@ def write_dashboard(snapshot: dict, output_dir: Path) -> None:
     (output_dir / "current-snapshot.json").write_text(json.dumps(snapshot, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (output_dir / "raw-observations.json").write_text(json.dumps(snapshot["observations"], indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (output_dir / "github-summary.md").write_text(github_summary(snapshot), encoding="utf-8")
+    (output_dir / "START_HERE.md").write_text(artifact_readme(snapshot), encoding="utf-8")
 
 
 def main() -> None:

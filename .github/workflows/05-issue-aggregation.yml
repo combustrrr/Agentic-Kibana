@@ -134,7 +134,7 @@ jobs:
           if (( pipeline_exit != 0 )); then
             mkdir -p dashboard
             {
-              echo "## Current Code Quality & Security Snapshot"
+              echo "## Issue Wall — Web of Scanners"
               echo
               echo "A publishable snapshot could not be produced. The previous hosted snapshot remains active."
               echo
@@ -205,9 +205,10 @@ jobs:
           details_url="${ARTIFACT_URL:-$RUN_URL}"
           mkdir -p dashboard
           if [[ ! -f dashboard/github-summary.md ]]; then
-            printf '## Current Code Quality & Security Snapshot\n\nA publishable snapshot could not be produced. The previous hosted snapshot must remain active.\n' > dashboard/github-summary.md
+            printf '## Issue Wall — Web of Scanners\n\nA publishable snapshot could not be produced. The previous accepted artifact remains authoritative.\n' > dashboard/github-summary.md
           fi
-          printf '\n[Download the full searchable dashboard artifact](%s)\n' "$ARTIFACT_URL" >> dashboard/github-summary.md
+          printf '\n[Download the complete offline Issue Wall artifact](%s)\n' "$ARTIFACT_URL" >> dashboard/github-summary.md
+          printf '\nAfter extraction, open `dashboard/index.html`; `dashboard/START_HERE.md` contains the launch guide.\n' >> dashboard/github-summary.md
           printf '\nArtifact ID for validated manual recovery: \140%s\140\n' "${ARTIFACT_ID:-unavailable}" >> dashboard/github-summary.md
           existing="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${MONITORED_SHA}/check-runs?filter=latest&per_page=100")"
           check_id="$(jq -r --arg name "$check_name" --arg external "$external_id" \
@@ -247,14 +248,14 @@ jobs:
             if [[ -f dashboard/github-summary.md ]]; then
               cat dashboard/github-summary.md
             else
-              echo "## Code Analysis Dashboard"
+              echo "## Issue Wall"
               echo
               echo "Dashboard generation did not complete. Inspect this run's logs."
             fi
             echo
             printf '%s\n' "- Monitored branch: \`${SUMMARY_BRANCH}\`"
             printf '%s\n' "- Monitored commit: \`${SUMMARY_SHA}\`"
-            printf '%s\n' "- Full dashboard artifact: ${SUMMARY_ARTIFACT_URL:-not published}"
+            printf '%s\n' "- Complete offline Issue Wall artifact: ${SUMMARY_ARTIFACT_URL:-not published}"
             printf '%s\n' "- Validated artifact ID: ${SUMMARY_ARTIFACT_ID:-not published}"
             echo "- Issue writes: \`disabled\`"
             echo "- Autofix generation/application: \`disabled\`"

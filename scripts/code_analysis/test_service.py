@@ -4,14 +4,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 from click.testing import CliRunner
-from scripts.code_analysis.audit_workflows import audit as audit_workflows
+from scripts.code_analysis.audit_workflows import audit as audit_workflows, audit_runtime_isolation
 from scripts.code_analysis.bound_sarif import bound as bound_sarif
 from scripts.code_analysis.channel_status import build as build_channel_status
 from scripts.code_analysis.collect_coderabbit import collect as collect_coderabbit
-from scripts.code_analysis.dashboard import generate, github_summary, validate_snapshot, write_dashboard
+from scripts.code_analysis.dashboard import artifact_readme, generate, github_summary, validate_snapshot, write_dashboard
 from scripts.code_analysis.evidence_contract import build as build_evidence_contract
-from scripts.code_analysis.monitoring import EvidenceError, build_snapshot, canonicalize, check_key, compare, defectdojo_fixture, effective_triage, stable_id
-from scripts.code_analysis.normalizer import CodeRabbitParser, CoverageParser, RadonParser, SarifParser, SchemathesisParser, TscParser, XenonParser, main as normalize_cli
+from scripts.code_analysis.local_service import (dispatch as dispatch_local_scan,
+    remote_branch_identity, repository_from_remote)
+from scripts.code_analysis.monitoring import EvidenceError, build_snapshot, canonicalize, check_key, compare, defectdojo_fixture, effective_triage, scanner_family, stable_id
+from scripts.code_analysis.normalizer import CodeRabbitParser, CoverageParser, RadonParser, SarifParser, SchemathesisParser, TscParser, XenonParser, main as normalize_cli, normalize_concept
 from scripts.code_analysis.pipeline import build as build_pipeline
 from scripts.code_analysis.provenance import build as build_provenance
 from scripts.code_analysis.publish_snapshot import publish
@@ -36,6 +38,33 @@ def snapshot(items=None, channel_state=None):
     return build_snapshot(current,channels,provenance)
 
 class MonitoringTests(unittest.TestCase):
+    def test_local_service_accepts_standard_github_remote_forms(self):
+        expected="owner/repository"
+        self.assertEqual(repository_from_remote("https://github.com/owner/repository.git"),expected)
+        self.assertEqual(repository_from_remote("git@github.com:owner/repository.git"),expected)
+        self.assertEqual(repository_from_remote("ssh://git@github.com/owner/repository.git"),expected)
+        with self.assertRaisesRegex(ValueError,"owner/repository"):
+            repository_from_remote("https://example.com/owner/repository")
+
+    @patch("scripts.code_analysis.local_service.run")
+    def test_local_service_dispatches_exact_commit_through_trusted_orchestrator(self,runner):
+        sha="a"*40
+        dispatch_local_scan("owner/repository","Testing",sha,"feature/static-code-analysis")
+        self.assertEqual(runner.call_args_list[0].args[0],
+                         ["gh","api",f"repos/owner/repository/commits/{sha}","--silent"])
+        command=runner.call_args_list[1].args[0]
+        self.assertIn("08-full-code-analysis.yml",command)
+        self.assertIn("scan_branch=Testing",command)
+        self.assertIn(f"expected_sha={sha}",command)
+
+    @patch("scripts.code_analysis.local_service.run",return_value="b"*40)
+    def test_local_service_resolves_selected_branch_from_github(self,runner):
+        self.assertEqual(remote_branch_identity("owner/repository","feature/a b"),
+                         ("feature/a b","b"*40))
+        self.assertEqual(runner.call_args.args[0],[
+            "gh","api","repos/owner/repository/branches/feature%2Fa%20b",
+            "--jq",".commit.sha"])
+
     def test_identity_is_canonical_and_missing_symbol_explicit(self):
         a=raw();b={**a,"file":"backend\\app\\a.py"}
         self.assertEqual(stable_id("repo",a),stable_id("repo",b));self.assertIn("sid-v1:",stable_id("repo",a))
@@ -153,13 +182,28 @@ class MonitoringTests(unittest.TestCase):
             findings=SarifParser().parse(sarif_path,tool_override="Shipping Image Trivy")
             self.assertEqual(findings[0].source_tool,"Shipping Image Trivy")
 
+    def test_snyk_code_driver_and_rules_use_canonical_snyk_identity(self):
+        self.assertEqual(scanner_family("SnykCode"), "Snyk")
+        expected = {
+            "python/NoHardcodedPasswords/test": "hardcoded-secret",
+            "javascript/HardcodedNonCryptoSecret": "hardcoded-secret",
+            "python/CommandInjection": "command-injection",
+            "python/InsecureHash": "weak-crypto",
+            "python/PT": "path-traversal",
+            "python/TarSlip/test": "path-traversal",
+            "javascript/OR": "open-redirect",
+        }
+        self.assertEqual({rule: normalize_concept(rule) for rule in expected}, expected)
+
     def test_dashboard_is_bounded_and_exposes_all_current_findings(self):
         result=snapshot([raw("CodeQL"),raw("Semgrep")])
         with tempfile.TemporaryDirectory() as d:
             output=Path(d)/"index.html";generate(result,output);page=output.read_text()
             self.assertIn("All canonical findings",page);self.assertIn("slice((page-1)*size,page*size)",page)
             self.assertIn("searchIndex.get(x.stable_id)",page)
-            self.assertIn("Raw evidence records",page);self.assertIn("Current Code Quality",github_summary(result))
+            self.assertIn("Raw evidence records",page);self.assertIn("Issue Wall",github_summary(result))
+            self.assertIn("dashboard/index.html",github_summary(result))
+            self.assertIn("Start here — Issue Wall",artifact_readme(result))
             self.assertIn("Snapshot integrity and source proof",page)
             self.assertIn("artifactHashes",page)
             self.assertIn("Security focus",page)
@@ -169,8 +213,23 @@ class MonitoringTests(unittest.TestCase):
             self.assertIn("Supervisor overview",page)
             self.assertIn("Highest-risk areas",page)
             self.assertIn("Publication path",page)
+            self.assertIn("Issue Wall",page)
+            self.assertIn("Web of Scanners",page)
+            self.assertIn("Run Web of Scanners",page)
+            self.assertIn("08-full-code-analysis.yml",page)
+            self.assertIn("Build Issue Wall",page)
+            self.assertIn("05-issue-aggregation.yml",page)
+            self.assertIn("Fix queue",page)
+            self.assertIn("data-wall-severity",page)
             self.assertIn("data-filter",page)
             self.assertIn("copyLink",page)
+    def test_dashboard_artifact_includes_offline_launch_guide(self):
+        result=snapshot([raw("CodeQL"),raw("Semgrep")])
+        with tempfile.TemporaryDirectory() as d:
+            write_dashboard(result,Path(d))
+            guide=(Path(d)/"START_HERE.md").read_text(encoding="utf-8")
+            self.assertIn("dashboard/index.html",guide)
+            self.assertIn(result["commit_sha"],guide)
     def test_required_manifest_maps_sixteen_channels_to_four_workflows(self):
         root=Path(__file__).resolve().parents[2]
         manifest=json.loads((root/"config/code-analysis/required-channels.json").read_text(encoding="utf-8"))
@@ -205,6 +264,7 @@ class MonitoringTests(unittest.TestCase):
             self.assertTrue(all(row["status"] == "COMPLETED" for row in built["channels"]))
     def test_enterprise_workflow_policy_and_advisory_check_contract(self):
         self.assertEqual(audit_workflows(),[])
+        self.assertEqual(audit_runtime_isolation(),[])
         layout=json.loads((Path(__file__).resolve().parents[2]/"config/code-analysis/service-layout.json").read_text(encoding="utf-8"))
         self.assertEqual(layout["boundary"],"read-only-external")
         self.assertIn("domain",layout["layers"])
@@ -219,6 +279,19 @@ class MonitoringTests(unittest.TestCase):
         coderabbit=(Path(__file__).resolve().parents[2]/".coderabbit.yaml").read_text(encoding="utf-8")
         self.assertIn('base_branches:\n      - ".*"',coderabbit)
         self.assertIn("timeout_ms: 900000",coderabbit)
+
+    def test_product_runtime_cannot_depend_on_external_analysis_service(self):
+        import scripts.code_analysis.audit_workflows as policy
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            (root/"backend/app").mkdir(parents=True)
+            (root/"backend/app/main.py").write_text(
+                "from scripts.code_analysis.local_service import serve\n",encoding="utf-8")
+            with patch.object(policy,"ROOT",root), patch.object(
+                    policy,"RUNTIME_BOUNDARY_FILES",()):
+                errors=policy.audit_runtime_isolation()
+        self.assertEqual(len(errors),1)
+        self.assertIn("must not depend on external code analysis",errors[0])
 
     def test_analysis_workflows_use_no_deprecated_node20_action_pins(self):
         deprecated={
@@ -667,7 +740,7 @@ class MonitoringTests(unittest.TestCase):
         self.assertIn('gh run watch "$run_id" --exit-status',workflow)
         self.assertIn("05-issue-aggregation.yml",workflow)
         self.assertIn('gh run watch "$dashboard_id" --exit-status',workflow)
-        self.assertIn("Open dashboard build and download the searchable artifact",workflow)
+        self.assertIn("Open the Issue Wall build and download the offline artifact",workflow)
         self.assertNotIn("issues: write",workflow)
         self.assertNotIn("contents: write",workflow)
 

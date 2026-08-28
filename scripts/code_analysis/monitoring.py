@@ -101,7 +101,7 @@ def compatibility_fingerprint(finding: dict[str, Any]) -> str:
 
 
 def scanner_family(tool: str) -> str:
-    aliases = {"Trivy-SCA": "Trivy", "Coverage.py": "Coverage.py"}
+    aliases = {"Trivy-SCA": "Trivy", "Coverage.py": "Coverage.py", "SnykCode": "Snyk"}
     return aliases.get(tool, tool or "Unknown")
 
 

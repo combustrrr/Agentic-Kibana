@@ -93,16 +93,56 @@ cannot be claimed under the current vendor policy.
 - GitHub Issues are disabled on the fork, so the dashboard remains the findings backlog
   unless a separate issue-synchronization objective is approved.
 
+### P0.6 Developer issue wall and workflow controls
+
+**Repository implementation completed 2026-08-28.** The external developer portal is
+named **Issue Wall**, and its coordinated scanner system is the **Web of Scanners**. It has a
+severity-first Fix queue over canonical finding identities plus developer controls for
+full scanner orchestration, dashboard-only rebuild, live workflow activity, and the
+scheduled latest-head supervisor. Controls link to GitHub's authenticated Actions pages;
+the static board stores no token and receives no workflow-write authority. The supported
+deployment remains the loopback-only nginx container behind company VPN/OIDC on the QA
+VM. For the current zero-hosting path, every Actions artifact includes an offline
+`dashboard/START_HERE.md` guide and a self-contained `dashboard/index.html`; GitHub run
+summaries point directly to that flow. P0.4 still owns any later external host proof.
+The separate local developer control plane is also complete: root
+`web-of-scanners.ps1` can dispatch the trusted exact-commit orchestrator, wait for and
+validate its artifact, atomically refresh ignored local state, and serve Issue Wall on
+loopback. It is tooling-only and has no application runtime, image, Compose, import, or
+deployment dependency. Developers can list GitHub branches and select one explicitly;
+the service resolves its authoritative remote head and keeps the visualization local.
+
+### P0.7 Local Issue Wall enterprise control experience
+
+**Backlog added 2026-08-29.** Preserve the CLI as the automation contract while adding
+an optional loopback control page that can select a permitted branch, show the resolved
+commit before confirmation, dispatch Web of Scanners, display workflow/job progress,
+cancel an authorized run, refresh the validated artifact, and switch among locally
+retained branch snapshots. Add bounded retention, per-run audit metadata, clear stale/
+failed/partial states, single-instance locking, and browser-visible diagnostics. Keep
+GitHub authentication process-side, require explicit confirmation before workflow
+dispatch/cancellation, use least-privilege repository permissions, and never expose a
+token to HTML or JavaScript. The control page and local evidence must remain completely
+outside Agentic SOC runtime, APIs, images, dependencies, telemetry, and deployment.
+This boundary is policy-enforced: runtime source, dependency manifests, Dockerfiles, and
+application Compose definitions are checked for reverse coupling on every analysis
+policy run. Any future integration must remain observer-to-repository only.
+
 ## P1 — Improve detection breadth and evidence quality
 
 ### P1.1 Measure Snyk's unique contribution
 
-- Use exact-Testing artifact `9659304881` from run `33102828962` as the current baseline.
-- Repair the three unresolved Python dependency manifests; Snyk Code succeeded and npm
-  SCA completed, but the overall SCA surface is truthfully `CONFIGURED_PARTIAL`.
-- Reconcile Snyk observations/canonical findings in the custom dashboard.
-- Measure overlap with OSV, CodeQL, Semgrep, and other existing families.
-- Keep Snyk optional unless unique value and acceptable reliability are demonstrated.
+**Completed 2026-08-28.** Exact-Testing artifact `9659304881` and the accepted snapshot
+were reconciled, and post-repair artifact `9693781846` separately proved both
+repository-owned Snyk surfaces complete. The dashboard now normalizes the native
+`SnykCode` driver to the `Snyk` family and maps observed rules to canonical concepts.
+Exact-Testing Snyk Code produced 226 observations: 14 same-concept/exact-location
+overlaps, 12 additional same-location/different-concept observations, and 212 unmatched
+candidates, of which 186 are low severity and only 27 are outside test files and `/test`
+rule variants. Post-repair SCA produced 33 observations; 26 share a CVE/GHSA identity
+with accepted OSV evidence and 7 do not. Snyk adds non-redundant evidence but remains
+optional because the Code lane is noisy and the separate vendor PR check is quota-
+blocked. See [`SNYK_UNIQUE_CONTRIBUTION.md`](SNYK_UNIQUE_CONTRIBUTION.md).
 
 ### P1.2 Evaluate SonarQube
 

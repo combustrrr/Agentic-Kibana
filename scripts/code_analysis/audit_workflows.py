@@ -32,6 +32,22 @@ SERVICE_LAYERS = {
     "compatibility_entrypoints",
 }
 APPLICATION_IMPORT = re.compile(r"^\s*(?:from|import)\s+(?:backend|app|webui)(?:\.|\s|$)", re.MULTILINE)
+ANALYSIS_COUPLING = re.compile(
+    r"scripts[./\\]code_analysis|scripts\.code_analysis|web-of-scanners|"
+    r"code-analysis-dashboard|local_service\.py",
+    re.IGNORECASE,
+)
+RUNTIME_SOURCE_ROOTS = ("backend/app", "webui/src")
+RUNTIME_BOUNDARY_FILES = (
+    "backend/Dockerfile",
+    "webui/Dockerfile",
+    "backend/pyproject.toml",
+    "backend/requirements.txt",
+    "backend/requirements-dev.txt",
+    "webui/package.json",
+    "docker-compose.yml",
+    "docker-compose.agnostic.yml",
+)
 
 
 def _walk_steps(document: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
@@ -55,6 +71,10 @@ def audit_service_layout() -> list[str]:
         errors.append(f"{relative}: unsupported schema_version")
     if document.get("boundary") != "read-only-external":
         errors.append(f"{relative}: service boundary must remain read-only-external")
+    if document.get("forbidden_runtime_dependencies") != ["backend/app", "webui/src"]:
+        errors.append(
+            f"{relative}: runtime dependency boundary must name backend/app and webui/src"
+        )
     layers = document.get("layers")
     if not isinstance(layers, dict):
         return [*errors, f"{relative}: layers must be an object"]
@@ -79,6 +99,8 @@ def audit_service_layout() -> list[str]:
                 continue
             if layer != "compatibility_entrypoints":
                 declared.add(entry)
+            if Path(entry).parts[:2] in {("backend", "app"), ("webui", "src")}:
+                errors.append(f"{relative}: analysis-owned file enters product runtime: {entry}")
     for entry in sorted(declared):
         if not entry.endswith(".py"):
             continue
@@ -87,8 +109,30 @@ def audit_service_layout() -> list[str]:
     return errors
 
 
+def audit_runtime_isolation() -> list[str]:
+    """Reject reverse dependencies from the monitored product into its observer."""
+    errors: list[str] = []
+    candidates: list[Path] = []
+    for relative in RUNTIME_SOURCE_ROOTS:
+        root = ROOT / relative
+        candidates.extend(path for path in root.rglob("*") if path.is_file())
+    candidates.extend(ROOT / relative for relative in RUNTIME_BOUNDARY_FILES
+                      if (ROOT / relative).is_file())
+    for path in sorted(set(candidates)):
+        try:
+            content = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        if ANALYSIS_COUPLING.search(content):
+            relative = path.relative_to(ROOT).as_posix()
+            errors.append(
+                f"{relative}: Agentic SOC runtime must not depend on external code analysis"
+            )
+    return errors
+
+
 def audit() -> list[str]:
-    errors = audit_service_layout()
+    errors = [*audit_service_layout(), *audit_runtime_isolation()]
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         relative = path.relative_to(ROOT).as_posix()
         try:

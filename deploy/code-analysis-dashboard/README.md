@@ -1,4 +1,6 @@
-# Current-findings dashboard deployment
+# Issue Wall deployment
+
+**Issue Wall** is the developer portal for the coordinated **Web of Scanners**.
 
 This profile serves the validated custom dashboard; it does not run or modify the
 Agentic SOC application.
@@ -16,6 +18,12 @@ Agentic SOC application.
 5. Start `docker compose up -d` from this directory. The server binds only to
    `127.0.0.1:8787`.
 6. Put the company HTTPS/VPN/OIDC reverse proxy in front of the loopback endpoint.
+
+The published page includes a read-only severity issue wall and links to the fork's
+GitHub Actions pages for full scanning, dashboard rebuilds, run activity, and continuous
+monitoring. GitHub performs authentication, authorization, branch selection, dispatch,
+and audit. Never place an Actions-write token in the static page, nginx configuration,
+publication directory, or pull-worker credential.
 
 The container exposes `GET /healthz` on the loopback listener and Compose verifies it
 every 30 seconds. HTML and snapshot responses use `Cache-Control: no-store`, so atomic
