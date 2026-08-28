@@ -11,12 +11,14 @@ approved hosting belongs in the near-term backlog.
 
 ### P0.1 Repair and re-prove outbound dashboard publication
 
-**Current state:** the enterprise dashboard itself is accepted. Exact-Testing
+**Repository fix completed 2026-08-28:** the enterprise dashboard itself is accepted. Exact-Testing
 orchestrator run `33102796200` and aggregation run `33103518514` succeeded for SHA
 `0972ac0ab405161fc22255e622eae0bb52713d03`; artifact `9659488883` validates at 16/16
 required channels with 37,372 canonical findings and 38,268 observations. GitHub CLI
-download works. The Python pull worker receives HTTP 401 when `urllib` follows GitHub's
-authenticated artifact redirect on this Windows host.
+download works. The Python pull worker now strips authorization on cross-origin
+artifact redirects, retains same-origin authentication, validates every archive member,
+and extracts only the bounded dashboard subtree. Live Windows recovery of artifact
+`9659488883` succeeded. Ubuntu QA-host acceptance remains part of P0.4.
 
 **Exit criteria:**
 
@@ -28,31 +30,33 @@ authenticated artifact redirect on this Windows host.
 
 ### P0.2 Reconcile optional security-control truth
 
-The first complete expansion run produced evidence, but four supervisor statuses need
-resolution before the optional-control board is fully trustworthy:
+**Repository truth fixes completed 2026-08-28.** The optional-control board now retains
+native status/family evidence and distinguishes complete, partial, and policy-finding
+states. Remaining owner/vendor decisions are explicit:
 
-- **GitHub secret protection:** API evidence is `UNAVAILABLE` for secret scanning,
-  push protection, and alerts. Confirm repository settings and token visibility; never
-  broaden retained data beyond state/count/alert number.
-- **Snyk:** Code analysis succeeded, but Open Source SCA is `CONFIGURED_PARTIAL` because
-  three Python manifests reported `Missing required packages`; npm projects completed.
-  Build isolated dependency environments or use supported lock/export inputs, then
-  measure overlap and unique findings.
-- **Shipping Image Trivy / OpenSSF Scorecard:** jobs and artifacts succeeded, but their
-  dashboard catalog rows remain `PENDING_REVIEW`. Add truthful family/status mapping or
-  native status documents and regression fixtures.
-- **SBOM policy:** 568 packages yielded 1,265 license observations and 396 denied-license
-  observations (298 canonical findings). Review duplicate CycloneDX/SPDX evidence,
-  validate package/license attribution, define approved exceptions, and keep policy
-  findings visible until an owner decision.
+- **GitHub secret protection:** owner-side inspection confirms both controls enabled and
+  zero open alerts, but Actions has no `SECURITY_POSTURE_TOKEN`. Add the documented
+  fork-only read token if retained workflow evidence must become `CONFIGURED_COMPLETE`.
+- **Snyk:** the repository-owned job now installs all Python dependency trees in an
+  isolated environment; cloud SCA and Code jobs pass. Measure unique contribution next.
+  The separate Snyk PR service check is quota-blocked and is not repository-owned CI.
+- **Shipping Image Trivy / OpenSSF Scorecard:** native status/family mapping and retained
+  shipping-image status are implemented and regression-tested; cloud jobs pass.
+- **SBOM policy:** exact SPDX matching, case/terminal-plus normalization, and within-SBOM
+  deduplication are fixed. Valid denied-license findings remain visible pending owner
+  attribution and exception decisions.
 
 ### P0.3 Activate and verify CodeRabbit cloud PR review
 
-**Current state:** privacy/code-sharing approval received and the repository owner reports
+**Live integration proven 2026-08-28:** privacy/code-sharing approval received and the repository owner reports
 the GitHub App installed. Automatic cloud review and incremental review after every PR
 push now explicitly cover every base branch, without request-changes authority. GitHub
 Checks wait for the scanner window, and exact-head inline review-comment ingestion plus
-checkout-free dashboard refresh are implemented. A real fork PR review remains unverified.
+checkout-free dashboard refresh are implemented. Fork PR `#16` received a CodeRabbit
+review and four native inline comments at exact head `928561b77121942bab2e054bfa3f172780cc1554`;
+all four were independently verified and fixed. CodeRabbit reports that repositories
+below ten stars require a manual `@coderabbitai review` trigger, so automatic delivery
+cannot be claimed under the current vendor policy.
 
 **Exit criteria:**
 
