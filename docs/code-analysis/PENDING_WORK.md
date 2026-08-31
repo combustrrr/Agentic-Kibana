@@ -25,31 +25,28 @@ The remaining blocker is external project permission state:
    deterministic code-local non-Sonar findings only. CodeRabbit must remain excluded as
    `AI_ADVISORY`.
 
-Cloud runs `33404195186`, `33405919866`, and `33409996015` each completed native analysis
-in roughly 14–15 minutes and truthfully retained `CONFIGURED_PARTIAL` because
-`api/issues/search` returned HTTP 403. Do not call native ingestion operational until the
-four checks above pass.
+Cloud runs `33404195186`, `33405919866`, `33409996015`, and `33414505282` each completed
+native analysis and truthfully retained `CONFIGURED_PARTIAL` because
+`api/issues/search` returned HTTP 403. The last run used the minimal base issue request,
+proving the earlier `additionalFields=_all` parameter was not the blocker. Do not call
+native ingestion operational until the four checks above pass.
 
 ## P1 — Finish acceptance and cost budgets
 
-- Re-prove **Full Code Analysis (Manual)** on a selected non-default branch after Sonar
-  import completes: exact-head resolution, reuse of retained evidence, parallel dispatch
-  of only missing groups, and one immutable dashboard.
 - Download the final artifact and visually accept desktop and narrow layouts, fresh
   severity colors, charts, filtering, source locations, evidence dialog, and CSV export.
-- Record total elapsed time, billed runner minutes, cache behavior, artifact size, and
-  reuse/cancellation savings. Sonar is already the dominant 14–15 minute lane; do not add
-  a second automatic Sonar scan for the outbound projection.
+- Record billed runner minutes and cache behavior. Manual run `33414567342` already
+  proved exact-head orchestration and immutable dashboard publication in 8m20s; dashboard
+  run `33415271105` completed in 48s and retained a 16,429,426-byte artifact with 16/16
+  required channels, 15,780 canonical findings, and 16,547 observations. Sonar run
+  `33414505282` took 17m03s and remains the dominant lane; do not add a second automatic
+  Sonar scan for the outbound projection.
 - Run pinned `actionlint` and ShellCheck in Linux CI and retain their results.
 
 ## P2 — Measure optional evidence value
 
 - Measure Sonar-native unique findings against the canonical scanner web. Retain Sonar
   only if it adds useful non-duplicate evidence.
-- Verify the implemented read-only GitHub secret-scanning/push-protection posture lane;
-  never retain detected secret values.
-- Observe one scheduled/manual Schemathesis+Atheris campaign and confirm `DYNAMIC`
-  findings remain outside the 16-channel static publication gate.
 - Evaluate CodeScene only after license/eligibility and machine-readable export review.
   Do not add overlapping hosted scanners merely to increase tool count.
 - Consider Qodo or PR-Agent only if CodeRabbit becomes unavailable or a measured

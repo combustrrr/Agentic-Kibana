@@ -11455,3 +11455,20 @@
   working as designed.
 - Status: blocked externally for Sonar native ingestion; the manual dashboard and
   dynamic-lane fixes continue independently.
+
+## 2026-08-31 — Dynamic evidence proved and cost cap tightened
+
+- Commit `21f38e2` repaired both optional fuzzing lanes. Exact-SHA Actions run
+  `33416377478` completed successfully: Atheris exercised 25,000 deterministic decision
+  inputs in 23s and Schemathesis loaded OpenAPI 3.1, completed the API campaign, produced
+  valid JUnit, normalized 131 dynamic findings, and retained its artifacts outside the
+  16-channel static publication gate.
+- The first valid Schemathesis replay archive was 286,081,167 bytes and the job took
+  11m19s. That is excessive for optional evidence, so the follow-up cap reduces the
+  campaign from 250 to 50 examples per operation, lowers the command timeout from ten to
+  five minutes, and drops the huge raw replay archive while retaining schema, JUnit, and
+  normalized findings.
+- Tests before push: 48/48 analysis-service tests, workflow policy audit, workflow YAML
+  parsing, Python compilation, and diff hygiene passed.
+- Status: in progress; rerun the tightened campaign and record its measured duration and
+  artifact size before closing the optional dynamic proof item.

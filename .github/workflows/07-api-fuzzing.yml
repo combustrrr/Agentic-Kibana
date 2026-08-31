@@ -74,16 +74,16 @@ jobs:
         id: schemathesis
         run: |
           cd backend
-          # Limit to 10 minutes to prevent infinite CI hang
+          # Keep this optional breadth pass bounded; deterministic state fuzzing is
+          # handled separately below and full replay archives are prohibitively large.
           set +e
-          timeout 600 schemathesis run schema.json \
+          timeout 300 schemathesis run schema.json \
             --experimental=openapi-3.1 \
             --base-url http://localhost:8000 \
             --checks all \
             --max-response-time 5000 \
-            --hypothesis-max-examples 250 \
-            --junit-xml=../fuzzing-results.xml \
-            --report=../schemathesis-report.tar.gz
+            --hypothesis-max-examples 50 \
+            --junit-xml=../fuzzing-results.xml
           scan_exit=$?
           set -e
           # Exit 1 represents reproducible API findings. Timeout or execution/config
@@ -102,7 +102,6 @@ jobs:
           name: schemathesis-report
           path: |
             fuzzing-results.xml
-            schemathesis-report.tar.gz
             backend/schema.json
           if-no-files-found: error
 
