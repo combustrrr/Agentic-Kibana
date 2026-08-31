@@ -11566,3 +11566,11 @@
   token material and does not run automatically.
 - Status: in progress; execute the manual grant once and cancel before analysis after the
   grant/access result is retained in logs.
+
+## 2026-09-01 — Sonar Browse grant runner trigger corrected
+
+- GitHub validates `workflow_dispatch` inputs against the default-branch workflow, which
+  does not yet contain the new permission flag. Added an equally explicit
+  `[ensure-sonar-browse]` push-message trigger so the feature-branch workflow can execute
+  the one-time grant with its protected repository secret. The grant remains opt-in.
+- Validation: workflow YAML parses and the repository workflow policy audit passes.

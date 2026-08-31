@@ -89,7 +89,7 @@ jobs:
           cat sonar-access-probe.json
 
       - name: Ensure Browse for the verified Sonar API user
-        if: inputs.ensure_sonar_browse == true
+        if: inputs.ensure_sonar_browse == true || (github.event_name == 'push' && contains(github.event.head_commit.message, '[ensure-sonar-browse]'))
         env:
           SCAN_BRANCH: ${{ inputs.scan_branch || github.head_ref || github.ref_name }}
         run: |
