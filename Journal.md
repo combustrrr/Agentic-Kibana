@@ -11522,3 +11522,21 @@
 - Status: in progress.
 - Next: distinguish endpoint/query authorization from token authentication and patch the
   smallest verified cause.
+
+## 2026-09-01 — Sonar short-branch restriction isolated; long-lived projection implemented
+
+- Public API probes proved project/main issues are anonymously readable (HTTP 200,
+  1,135 issues), while the existing `feature/static-code-analysis` branch is typed
+  `SHORT` and its issue/measures APIs return HTTP 403. Sonar's live API catalog requires
+  Browse for branch issue search.
+- Added a secret-safe preflight and cancelled run `33426194272` immediately after it
+  completed, avoiding a full scan. Both `SONAR_TOKEN` and `SONAR_API_TOKEN` returned
+  authentication HTTP 200 with `authenticated: true`; both returned 403 only for the
+  short-branch issue query. This rules out missing, malformed, expired, or non-PAT
+  credentials.
+- Implemented a stable `branch-issue-wall-<branch-hash>` Sonar identity for non-default
+  Git branches. The default Sonar pattern classifies `branch-*` as long-lived on first
+  analysis; Issue Wall export queries that projection while retaining the real Git branch
+  and exact commit as canonical provenance. Existing Sonar branches are not deleted or
+  mutated.
+- Status: implementation complete; one exact-head Code Quality proof remains.

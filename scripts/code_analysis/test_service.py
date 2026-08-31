@@ -10,6 +10,7 @@ from scripts.code_analysis.channel_status import build as build_channel_status
 from scripts.code_analysis.collect_coderabbit import collect as collect_coderabbit
 from scripts.code_analysis.dashboard import artifact_readme, generate, github_summary, validate_snapshot, write_dashboard
 from scripts.code_analysis.evidence_contract import build as build_evidence_contract
+from scripts.code_analysis.export_sonar_issues import export as export_sonar_issues
 from scripts.code_analysis.monitoring import EvidenceError, build_snapshot, canonicalize, check_key, compare, defectdojo_fixture, effective_triage, scanner_family, stable_id
 from scripts.code_analysis.normalizer import CodeRabbitParser, CoverageParser, Finding, RadonParser, SarifParser, SchemathesisParser, SonarExternalIssuesExporter, SonarParser, TscParser, XenonParser, main as normalize_cli, normalize_concept
 from scripts.code_analysis.pipeline import build as build_pipeline
@@ -32,6 +33,40 @@ def snapshot(items=None, channel_state=None):
     return build_snapshot(current,channels,provenance)
 
 class MonitoringTests(unittest.TestCase):
+    def test_sonar_export_queries_projection_branch_but_retains_git_identity(self):
+        calls = []
+
+        def request(url, _token):
+            calls.append(url)
+            if "ce/task" in url:
+                return {"task": {"status": "SUCCESS", "analysisId": "analysis-1"}}
+            return {"issues": [], "paging": {"total": 0}}
+
+        with tempfile.TemporaryDirectory() as d, patch(
+            "scripts.code_analysis.export_sonar_issues._request", side_effect=request
+        ):
+            root = Path(d)
+            task = root / "report-task.txt"
+            task.write_text(
+                "serverUrl=https://sonarcloud.io\n"
+                "ceTaskUrl=https://sonarcloud.io/api/ce/task?id=1\n"
+                "projectKey=org_repo\n",
+                encoding="utf-8",
+            )
+            output = root / "issues.json"
+            result = export_sonar_issues(
+                task,
+                output,
+                "org_repo",
+                "feature/source",
+                "a" * 40,
+                "token",
+                sonar_branch="branch-issue-wall-1234",
+            )
+            self.assertEqual(result["branch"], "feature/source")
+            self.assertEqual(result["sonar_branch"], "branch-issue-wall-1234")
+            self.assertIn("branch=branch-issue-wall-1234", calls[-1])
+
     def test_sonar_native_import_and_external_projection_boundaries(self):
         native = {"schema_version": "1", "project_key": "org_repo", "branch": "feature",
                   "commit": "a" * 40, "issues": [

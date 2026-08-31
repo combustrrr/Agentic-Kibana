@@ -83,6 +83,21 @@ jobs:
           python scripts/code_analysis/probe_sonar_access.py
           cat sonar-access-probe.json
 
+      - name: Derive stable Sonar analysis branch
+        id: sonar-identity
+        env:
+          SOURCE_BRANCH: ${{ inputs.scan_branch || github.head_ref || github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sonar_branch="$SOURCE_BRANCH"
+          if [[ "$SOURCE_BRANCH" != "$DEFAULT_BRANCH" ]]; then
+            branch_hash="$(printf '%s' "$SOURCE_BRANCH" | sha256sum | cut -c1-16)"
+            sonar_branch="branch-issue-wall-$branch_hash"
+          fi
+          printf 'sonar_branch=%s\n' "$sonar_branch" >> "$GITHUB_OUTPUT"
+
       - name: Record unconfigured status
         if: steps.sonar-scope.outputs.should_scan == 'true' && env.SONAR_TOKEN == ''
         shell: bash
@@ -100,6 +115,9 @@ jobs:
         if: steps.sonar-scope.outputs.should_scan == 'true' && env.SONAR_TOKEN != '' && github.event_name != 'workflow_dispatch'
         continue-on-error: true
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        with:
+          args: >-
+            ${{ github.event_name == 'push' && format('-Dsonar.branch.name={0} -Dsonar.scm.revision={1}', steps.sonar-identity.outputs.sonar_branch, github.sha) || '' }}
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
 
@@ -110,7 +128,7 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         with:
           args: >-
-            -Dsonar.branch.name=${{ inputs.scan_branch }}
+            -Dsonar.branch.name=${{ steps.sonar-identity.outputs.sonar_branch }}
             -Dsonar.scm.revision=${{ inputs.scan_sha }}
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
@@ -123,6 +141,7 @@ jobs:
           SCAN_BRANCH: ${{ inputs.scan_branch || github.head_ref || github.ref_name }}
           SCAN_SHA: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
           PULL_REQUEST: ${{ github.event.pull_request.number }}
+          SONAR_BRANCH: ${{ steps.sonar-identity.outputs.sonar_branch }}
         shell: bash
         run: |
           python scripts/code_analysis/export_sonar_issues.py \
@@ -130,6 +149,7 @@ jobs:
             --output sonar-native-issues.json \
             --project combustrrr_Agentic-Kibana \
             --branch "$SCAN_BRANCH" \
+            --sonar-branch "$SONAR_BRANCH" \
             --commit "$SCAN_SHA" \
             --pull-request "$PULL_REQUEST"
 

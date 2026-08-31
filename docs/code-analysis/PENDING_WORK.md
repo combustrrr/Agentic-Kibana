@@ -10,13 +10,16 @@ next-step lists.
 
 ## P0 — Unblock and prove Sonar native ingestion
 
-The code is complete, both GitHub secrets exist, and exact-SHA Sonar analysis succeeds.
-The remaining blocker is external project permission state:
+Both GitHub secrets are valid PATs and exact-SHA Sonar analysis succeeds. Public API and
+credential probes isolated the remaining failure to Sonar's existing short-lived branch:
+main-project issues are public, but both authenticated PATs receive HTTP 403 for
+`feature/static-code-analysis`. The repository now maps non-default Git branches to a
+stable `branch-issue-wall-<hash>` Sonar analysis branch so Sonar classifies the projection
+as long-lived on first analysis while Issue Wall retains the real branch and exact SHA.
 
-1. In SonarQube Cloud project `combustrrr_Agentic-Kibana`, grant the PAT owner
-   **Browse Project** under **Administration → Permissions**, or make this public-repository
-   project public.
-2. Re-run only **Code Quality** for the current branch head.
+1. Re-run only **Code Quality** for the current branch head to create and analyze the
+   stable long-lived Sonar projection.
+2. Confirm the projected branch is publicly API-readable after its first analysis.
 3. Require `sonar-status.json` = `CONFIGURED_COMPLETE` and retain
    `sonar-native-issues.json` with the exact branch, commit, analysis ID, bounded count,
    and zero imported `external_*` issues.
@@ -25,11 +28,12 @@ The remaining blocker is external project permission state:
    deterministic code-local non-Sonar findings only. CodeRabbit must remain excluded as
    `AI_ADVISORY`.
 
-Cloud runs `33404195186`, `33405919866`, `33409996015`, and `33414505282` each completed
+Cloud runs `33404195186`, `33405919866`, `33409996015`, `33414505282`, and `33418428037` each completed
 native analysis and truthfully retained `CONFIGURED_PARTIAL` because
-`api/issues/search` returned HTTP 403. The last run used the minimal base issue request,
-proving the earlier `additionalFields=_all` parameter was not the blocker. Do not call
-native ingestion operational until the four checks above pass.
+short-branch `api/issues/search` returned HTTP 403. Anonymous main-project issue search
+returns HTTP 200 with 1,135 issues, and run `33426194272` proved both stored PATs authenticate
+successfully while both are refused only on the short branch. Do not call native ingestion
+operational until the four checks above pass.
 
 ## P1 — Finish acceptance and cost budgets
 
@@ -67,7 +71,8 @@ Already active:
 - Snyk: verified optional SCA/SAST; do not add a second integration.
 - CodeRabbit: verified exact-head GitHub App evidence; permanently isolated under
   `AI_ADVISORY`.
-- SonarQube Cloud: analysis verified; native import blocked only by Browse permission.
+- SonarQube Cloud: analysis and both PATs verified; native import awaits proof of the
+  stable long-lived branch projection after Sonar refused its existing short branch.
 
 Candidates such as Blacksmith, BrowserStack, Argos/Chromatic, CodeScene, Qodo, Codacy,
 DeepSource, Code Climate, and 1Password require a separate measured decision. Do not

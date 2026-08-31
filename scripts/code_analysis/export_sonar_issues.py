@@ -33,7 +33,7 @@ def _task_file(path: Path) -> dict[str, str]:
 
 def export(path: Path, output: Path, project: str, branch: str, commit: str,
            token: str, pull_request: str = "", maximum: int = 20_000,
-           poll_seconds: int = 180) -> dict[str, Any]:
+           poll_seconds: int = 180, sonar_branch: str = "") -> dict[str, Any]:
     task_info = _task_file(path)
     if task_info.get("projectKey") and task_info["projectKey"] != project:
         raise ValueError("Sonar report project does not match requested project")
@@ -55,7 +55,9 @@ def export(path: Path, output: Path, project: str, branch: str, commit: str,
         # Request only the issue fields returned by the base endpoint. `_all` also asks
         # for privileged actions/transitions and is unnecessary for read-only tracking.
         parameters = {"componentKeys": project, "p": page, "ps": 500}
-        parameters["pullRequest" if pull_request else "branch"] = pull_request or branch
+        parameters["pullRequest" if pull_request else "branch"] = (
+            pull_request or sonar_branch or branch
+        )
         query = urllib.parse.urlencode(parameters)
         document = _request(f"{server}/api/issues/search?{query}", token)
         rows = document.get("issues", [])
@@ -74,6 +76,7 @@ def export(path: Path, output: Path, project: str, branch: str, commit: str,
 
     result = {"schema_version": "1", "scanner_family": "SonarQube Cloud",
               "project_key": project, "branch": branch, "commit": commit,
+              "sonar_branch": sonar_branch or branch,
               "pull_request": pull_request,
               "analysis_id": str(task.get("analysisId") or ""),
               "native_issue_count": len(issues), "issues": issues}
@@ -91,12 +94,13 @@ def main() -> None:
     parser.add_argument("--branch", required=True)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--pull-request", default="")
+    parser.add_argument("--sonar-branch", default="")
     args = parser.parse_args()
     token = os.environ.get("SONAR_API_TOKEN", "")
     if not token:
         raise SystemExit("SONAR_API_TOKEN with project Browse permission is required")
     export(args.report_task, args.output, args.project, args.branch, args.commit, token,
-           pull_request=args.pull_request)
+           pull_request=args.pull_request, sonar_branch=args.sonar_branch)
 
 
 if __name__ == "__main__":
