@@ -11512,3 +11512,13 @@
   for that exact PAT owner (or public project visibility), then replace the secret if the
   permission was granted to a different Sonar account.
 - Status: blocked externally; repository behavior is fail-honest.
+
+## 2026-09-01 — Sonar public-project API diagnosis started
+
+- The owner confirms the SonarQube Cloud project is public and all configured credentials
+  are PATs. Started a no-scan diagnosis using public Sonar APIs, current official API
+  documentation, and the exporter request contract before changing credentials or
+  spending another full analysis run.
+- Status: in progress.
+- Next: distinguish endpoint/query authorization from token authentication and patch the
+  smallest verified cause.

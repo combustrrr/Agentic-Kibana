@@ -75,6 +75,14 @@ jobs:
           fi
           printf 'should_scan=%s\n' "$should_scan" >> "$GITHUB_OUTPUT"
 
+      - name: Probe Sonar credentials without exposing secrets
+        if: env.SONAR_TOKEN != '' || env.SONAR_API_TOKEN != ''
+        env:
+          SCAN_BRANCH: ${{ inputs.scan_branch || github.head_ref || github.ref_name }}
+        run: |
+          python scripts/code_analysis/probe_sonar_access.py
+          cat sonar-access-probe.json
+
       - name: Record unconfigured status
         if: steps.sonar-scope.outputs.should_scan == 'true' && env.SONAR_TOKEN == ''
         shell: bash
@@ -161,6 +169,7 @@ jobs:
           name: sonar-results
           path: |
             sonar-status.json
+            sonar-access-probe.json
             sonar-native-issues.json
             .scannerwork/report-task.txt
           if-no-files-found: error
