@@ -68,7 +68,7 @@ jobs:
             if [[ -z "$base" || "$base" =~ ^0+$ ]] || ! git cat-file -e "${base}^{commit}"; then
               should_scan=true
             elif git diff --name-only "$base" "$SCAN_SHA" | grep -Eq \
-              '^(backend/app/|webui/src/|sonar-project\.properties$|\.github/workflows/01-code-quality\.yml$)'; then
+              '^(backend/app/|webui/src/|scripts/code_analysis/export_sonar_issues\.py$|sonar-project\.properties$|\.github/workflows/01-code-quality\.yml$)'; then
               should_scan=true
             fi
           fi

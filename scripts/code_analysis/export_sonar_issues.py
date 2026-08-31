@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import os
 import time
@@ -14,9 +13,8 @@ from typing import Any
 
 
 def _request(url: str, token: str) -> dict[str, Any]:
-    credential = base64.b64encode(f"{token}:".encode()).decode()
     request = urllib.request.Request(
-        url, headers={"Authorization": f"Basic {credential}"}
+        url, headers={"Authorization": f"Bearer {token}"}
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.load(response)

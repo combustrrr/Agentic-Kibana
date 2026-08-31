@@ -11352,3 +11352,12 @@
   and current/pending documentation, and added boundary tests. Validation passed:
   workflow policy audit, 48 service tests, and whitespace checks.
 - `docs/code-analysis/Issues.txt` remained untouched.
+
+## 2026-08-31 — Sonar native-export cloud proof found an authentication mismatch
+
+- Exact-SHA Code Quality run `33404195186` completed the 14m56s Sonar analysis, but
+  the native issue API returned HTTP 403 to the initial Basic-auth request. The workflow
+  correctly retained `CONFIGURED_PARTIAL`, did not fabricate an issue export, and kept
+  downstream publication fail-honest.
+- Updated the exporter to SonarQube Cloud's documented Bearer authentication scheme.
+  A focused Code Quality rerun is required; no full scanner-fleet rerun is needed.
