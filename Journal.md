@@ -11472,3 +11472,20 @@
   parsing, Python compilation, and diff hygiene passed.
 - Status: in progress; rerun the tightened campaign and record its measured duration and
   artifact size before closing the optional dynamic proof item.
+
+## 2026-08-31 — Tightened dynamic campaign accepted
+
+- Exact-SHA run `33417718455` on commit `4c9dceb` completed both optional lanes
+  successfully in 4m43s total. Schemathesis finished OpenAPI 3.1 fuzzing, produced valid
+  JUnit, normalized its results, and uploaded all evidence; Atheris again completed its
+  25,000-input campaign.
+- Schemathesis evidence shrank from 286,081,167 bytes to 74,417 bytes (99.97% smaller),
+  normalized findings remained a separate 33,268-byte artifact, and runtime fell from
+  11m19s to 4m43s (58% shorter). No replay archive, product mutation, or static-gate
+  coupling remains.
+- The sole pending-work document now removes the completed manual orchestration,
+  repository posture, and dynamic-campaign proofs. Sonar native issue ingestion remains
+  honestly blocked by external Browse permission; final visual acceptance, billed-minute
+  accounting, Linux actionlint/ShellCheck evidence, and optional uniqueness/governance
+  decisions remain.
+- Status: done for the optional dynamic-evidence item.
