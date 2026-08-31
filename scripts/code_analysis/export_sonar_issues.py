@@ -91,9 +91,9 @@ def main() -> None:
     parser.add_argument("--commit", required=True)
     parser.add_argument("--pull-request", default="")
     args = parser.parse_args()
-    token = os.environ.get("SONAR_TOKEN", "")
+    token = os.environ.get("SONAR_API_TOKEN", "")
     if not token:
-        raise SystemExit("SONAR_TOKEN is required")
+        raise SystemExit("SONAR_API_TOKEN with project Browse permission is required")
     export(args.report_task, args.output, args.project, args.branch, args.commit, token,
            pull_request=args.pull_request)
 

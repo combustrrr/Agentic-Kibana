@@ -11361,3 +11361,14 @@
   downstream publication fail-honest.
 - Updated the exporter to SonarQube Cloud's documented Bearer authentication scheme.
   A focused Code Quality rerun is required; no full scanner-fleet rerun is needed.
+
+## 2026-08-31 — Sonar native export isolated behind a Browse-scoped secret
+
+- Exact-SHA rerun `33405919866` again completed Sonar analysis (14m34s), then returned
+  HTTP 403 from `api/issues/search` under Bearer auth. Sonar documents that endpoint as
+  requiring project Browse permission; anonymous access also returned 403. Therefore the
+  existing execute-analysis token cannot and should not be treated as an issue-read token.
+- Separated credentials: `SONAR_TOKEN` remains analysis-only and native export now uses
+  `SONAR_API_TOKEN`. Until a Sonar user token with project Browse permission is stored
+  under that GitHub secret, status remains explicit `CONFIGURED_PARTIAL` and no native
+  issues are published. Updated pending/current docs and the tool catalog truthfully.

@@ -187,10 +187,12 @@ Additional lanes:
 - **Custom security models:** CodeQL data extensions and Semgrep taint rules model
   FastAPI request input, SQL/path/SSRF sinks, authorization boundaries, React HTML
   injection, and LLM output reaching execution.
-- **SonarQube Cloud:** exact-commit cloud analysis, bounded authenticated native-issue
-  export, canonical Issue Wall normalization, and a generic external-issue projection
-  are implemented. The projection excludes Sonar-native and `AI_ADVISORY` findings to
-  prevent feedback and category collapse. CodeScene remains deferred.
+- **SonarQube Cloud:** exact-commit cloud analysis is verified. Bounded authenticated
+  native-issue export, canonical normalization, and a generic external-issue projection
+  are implemented; cloud activation of native import awaits `SONAR_API_TOKEN` with
+  project Browse permission. The execute-analysis token is intentionally insufficient.
+  The projection excludes Sonar-native and `AI_ADVISORY` findings. CodeScene remains
+  deferred.
 - **Atheris:** a bounded weekly/manual Linux harness exercises deterministic
   case-decision state transitions for 25,000 inputs and retains crash evidence.
 - **KICS/tfsec:** not activated. Checkov and Trivy config already cover IaC; KICS is
