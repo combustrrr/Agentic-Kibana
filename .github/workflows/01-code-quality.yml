@@ -47,15 +47,48 @@ jobs:
           ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
+      - name: Determine whether Sonar analysis is needed
+        id: sonar-scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SCAN_SHA: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          should_scan=false
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            should_scan=true
+          else
+            base="$BEFORE_SHA"
+            if [[ "$EVENT_NAME" == pull_request ]]; then
+              base="$BASE_SHA"
+            fi
+            if [[ -z "$base" || "$base" =~ ^0+$ ]] || ! git cat-file -e "${base}^{commit}"; then
+              should_scan=true
+            elif git diff --name-only "$base" "$SCAN_SHA" | grep -Eq \
+              '^(backend/app/|webui/src/|sonar-project\.properties$|\.github/workflows/01-code-quality\.yml$)'; then
+              should_scan=true
+            fi
+          fi
+          printf 'should_scan=%s\n' "$should_scan" >> "$GITHUB_OUTPUT"
+
       - name: Record unconfigured status
-        if: env.SONAR_TOKEN == ''
+        if: steps.sonar-scope.outputs.should_scan == 'true' && env.SONAR_TOKEN == ''
         shell: bash
         run: |
           printf '%s\n' '{"schema_version":"1","scanner_family":"SonarQube Cloud","status":"NOT_CONFIGURED","reason":"SONAR_TOKEN is unavailable (expected for external fork pull requests)"}' > sonar-status.json
 
+      - name: Record out-of-scope status
+        if: steps.sonar-scope.outputs.should_scan != 'true'
+        shell: bash
+        run: |
+          printf '%s\n' '{"schema_version":"1","scanner_family":"SonarQube Cloud","status":"NOT_APPLICABLE","reason":"No product source or Sonar configuration changed"}' > sonar-status.json
+
       - name: Analyze native push or pull-request event
         id: sonar-native
-        if: env.SONAR_TOKEN != '' && github.event_name != 'workflow_dispatch'
+        if: steps.sonar-scope.outputs.should_scan == 'true' && env.SONAR_TOKEN != '' && github.event_name != 'workflow_dispatch'
         continue-on-error: true
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         env:
@@ -63,7 +96,7 @@ jobs:
 
       - name: Analyze manually selected branch head
         id: sonar-manual
-        if: env.SONAR_TOKEN != '' && github.event_name == 'workflow_dispatch'
+        if: steps.sonar-scope.outputs.should_scan == 'true' && env.SONAR_TOKEN != '' && github.event_name == 'workflow_dispatch'
         continue-on-error: true
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         with:
@@ -74,7 +107,7 @@ jobs:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
 
       - name: Record configured scan status
-        if: always() && env.SONAR_TOKEN != ''
+        if: always() && steps.sonar-scope.outputs.should_scan == 'true' && env.SONAR_TOKEN != ''
         env:
           EVENT_NAME: ${{ github.event_name }}
           NATIVE_OUTCOME: ${{ steps.sonar-native.outcome }}

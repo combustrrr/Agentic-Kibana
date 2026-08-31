@@ -100,7 +100,7 @@ directly before each activation.
 
 | Candidate | Potential backlog value | Current disposition |
 |---|---|---|
-| [SonarQube Cloud](https://docs.sonarsource.com/sonarqube-cloud/administering-sonarcloud/managing-subscription/subscription-plans) | P1.1 semantic quality/security comparison; the public-project Free plan is independent of the OSS sponsorship plan | **Owner-authorized, activation blocked:** create/import the Cloud project, then provide its organization/project keys and `SONAR_TOKEN`; do not add an untestable workflow with guessed identifiers |
+| [SonarQube Cloud](https://docs.sonarsource.com/sonarqube-cloud/administering-sonarcloud/managing-subscription/subscription-plans) | P1.1 semantic quality/security comparison; the public-project Free plan is independent of the OSS sponsorship plan | **Activated and exact-commit verified:** project binding, token-gated CI analysis, GitHub quality check, and retained status are live; finish machine-readable issue export and unique-contribution measurement before promotion |
 | [Blacksmith](https://www.blacksmith.sh/) | Measure faster runners/cache downloads against P0.1 Actions duration and cost | **High-value performance candidate** after direct eligibility, permissions, runner trust, and data-boundary review |
 | [BrowserStack OSS](https://www.browserstack.com/open-source) | Cross-browser and responsive Issue Wall acceptance | **License-blocked OSS application**; use no sponsored entitlement until eligibility is truthful |
 | Argos/Chromatic | Automated visual-regression evidence for the self-contained dashboard | **Evaluate after BrowserStack**, with screenshot retention, GitHub App permissions, badge obligations, and unique value reviewed |
@@ -119,11 +119,11 @@ only one bounded evaluation at a time and remove it if it does not add exportabl
 
 ### P1.1 Evaluate SonarQube
 
-- Prefer a bounded owner-authorized SonarQube Cloud public-project evaluation; do not
-  claim the OSS plan while the repository has no open-source license.
-- First create/import the vendor project and record the generated organization and
-  project keys. Store only `SONAR_TOKEN` as a GitHub Actions secret; keep non-secret
-  identifiers as repository variables or reviewed configuration.
+- The bounded public-project evaluation is active without an OSS entitlement claim.
+  Exact-commit run `33397472946` attempt 2 indexed 767 product files and uploaded
+  revision `8d52a6156d4bcaed01f8ea2686af85299b3c7242`; both the Actions job and Sonar check
+  passed. The first baseline took 14m18s, so automatic Sonar work is limited to product
+  source/config changes while manual branch analysis remains available.
 - Configure read-only analysis and authenticated machine-readable issue export.
 - Ingest into the normalizer rather than making SonarQube a competing canonical UI.
 - Retain only if it adds useful issues not already represented.
