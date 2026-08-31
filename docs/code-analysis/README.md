@@ -4,20 +4,20 @@
 > The original proposal remains a scanner-candidate roadmap; remediation, Issues,
 > DefectDojo, history, and production integration are deferred.
 > [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) is the consolidated architecture,
-> trigger, tool-status, hosting, safety, and verified-evidence handoff from the 2026-08-26
-> implementation discussions.
+> trigger, tool-status, delivery, safety, and verified-evidence handoff. Historical
+> session handoffs are retained as records and are not current operating instructions.
 
 ## Engineering document map
 
 | Need | Read |
 |---|---|
-| Start a fresh chat from the latest operational state | [`SESSION_HANDOFF_2026-08-26.md`](SESSION_HANDOFF_2026-08-26.md) |
+| Start from the current operational state | This README, then [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) |
 | What the platform is and how it works | [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) |
 | What has actually been completed | [`WORK_COMPLETED.md`](WORK_COMPLETED.md) |
 | Why the architecture uses these boundaries | [`ADRS.md`](ADRS.md) |
 | Cloud artifact security and readiness gates | [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) |
 | External service package and dependency architecture | [`SERVICE_ARCHITECTURE.md`](SERVICE_ARCHITECTURE.md) |
-| What remains, in priority order | [`PENDING_WORK.md`](PENDING_WORK.md) |
+| Sole active backlog and priority order | [`PENDING_WORK.md`](PENDING_WORK.md) |
 | Authoritative phase/status table | [`EXECUTION_PLAN.md`](EXECUTION_PLAN.md) |
 | Where and how the dashboard is viewed | [`MONITORING_UI.md`](MONITORING_UI.md) |
 | External service activation state | [`EXTERNAL_ACTIVATION.md`](EXTERNAL_ACTIVATION.md) |
@@ -84,7 +84,7 @@ The dashboard workflow creates:
 
 A snapshot is publishable only when required workflows succeeded, artifacts share the
 exact commit and valid hashes, normalization completes, and counts reconcile. Failed
-refreshes cannot replace the last publishable hosted snapshot.
+refreshes cannot replace the last publishable artifact for that branch and commit.
 
 See [`MONITORING_UI.md`](MONITORING_UI.md) for the authenticated GitHub artifact flow.
 
@@ -106,22 +106,24 @@ See [`MONITORING_UI.md`](MONITORING_UI.md) for the authenticated GitHub artifact
   outside the packaged documentation tree)
   accounts explicitly for every selected proposal tool and its activation boundary.
 
-Scanners run in GitHub Actions or a dedicated QA worker, not in the Agentic SOC
-application startup path. The VM serves the last validated snapshot continuously while
-new evidence is built separately and published atomically.
+Scanners run only in GitHub Actions, not in the Agentic SOC application startup path.
+The supported Issue Wall is the authenticated, self-contained Actions artifact; there
+is no local server, pull worker, QA host, or continuously hosted copy.
 
 For every analyzed commit, the advisory **Code Analysis Dashboard** Check links to its
 complete searchable artifact. Branches never share artifact identities or Checks. The
-outbound QA worker only publishes a snapshot when its analyzed SHA equals the selected
-branch's current GitHub head, so a slower older run cannot become the latest dashboard.
+exact branch/SHA identity prevents a slower older run from masquerading as the latest
+dashboard for a newer commit.
 
 ### Automatic and manual operation
 
 - **Automatic latest-head coverage:** a trusted default-branch supervisor discovers
   every fork branch every 15 minutes and dispatches the existing full-analysis
   orchestrator for any current head without a valid dashboard Check. The observed SHA
-  is carried into the dispatch, active work is deduplicated by branch/SHA, and a broken
-  exact head is attempted at most three times. A newer commit receives its own attempt.
+  is carried into the dispatch. Native push/PR scans and active dashboard builds are
+  detected before dispatch; complete retained evidence goes directly to aggregation
+  instead of being rescanned. A broken exact head is attempted at most three times. A
+  newer commit supersedes stale same-branch scanner and dashboard work.
 - **Immediate coverage where workflow definitions exist:** a branch push runs all four
   scanners; an eligible same-repository PR update analyzes its exact head; successful
   exact-commit evidence triggers dashboard aggregation. GitHub does not execute newly
@@ -129,10 +131,13 @@ branch's current GitHub head, so a slower older run cannot become the latest das
   why the default-branch supervisor is the completeness backstop.
 - **Manual full scan:** Actions → **Full Code Analysis (Manual)** → **Run workflow**.
   Select the workflow ref, optionally enter any fork `scan_branch`, and press the green
-  **Run workflow** button. The orchestrator locks the branch's latest commit, dispatches
-  and waits for all four scanner groups, builds the exact-commit dashboard, and returns
-  direct scanner and dashboard/download links in one operator summary. A failed scanner
-  or incomplete snapshot stops the flow without replacing the last valid dashboard.
+  **Run workflow** button. The orchestrator resolves the named branch through GitHub's
+  branch API and locks its authoritative head SHA; the workflow-ref selection never
+  substitutes for that source identity. It reuses successful exact-SHA evidence only
+  while retained artifacts still exist, dispatches missing groups, streams all four
+  scanner runs concurrently, builds the exact-commit dashboard, and returns direct run
+  and artifact links. A failed scanner or incomplete snapshot stops the flow without
+  replacing the last valid dashboard.
 - **Manual dashboard-only rebuild:** Actions → **Code Analysis Dashboard** → **Run
   workflow**, with the exact `scan_branch` and `scan_sha`. This reuses existing scanner
   evidence and fails closed if a required exact-commit run is unavailable.
@@ -158,4 +163,4 @@ application is secure or publish unsupported coverage percentages.
 | Baseline/lifecycle/previous-run comparison | **Deferred** |
 | DefectDojo and persistent triage | **Deferred** |
 | Autofix, patches, Issues, and blocking gates | **Deferred** |
-| Hosted read-only custom dashboard | **Current implementation target** |
+| Authenticated offline Issue Wall artifact | **Current delivery** |

@@ -24,7 +24,7 @@ permissions:
 
 concurrency:
   group: manual-code-analysis-${{ inputs.scan_branch || github.ref_name }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   discover-latest-branch-heads:
@@ -48,6 +48,8 @@ jobs:
           active=0
           exhausted=0
           failed_retry=0
+          evidence_active=0
+          dashboard_only=0
 
           mapfile -t branch_heads < <(
             gh api --paginate "repos/${GITHUB_REPOSITORY}/branches?per_page=100" \
@@ -56,6 +58,13 @@ jobs:
           runs="$(gh run list --workflow 08-full-code-analysis.yml \
             --event workflow_dispatch --limit 100 \
             --json displayTitle,status,conclusion,url)"
+          dashboard_runs="$(gh run list --workflow 05-issue-aggregation.yml --limit 100 \
+            --json displayTitle,status,conclusion,url)"
+          declare -A scanner_runs=()
+          for workflow in 01-code-quality.yml 02-security-sast.yml 03-dependency-security.yml 04-code-health.yml; do
+            scanner_runs[$workflow]="$(gh run list --workflow "$workflow" --limit 100 \
+              --json displayTitle,status,conclusion,url)"
+          done
           for branch_head in "${branch_heads[@]}"; do
             IFS=$'\t' read -r branch sha <<<"$branch_head"
             if [[ ! "$sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
@@ -72,6 +81,53 @@ jobs:
             if [[ "$conclusion" == neutral || "$conclusion" == success ]]; then
               ((covered+=1))
               continue
+            fi
+
+            dashboard_title="Dashboard · $branch · $sha"
+            dashboard_active="$(jq -r --arg title "$dashboard_title" \
+              '[.[] | select(.displayTitle == $title and (.status == "queued" or .status == "in_progress"))] | first | .url // empty' \
+              <<<"$dashboard_runs")"
+            if [[ -n "$dashboard_active" ]]; then
+              ((active+=1))
+              continue
+            fi
+
+            scanner_active=""
+            scanner_success=0
+            for workflow in 01-code-quality.yml 02-security-sast.yml 03-dependency-security.yml 04-code-health.yml; do
+              case "$workflow" in
+                01-code-quality.yml) scanner_title="Code Quality · $branch · $sha" ;;
+                02-security-sast.yml) scanner_title="Security / SAST · $branch · $sha" ;;
+                03-dependency-security.yml) scanner_title="Dependency & Supply Chain Security · $branch · $sha" ;;
+                04-code-health.yml) scanner_title="Code Health & Technical Debt · $branch · $sha" ;;
+              esac
+              state="$(jq -r --arg title "$scanner_title" \
+                '[.[] | select(.displayTitle == $title)] | first | [.status,.conclusion,.url] | @tsv' \
+                <<<"${scanner_runs[$workflow]}")"
+              IFS=$'\t' read -r run_status run_conclusion run_url <<<"$state"
+              if [[ "$run_status" == queued || "$run_status" == in_progress ]]; then
+                scanner_active="$run_url"
+              elif [[ "$run_status" == completed && "$run_conclusion" == success ]]; then
+                ((scanner_success+=1))
+              fi
+            done
+            if [[ -n "$scanner_active" ]]; then
+              ((active+=1))
+              ((evidence_active+=1))
+              continue
+            fi
+            if (( scanner_success == 4 )); then
+              dashboard_failures="$(jq -r --arg title "$dashboard_title" \
+                '[.[] | select(.displayTitle == $title and .status == "completed" and .conclusion != "success")] | length' \
+                <<<"$dashboard_runs")"
+              if (( dashboard_failures < 3 )); then
+                gh workflow run 05-issue-aggregation.yml --ref "$WORKFLOW_REF" \
+                  -f scan_branch="$branch" \
+                  -f scan_sha="$sha"
+                ((dashboard_only+=1))
+                continue
+              fi
+              echo "::warning::Exact evidence exists but Issue Wall failed three times for $branch at $sha; requesting a fresh evidence set"
             fi
 
             title="Analyze branch · $branch · $sha"
@@ -105,6 +161,8 @@ jobs:
             echo "- Fork branches observed: ${#branch_heads[@]}"
             echo "- Already covered: $covered"
             echo "- Already active: $active"
+            echo "- Native push/PR scans still active: $evidence_active"
+            echo "- Complete evidence sent directly to Issue Wall: $dashboard_only"
             echo "- Retry limit reached: $exhausted"
             echo "- Failed heads retried: $failed_retry"
             echo "- Newly dispatched: $dispatched"
@@ -148,6 +206,14 @@ jobs:
           fi
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           echo "sha=${sha,,}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Web of Scanners · live pipeline"
+            echo
+            echo "1. ✅ Branch resolved to authoritative head: \`$branch\` · \`${sha,,}\`"
+            echo "2. ⏳ Resolve or dispatch the four scanner groups"
+            echo "3. ⏳ Validate all required scanner evidence"
+            echo "4. ⏳ Build and publish Issue Wall"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Dispatch all required full-codebase scanners
         env:
@@ -169,13 +235,36 @@ jobs:
             echo
             echo "### Scanner runs"
           } > manual-analysis-summary.md
+          encoded="$(jq -rn --arg value "$SCAN_BRANCH" '$value|@uri')"
           for workflow in \
             01-code-quality.yml \
             02-security-sast.yml \
             03-dependency-security.yml \
             04-code-health.yml
           do
-            encoded="$(jq -rn --arg value "$SCAN_BRANCH" '$value|@uri')"
+            case "$workflow" in
+              01-code-quality.yml) run_title="Code Quality · $SCAN_BRANCH · $SCAN_SHA" ;;
+              02-security-sast.yml) run_title="Security / SAST · $SCAN_BRANCH · $SCAN_SHA" ;;
+              03-dependency-security.yml) run_title="Dependency & Supply Chain Security · $SCAN_BRANCH · $SCAN_SHA" ;;
+              04-code-health.yml) run_title="Code Health & Technical Debt · $SCAN_BRANCH · $SCAN_SHA" ;;
+              *) echo "Unknown scanner workflow: $workflow" >&2; exit 1 ;;
+            esac
+            runs="$(gh run list --workflow "$workflow" --status success --limit 100 \
+              --json databaseId,displayTitle,url)"
+            reusable="$(jq -r --arg title "$run_title" \
+              '([.[] | select(.displayTitle == $title)] | first) // empty | [.databaseId,.url] | @tsv' \
+              <<<"$runs")"
+            if [[ -n "$reusable" ]]; then
+              IFS=$'\t' read -r run_id run_url <<<"$reusable"
+              artifact_count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts" --jq '.total_count')"
+              if (( artifact_count > 0 )); then
+                printf '%s\t%s\t%s\n' "$workflow" "$run_id" "$run_url" >> scanner-runs.tsv
+                printf '%s\n' "- ♻️ [$workflow]($run_url) — reused exact-commit evidence" >> manual-analysis-summary.md
+                echo "::notice title=Scanner evidence reused::$workflow already succeeded for $SCAN_SHA"
+                continue
+              fi
+              echo "::warning title=Expired scanner evidence::$workflow succeeded before, but its artifacts are unavailable; dispatching a fresh run"
+            fi
             current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/${encoded}" --jq '.commit.sha')"
             if [[ "${current_sha,,}" != "$SCAN_SHA" ]]; then
               echo "Branch moved from $SCAN_SHA to $current_sha before $workflow dispatch; refusing a mixed-commit scan" >&2
@@ -199,6 +288,9 @@ jobs:
             03-dependency-security.yml \
             04-code-health.yml
           do
+            if awk -F '\t' -v workflow="$workflow" '$1 == workflow { found=1 } END { exit !found }' scanner-runs.tsv; then
+              continue
+            fi
             run_id=""
             run_url=""
             case "$workflow" in
@@ -227,8 +319,13 @@ jobs:
               exit 1
             fi
             printf '%s\t%s\t%s\n' "$workflow" "$run_id" "$run_url" >> scanner-runs.tsv
-            printf '%s\n' "- [$workflow]($run_url)" >> manual-analysis-summary.md
+            printf '%s\n' "- ▶️ [$workflow]($run_url) — dispatched for selected head" >> manual-analysis-summary.md
           done
+          {
+            echo
+            echo "### Scanner resolution"
+            echo "All four scanner identities are locked to \`$SCAN_SHA\`. Existing retained evidence was reused where valid; missing evidence was dispatched."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Wait for all scanner groups
         env:
@@ -236,12 +333,37 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          declare -a pids=()
+          declare -a labels=()
           while IFS=$'\t' read -r workflow run_id run_url; do
-            echo "Waiting for $workflow ($run_url)"
-            gh run watch "$run_id" --exit-status
+            echo "::notice title=Scanner running::$workflow · run $run_id · $run_url"
+            (
+              echo "::group::$workflow live progress"
+              gh run watch "$run_id" --interval 15 --exit-status
+              status=$?
+              echo "::endgroup::"
+              exit "$status"
+            ) &
+            pids+=("$!")
+            labels+=("$workflow")
           done < scanner-runs.tsv
+          failed=0
+          for index in "${!pids[@]}"; do
+            if wait "${pids[$index]}"; then
+              echo "::notice title=Scanner complete::${labels[$index]} succeeded"
+            else
+              echo "::error title=Scanner failed::${labels[$index]} did not produce successful evidence"
+              failed=1
+            fi
+          done
+          (( failed == 0 )) || exit 1
           echo >> manual-analysis-summary.md
           echo "All four scanner groups completed successfully." >> manual-analysis-summary.md
+          {
+            echo
+            echo "### Scanner evidence complete"
+            echo "All four workflow groups succeeded. Issue Wall aggregation can now enforce the 16-channel evidence contract."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build the exact-commit dashboard
         id: dashboard
@@ -285,6 +407,11 @@ jobs:
             echo "- [Open the Issue Wall build and download the offline artifact]($dashboard_url)"
           } >> manual-analysis-summary.md
           gh run watch "$dashboard_id" --exit-status
+          {
+            echo
+            echo "### Issue Wall published"
+            echo "The exact-commit report completed: $dashboard_url"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish operator summary
         if: always()

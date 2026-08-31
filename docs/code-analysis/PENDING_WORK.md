@@ -1,82 +1,42 @@
 # Code Analysis — Pending Work
 
-> **Prioritization date:** 2026-08-28
+> **Prioritization date:** 2026-08-31
 > **Primary objective:** improve issue detection and the unified current-findings view  
 > **Not an active objective:** fixing findings or reducing the count to zero
 
+This file is the **only active code-analysis backlog**. Companion documents may record
+current behavior, durable decisions, or historical evidence, but must link here instead
+of maintaining another list of pending work or next steps.
+
 Only work that advances trustworthy detection, evidence ingestion, visualization, or
-approved hosting belongs in the near-term backlog.
+authenticated artifact delivery belongs in the near-term backlog.
 
 ## P0 — Finish current platform delivery
 
-### P0.1 Repair and re-prove outbound dashboard publication
+### P0.1 Prove the latest-head pipeline and redesigned Issue Wall in Actions
 
-**Repository fix completed 2026-08-28:** the enterprise dashboard itself is accepted. Exact-Testing
-orchestrator run `33102796200` and aggregation run `33103518514` succeeded for SHA
-`0972ac0ab405161fc22255e622eae0bb52713d03`; artifact `9659488883` validates at 16/16
-required channels with 37,372 canonical findings and 38,268 observations. GitHub CLI
-download works. The Python pull worker now strips authorization on cross-origin
-artifact redirects, retains same-origin authentication, validates every archive member,
-and extracts only the bounded dashboard subtree. Live Windows recovery of artifact
-`9659488883` succeeded. Ubuntu QA-host acceptance remains part of P0.4.
+- Push a new commit to a non-default fork branch and prove stale same-branch scanner and
+  aggregation runs are canceled while the new exact SHA completes automatically.
+- Run **Full Code Analysis (Manual)** with an explicit branch and prove GitHub resolves
+  its authoritative head, reuses retained exact-SHA evidence, dispatches only missing
+  groups, and streams all four groups concurrently.
+- Prove the supervisor defers to active push/PR work and sends four complete retained
+  evidence sets directly to aggregation without rescanning.
+- Download the artifact and visually accept the report-first desktop and narrow layouts,
+  source locations, severity colors, charts, filtering, evidence dialog, and CSV export.
+- Capture actual elapsed time, billed runner minutes, cache behavior, artifact size, and
+  reuse/cancellation savings. Set explicit budgets before further workflow expansion.
+- Run pinned `actionlint` and ShellCheck in the authoritative Linux CI environment; the
+  local Windows host does not provide `actionlint`.
 
-**Exit criteria:**
+**Exit criteria:** one immutable branch-head SHA passes automatic and manual paths with a
+publishable 16-channel artifact, no duplicate full scan, a visually accepted Issue Wall,
+recorded timing/cost evidence, and all workflow-policy checks green.
 
-- reproduce the redirect behavior with a unit test that never contacts GitHub;
-- follow redirects without forwarding GitHub authorization to the signed storage host;
-- retain archive size, path, symlink, exact-branch/SHA, successful-run, and atomic
-  last-known-good protections;
-- validate manual `--artifact-id` recovery on Windows and the supported Ubuntu QA host.
+### P0.2 Reconcile fork pull requests after the default-branch upgrade
 
-### P0.2 Reconcile optional security-control truth
-
-**Repository truth fixes completed 2026-08-28.** The optional-control board now retains
-native status/family evidence and distinguishes complete, partial, and policy-finding
-states. Remaining owner/vendor decisions are explicit:
-
-- **GitHub secret protection:** owner-side inspection confirms both controls enabled and
-  zero open alerts, but Actions has no `SECURITY_POSTURE_TOKEN`. Add the documented
-  fork-only read token if retained workflow evidence must become `CONFIGURED_COMPLETE`.
-- **Snyk:** the repository-owned job now installs all Python dependency trees in an
-  isolated environment; cloud SCA and Code jobs pass. Measure unique contribution next.
-  The separate Snyk PR service check is quota-blocked and is not repository-owned CI.
-- **Shipping Image Trivy / OpenSSF Scorecard:** native status/family mapping and retained
-  shipping-image status are implemented and regression-tested; cloud jobs pass.
-- **SBOM policy:** exact SPDX matching, case/terminal-plus normalization, and within-SBOM
-  deduplication are fixed. Valid denied-license findings remain visible pending owner
-  attribution and exception decisions.
-
-### P0.3 Activate and verify CodeRabbit cloud PR review
-
-**Live integration proven 2026-08-28:** privacy/code-sharing approval received and the repository owner reports
-the GitHub App installed. Automatic cloud review and incremental review after every PR
-push now explicitly cover every base branch, without request-changes authority. GitHub
-Checks wait for the scanner window, and exact-head inline review-comment ingestion plus
-checkout-free dashboard refresh are implemented. Fork PR `#16` received a CodeRabbit
-review and four native inline comments at exact head `928561b77121942bab2e054bfa3f172780cc1554`;
-all four were independently verified and fixed. CodeRabbit reports that repositories
-below ten stars require a manual `@coderabbitai review` trigger, so automatic delivery
-cannot be claimed under the current vendor policy.
-
-**Exit criteria:**
-
-- confirm the installed CodeRabbit GitHub App is authorized for this fork only;
-- open or update an eligible fork PR and verify automatic incremental review after a push;
-- verify dashboard adapter output is `AI_ADVISORY`, retains native evidence, rejects
-  stale comments, and never contributes deterministic corroboration;
-- determine whether it adds non-redundant findings;
-- confirm the app has no upstream-company repository access and cannot apply patches.
-
-### P0.4 Local/QA-host dashboard deployment
-
-**Retired by owner decision 2026-08-29.** No workstation server, local artifact cache,
-pull worker, nginx container, VM host, or private hosted copy is supported. Issue Wall
-is generated, retained, authorized, audited, and downloaded only through GitHub Actions.
-
-### P0.5 Reconcile fork pull requests after the default-branch upgrade
-
-- Twelve open Dependabot PRs remain. Their displayed checks predate the accepted
-  `acc4aa5` default-branch workflow contract and several show superseded CI failures.
+- Inventory the currently open Dependabot PRs; do not rely on the historical PR count or
+  checks from before the current default-branch workflow contract.
 - Rebase/regenerate each candidate, review breaking major-version upgrades separately,
   and close only demonstrably superseded duplicates.
 - Do not bulk merge dependency changes; require current CI, scanner, release-image, and
@@ -84,52 +44,97 @@ is generated, retained, authorized, audited, and downloaded only through GitHub 
 - GitHub Issues are disabled on the fork, so the dashboard remains the findings backlog
   unless a separate issue-synchronization objective is approved.
 
-### P0.6 Developer issue wall and workflow controls
+### P0.3 Upstream contribution minimalization gate
 
-**Repository implementation completed 2026-08-28.** The external developer portal is
-named **Issue Wall**, and its coordinated scanner system is the **Web of Scanners**. It has a
-severity-first Fix queue over canonical finding identities plus developer controls for
-full scanner orchestration, dashboard-only rebuild, live workflow activity, and the
-scheduled latest-head supervisor. Controls link to GitHub's authenticated Actions pages;
-the static board stores no token and receives no workflow-write authority. The supported
-delivery path is exclusively the authenticated GitHub Actions artifact. Every artifact includes an offline
-`dashboard/START_HERE.md` guide and a self-contained `dashboard/index.html`; GitHub run
-summaries point directly to that flow. Local serving, local artifact caches, the QA-host
-nginx profile, and the local control-page backlog were retired on 2026-08-29. Branch
-selection, workflow progress, cancellation, audit, retention, and access control remain
-GitHub-native responsibilities. Runtime source, dependency manifests, Dockerfiles, and
-application Compose definitions continue to be checked for reverse coupling.
+**Required before any upstream pull request; no upstream contribution is authorized
+yet.** Convert the fork-proven Web of Scanners and Issue Wall work into the smallest
+enterprise-maintainable change set. Fork history, experiments, and implementation
+volume are not evidence that a file belongs upstream.
+
+Required review:
+
+- Produce a file-by-file manifest mapping every proposed file to an active workflow,
+  required evidence contract, security control, regression test, or authoritative
+  operator document. Remove anything without a current consumer and named owner.
+- Restrict implementation ownership to the numbered cloud-analysis workflows,
+  `config/code-analysis/`, `scripts/code_analysis/`, essential pinned tool configuration,
+  and a minimal authoritative documentation set. Preserve the enforced prohibition on
+  Agentic SOC runtime imports, dependencies, images, Compose, startup, or deployment
+  coupling.
+- Exclude generated dashboards, SARIF/JSON scanner output, downloaded Actions artifacts,
+  caches, temporary proof, machine-specific state, credentials, personal paths, tenant
+  details, local servers, pull workers, nginx/systemd/VM profiles, and workstation
+  launchers.
+- Remove dead modules, duplicate parsers or contracts, unused compatibility entry
+  points, redundant workflow steps, superseded handoffs, repetitive status prose, and
+  implementation journals from the proposed upstream diff. Durable decisions and
+  necessary operational guidance must be consolidated rather than copied repeatedly.
+- Do not include DefectDojo, SonarQube, CodeScene, new issue synchronization, remediation,
+  autofix, or other speculative/deferred integrations until measured unique value,
+  security boundaries, ownership, and maintenance cost are independently accepted.
+- Measure and document workflow duration, runner usage, artifact size, retention,
+  permissions, secret requirements, external services, dependency count, failure modes,
+  and expected maintenance burden. Establish explicit budgets and explain exceptions.
+- Re-run exact-upstream-head cloud proof from fork-owned workflows, all repository policy
+  and regression gates, artifact reconciliation, and negative architecture-boundary
+  tests against the minimal candidate—not the larger development branch.
+- Split the eventual proposal into small reviewable phases with reversible adoption.
+  Each phase must remain useful, secure, and internally coherent on its own; do not use
+  a large platform-shaped pull request to hide unrelated changes.
+
+**Exit artifact:** an upstream-candidate branch plus a review document containing the
+file manifest, dependency/permission delta, measured cost and artifact budgets, removed
+file list, residual risks, rollback plan, and exact fork-run proof. An owner must approve
+that artifact before any upstream PR is opened.
+
+### P0.4 Resolve license and external-tool eligibility
+
+The repository is publicly readable but currently publishes no license. Its README
+explicitly says source availability does not grant open-source rights. Do not describe
+the project as OSS or apply for an OSS maintainer/sponsorship program until the owner
+chooses and publishes an appropriate license after legal/ownership review.
+
+The [Ossium OSS perks catalog](https://ossium.in/oss-perks) is useful discovery evidence,
+not eligibility authority. Vendor terms and data-access permissions must be verified
+directly before each activation.
+
+| Candidate | Potential backlog value | Current disposition |
+|---|---|---|
+| [SonarQube Cloud](https://docs.sonarsource.com/sonarqube-cloud/administering-sonarcloud/managing-subscription/subscription-plans) | P1.1 semantic quality/security comparison; the public-project Free plan is independent of the OSS sponsorship plan | **Owner-authorized, activation blocked:** create/import the Cloud project, then provide its organization/project keys and `SONAR_TOKEN`; do not add an untestable workflow with guessed identifiers |
+| [Blacksmith](https://www.blacksmith.sh/) | Measure faster runners/cache downloads against P0.1 Actions duration and cost | **High-value performance candidate** after direct eligibility, permissions, runner trust, and data-boundary review |
+| [BrowserStack OSS](https://www.browserstack.com/open-source) | Cross-browser and responsive Issue Wall acceptance | **License-blocked OSS application**; use no sponsored entitlement until eligibility is truthful |
+| Argos/Chromatic | Automated visual-regression evidence for the self-contained dashboard | **Evaluate after BrowserStack**, with screenshot retention, GitHub App permissions, badge obligations, and unique value reviewed |
+| Snyk | Existing optional SCA/SAST lane already contributes evidence | **Already configured and verified:** pinned CLI SCA + Code scans use `SNYK_TOKEN`, retain SARIF/status/log artifacts, and remain optional; do not add a second Snyk integration |
+| [CodeRabbit](https://docs.coderabbit.ai/management/plans) | Exact-head AI review advisories for pull requests | **Already configured and verified:** the GitHub App, `.coderabbit.yaml`, exact-head evidence collector, and dashboard refresh path are present; public-repository access does not require an OSS entitlement claim |
+| [Qodo](https://www.qodo.ai/pricing/) | Alternative AI pull-request review | **Do not activate in parallel with CodeRabbit:** the normal plan is trial/paid and free OSS access requires qualification; first approve a measured replacement comparison and resolve licensing |
+| Codacy/DeepSource/Code Climate | Additional hosted quality/SAST dashboards | **Defer as overlapping** until SonarQube proves or fails unique contribution |
+| 1Password OSS | Shared scanner/vendor credentials | **License-blocked and unnecessary today**; current secrets remain GitHub-managed |
+
+**Exit criteria:** an owner decision on licensing; a per-vendor record of eligibility,
+requested GitHub permissions, source/artifact data shared, retention, terms, revocation,
+badge/attribution duties, expected unique evidence, and cost after the perk ends. Activate
+only one bounded evaluation at a time and remove it if it does not add exportable value.
 
 ## P1 — Improve detection breadth and evidence quality
 
-### P1.1 Measure Snyk's unique contribution
+### P1.1 Evaluate SonarQube
 
-**Completed 2026-08-28.** Exact-Testing artifact `9659304881` and the accepted snapshot
-were reconciled, and post-repair artifact `9693781846` separately proved both
-repository-owned Snyk surfaces complete. The dashboard now normalizes the native
-`SnykCode` driver to the `Snyk` family and maps observed rules to canonical concepts.
-Exact-Testing Snyk Code produced 226 observations: 14 same-concept/exact-location
-overlaps, 12 additional same-location/different-concept observations, and 212 unmatched
-candidates, of which 186 are low severity and only 27 are outside test files and `/test`
-rule variants. Post-repair SCA produced 33 observations; 26 share a CVE/GHSA identity
-with accepted OSV evidence and 7 do not. Snyk adds non-redundant evidence but remains
-optional because the Code lane is noisy and the separate vendor PR check is quota-
-blocked. See [`SNYK_UNIQUE_CONTRIBUTION.md`](SNYK_UNIQUE_CONTRIBUTION.md).
-
-### P1.2 Evaluate SonarQube
-
-- Use the QA VM only after core hosting is stable.
+- Prefer a bounded owner-authorized SonarQube Cloud public-project evaluation; do not
+  claim the OSS plan while the repository has no open-source license.
+- First create/import the vendor project and record the generated organization and
+  project keys. Store only `SONAR_TOKEN` as a GitHub Actions secret; keep non-secret
+  identifiers as repository variables or reviewed configuration.
 - Configure read-only analysis and authenticated machine-readable issue export.
 - Ingest into the normalizer rather than making SonarQube a competing canonical UI.
 - Retain only if it adds useful issues not already represented.
 
-### P1.3 Evaluate CodeScene
+### P1.2 Evaluate CodeScene
 
 - Confirm OSS eligibility/license and a stable export API/file.
 - Prioritize behavioral hotspots/health signals that static scanners do not provide.
 - Do not scrape the visual UI or count non-exportable scores as canonical findings.
 
-### P1.4 Expand project-specific detection
+### P1.3 Expand project-specific detection
 
 - Continue reviewing `AGENTS.md`, auth/RBAC, agent tools, LLM boundaries, Elasticsearch
   query construction, state reset, connectors, and middleware for narrowly testable rules.
@@ -137,7 +142,7 @@ blocked. See [`SNYK_UNIQUE_CONTRIBUTION.md`](SNYK_UNIQUE_CONTRIBUTION.md).
   evidence and false-positive fixtures.
 - Prefer meaningful new surfaces over redundant scanner count.
 
-### P1.5 Verify GitHub-native secret posture
+### P1.4 Verify GitHub-native secret posture
 
 - Run the implemented read-only posture job and confirm secret-scanning and
   push-protection state on the fork; an owner must enable disabled settings.

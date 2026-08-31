@@ -27,7 +27,84 @@ permissions:
   contents: read
   pull-requests: read
 
+# Only the latest source-branch head is valuable to the external analysis service.
+concurrency:
+  group: code-quality-${{ inputs.scan_branch || github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
+  # Bounded optional comparison source; never part of the deterministic gate.
+  sonarqube-cloud:
+    name: SonarQube Cloud (Optional)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - name: Checkout exact scan commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Record unconfigured status
+        if: env.SONAR_TOKEN == ''
+        shell: bash
+        run: |
+          printf '%s\n' '{"schema_version":"1","scanner_family":"SonarQube Cloud","status":"NOT_CONFIGURED","reason":"SONAR_TOKEN is unavailable (expected for external fork pull requests)"}' > sonar-status.json
+
+      - name: Analyze native push or pull-request event
+        id: sonar-native
+        if: env.SONAR_TOKEN != '' && github.event_name != 'workflow_dispatch'
+        continue-on-error: true
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        env:
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+
+      - name: Analyze manually selected branch head
+        id: sonar-manual
+        if: env.SONAR_TOKEN != '' && github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        with:
+          args: >-
+            -Dsonar.branch.name=${{ inputs.scan_branch }}
+            -Dsonar.scm.revision=${{ inputs.scan_sha }}
+        env:
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+
+      - name: Record configured scan status
+        if: always() && env.SONAR_TOKEN != ''
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          NATIVE_OUTCOME: ${{ steps.sonar-native.outcome }}
+          MANUAL_OUTCOME: ${{ steps.sonar-manual.outcome }}
+        shell: bash
+        run: |
+          outcome="$NATIVE_OUTCOME"
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            outcome="$MANUAL_OUTCOME"
+          fi
+          status=CONFIGURED_COMPLETE
+          reason=""
+          if [[ "$outcome" != success ]]; then
+            status=CONFIGURED_PARTIAL
+            reason="SonarQube Cloud analysis failed; inspect the scanner log"
+          fi
+          jq -n --arg status "$status" --arg reason "$reason" --arg outcome "$outcome" \
+            '{schema_version:"1",scanner_family:"SonarQube Cloud",status:$status,reason:$reason,surfaces:{analysis:$outcome}}' \
+            > sonar-status.json
+
+      - name: Upload SonarQube Cloud status
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sonar-results
+          path: |
+            sonar-status.json
+            .scannerwork/report-task.txt
+          if-no-files-found: error
+
   # ─────────────────────────────────────────────
   # Python: Ruff lint + extended security rules
   # ─────────────────────────────────────────────

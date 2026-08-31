@@ -1,5 +1,8 @@
 # Code Analysis Fresh-Chat Handoff — 2026-08-26
 
+> Historical session record. Do not use its next-step section as a current backlog;
+> active pending work lives only in [`PENDING_WORK.md`](PENDING_WORK.md).
+
 > **Read this first in the next chat.** This is a concise operational handoff, not a
 > replacement for [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) or the
 > authoritative [`EXECUTION_PLAN.md`](EXECUTION_PLAN.md).
@@ -160,7 +163,7 @@ Node 20 and CodeQL Action v3 messages shown in run #2 were deprecation warnings,
 root cause. No insecure compatibility override was enabled. Updating pinned Actions to
 supported major versions remains follow-up work and requires verifying immutable SHAs.
 
-## 8. Exact next steps
+## 8. Historical next steps (superseded)
 
 1. In GitHub Actions, open **Full Code Analysis (Manual)**.
 2. Choose **Use workflow from: `claude/main`**.

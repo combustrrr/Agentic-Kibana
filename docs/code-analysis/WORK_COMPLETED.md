@@ -1,5 +1,8 @@
 # Code Analysis — Work Completed
 
+> Historical delivery evidence only. Statements describing work as pending reflect the
+> record date; the sole current backlog is [`PENDING_WORK.md`](PENDING_WORK.md).
+
 > **Evidence date:** 2026-08-26  
 > **Scope:** fork-only code detection, evidence normalization, and visualization  
 > **Current implementation handoff:** [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md)

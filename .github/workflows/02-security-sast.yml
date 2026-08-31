@@ -30,6 +30,10 @@ permissions:
   contents: read
   actions: read
 
+concurrency:
+  group: security-sast-${{ inputs.scan_branch || github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   # ─────────────────────────────────────────────
   # CodeQL — semantic taint/data-flow analysis

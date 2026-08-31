@@ -30,6 +30,10 @@ permissions:
   contents: read
   pull-requests: read
 
+concurrency:
+  group: dependency-security-${{ inputs.scan_branch || github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   # Snyk is an optional external source until the fork receives SNYK_TOKEN.
   # It is advisory and scan-only: no monitor, fix, patch, or PR commands run.

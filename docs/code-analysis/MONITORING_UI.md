@@ -43,11 +43,49 @@ snapshot. It previews the first five identities in each severity and hands a sel
 column back to the full searchable evidence table. It does not create GitHub Issues,
 hide the remaining backlog, or persist a second finding lifecycle.
 
-The **Web of Scanners** bar links authenticated developers to GitHub's native
-Actions pages for the full four-scanner orchestration, dashboard-only rebuild, live run
-activity, and scheduled continuous-monitoring supervisor. The static page never holds
-a GitHub token and cannot call the dispatch API directly. GitHub therefore remains the
-permission, branch-selection, confirmation, audit, and run-status authority.
+The report-first developer summary adds an accessible severity distribution, weighted
+top-affected-file ranking, and a concrete **Where to start** path. Every visible result
+retains an exact file and line, supports location copying, links to the immutable source
+commit when repository identity is available, and opens the contributing scanner
+evidence. Charts and report rows filter the same canonical findings rather than a
+sampled dataset. Developers can export the current filtered view as CSV without
+changing the retained JSON evidence.
+
+The **Web of Scanners** launchpad gives each authenticated GitHub operation its own
+responsive action card: run the full four-scanner orchestration for a selected branch,
+rebuild Issue Wall from exact-commit evidence, inspect live workflow activity, or inspect
+the scheduled continuous-monitoring supervisor. Each card explains its effect before it
+opens GitHub in a new tab. The static page never holds a GitHub token and cannot call the
+dispatch API directly. GitHub therefore remains the permission, branch-selection,
+confirmation, audit, and run-status authority.
+
+The visual language uses a brighter developer-focused dark palette: cyan for navigation
+and source links, violet for contextual/report accents, mint for healthy evidence, coral
+and orange for urgent risk, amber for planned review, and blue for lower-risk findings.
+Color never replaces labels, counts, focus outlines, or severity text, and the action
+cards collapse from four columns to two and then one on narrower screens.
+
+## Branch-head pipeline
+
+Manual operation resolves the entered `scan_branch` through GitHub and freezes its
+current 40-character head SHA before any scanner is selected. Leaving `scan_branch`
+blank uses the branch chosen in the Actions workflow selector, but still resolves that
+branch's current head rather than analyzing the workflow-definition commit by accident.
+Every scanner checkout, run title, artifact, Check, and report carries that exact source
+identity.
+
+Pushes and same-repository pull requests take the same path automatically at the event's
+exact source SHA. A scheduled supervisor covers branches whose workflow files are old or
+absent. It first recognizes active native scans and active Issue Wall builds, then sends
+already-complete retained evidence directly to aggregation; only missing evidence causes
+a full orchestrator dispatch. Newer commits cancel stale same-branch scanner and report
+work, while branches remain independent.
+
+The manual run exposes four visible phases in the Actions log and job summary: resolve
+the authoritative branch head, resolve/reuse/dispatch scanner groups, validate all four
+groups concurrently, and build the 16-channel Issue Wall. Artifact existence is checked
+before reuse. Three failed dashboard-only attempts cause the supervisor to request a
+fresh evidence set rather than retrying expired or corrupt artifacts forever.
 
 The board has two channel sections:
 

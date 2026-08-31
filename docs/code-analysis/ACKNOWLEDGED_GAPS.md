@@ -1,5 +1,8 @@
 # Historical Canary Coverage Gaps — Resolved for the Defined Fixture Set
 
+> Historical evidence record, not an active backlog. All pending work and next actions
+> are maintained only in [`PENDING_WORK.md`](PENDING_WORK.md).
+
 > Last measured: 2026-08-22, fork run
 > [32575538895](https://github.com/combustrrr/Agentic-Kibana/actions/runs/32575538895)
 > Result: 7/10 canary expectations; 202 normalized findings from eight tools

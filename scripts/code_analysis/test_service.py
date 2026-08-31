@@ -186,10 +186,24 @@ class MonitoringTests(unittest.TestCase):
             self.assertIn("08-full-code-analysis.yml",page)
             self.assertIn("Build Issue Wall",page)
             self.assertIn("05-issue-aggregation.yml",page)
+            self.assertIn('class="action-card primary"', page)
+            self.assertIn("Select a branch and analyze its latest head commit", page)
+            self.assertIn("GitHub-controlled", page)
+            self.assertIn("read-only analysis", page)
+            self.assertIn("Continuous monitoring", page)
+            self.assertIn("--pink:#f472b6", page)
+            self.assertIn("radial-gradient", page)
             self.assertIn("Fix queue",page)
             self.assertIn("data-wall-severity",page)
             self.assertIn("data-filter",page)
             self.assertIn("copyLink",page)
+            self.assertIn("Developer findings report",page)
+            self.assertIn("Risk distribution",page)
+            self.assertIn("Top affected files",page)
+            self.assertIn("Where to start",page)
+            self.assertIn("Export filtered CSV",page)
+            self.assertIn("Copy location",page)
+            self.assertIn("Why this needs attention",page)
     def test_dashboard_artifact_includes_offline_launch_guide(self):
         result=snapshot([raw("CodeQL"),raw("Semgrep")])
         with tempfile.TemporaryDirectory() as d:
@@ -483,6 +497,9 @@ class MonitoringTests(unittest.TestCase):
         self.assertIn("branch_hash=",aggregate)
         self.assertIn("steps.analysis-artifact.outputs.artifact-id",aggregate)
         self.assertIn("Artifact ID for validated manual recovery",aggregate)
+        self.assertIn("declare -A run_ids=()", aggregate)
+        self.assertIn("One shared deadline keeps the four-workflow handoff bounded", aggregate)
+        self.assertEqual(aggregate.count("for attempt in $(seq 1 40)"), 1)
 
     def test_security_expansion_is_structured_and_runtime_lanes_stay_isolated(self):
         dependency=Path(".github/workflows/03-dependency-security.yml").read_text(encoding="utf-8")
@@ -534,7 +551,12 @@ class MonitoringTests(unittest.TestCase):
         self.assertIn(".displayTitle == $title",workflow)
         self.assertNotIn('--commit "$SCAN_SHA"',workflow)
         self.assertIn('-f scan_sha="$SCAN_SHA"',workflow)
-        self.assertIn('gh run watch "$run_id" --exit-status',workflow)
+        self.assertIn('gh run watch "$run_id" --interval 15 --exit-status',workflow)
+        self.assertIn('pids+=("$!")', workflow)
+        self.assertIn("reused exact-commit evidence", workflow)
+        self.assertIn("actions/runs/${run_id}/artifacts", workflow)
+        self.assertIn("Web of Scanners · live pipeline", workflow)
+        self.assertIn("cancel-in-progress: true", workflow)
         self.assertIn("05-issue-aggregation.yml",workflow)
         self.assertIn('gh run watch "$dashboard_id" --exit-status',workflow)
         self.assertIn("Open the Issue Wall build and download the offline artifact",workflow)
@@ -552,7 +574,25 @@ class MonitoringTests(unittest.TestCase):
         self.assertIn('-f expected_sha="$sha"',workflow)
         self.assertIn('if [[ -n "$EXPECTED_SHA"',workflow)
         self.assertIn("failures >= 3",workflow)
+        self.assertIn("scanner_success == 4", workflow)
+        self.assertIn("dashboard_failures < 3", workflow)
+        self.assertIn("Native push/PR scans still active", workflow)
+        self.assertIn("Complete evidence sent directly to Issue Wall", workflow)
         self.assertNotIn("pull_request_target:",workflow)
+
+    def test_latest_branch_head_supersedes_stale_analysis_work(self):
+        groups = {
+            "01-code-quality.yml": "code-quality-",
+            "02-security-sast.yml": "security-sast-",
+            "03-dependency-security.yml": "dependency-security-",
+            "04-code-health.yml": "code-health-",
+            "05-issue-aggregation.yml": "issue-wall-",
+        }
+        for name, prefix in groups.items():
+            workflow = Path(".github/workflows", name).read_text(encoding="utf-8")
+            self.assertIn(f"group: {prefix}", workflow)
+            self.assertIn("cancel-in-progress: true", workflow)
+            self.assertIn("inputs.scan_branch", workflow)
 
     def test_coderabbit_exact_head_comments_are_separate_ai_advisories(self):
         commit="a"*40;repository="combustrrr/Agentic-Kibana";branch="feature/review"

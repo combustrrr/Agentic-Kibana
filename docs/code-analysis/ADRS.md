@@ -85,18 +85,19 @@ evidence in one controllable interface without flooding work-management systems.
 **Consequence:** GitHub-native and specialist UIs remain contributing/supplementary
 surfaces. The dashboard stays replaceable, static, searchable, and read-only.
 
-## ADR-CA-007 — Shared Actions/local/QA pipeline
+## ADR-CA-007 — Actions-only artifact pipeline
 
-**Status:** Accepted
+**Status:** Accepted 2026-08-29; supersedes the earlier shared local/QA design
 
-**Decision:** GitHub-hosted and local/QA collection feed the same `pipeline.py` contract.
-The QA VM pulls artifacts outbound and atomically hosts the same image.
+**Decision:** The earlier shared Actions/local/QA design is retired. GitHub Actions is
+the only supported execution and delivery boundary, and Issue Wall is downloaded as an
+authenticated, self-contained artifact.
 
 **Reason:** Separate implementations would drift and an inbound GitHub-to-VM endpoint
 would unnecessarily expand attack surface.
 
-**Consequence:** The VM requires Actions read access only, binds locally, and sits behind
-company VPN/OIDC. Analysis never runs in Agentic SOC application startup.
+**Consequence:** No VM, pull worker, local listener, or hosting credential remains in the
+supported pipeline. Analysis never runs in Agentic SOC application startup.
 
 ## ADR-CA-008 — Deterministic and AI lanes remain distinct
 

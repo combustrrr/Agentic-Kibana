@@ -26,6 +26,12 @@ permissions:
   contents: read
   pull-requests: read
 
+# A report for an older commit must not consume time or publish after a newer branch
+# head begins aggregation. Different branches remain fully independent.
+concurrency:
+  group: issue-wall-${{ inputs.scan_branch || github.event.workflow_run.head_branch || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   aggregate:
     name: Build one advisory findings dashboard
@@ -62,26 +68,38 @@ jobs:
           set -euo pipefail
           mkdir -p scan-artifacts
           : > scanner-run-ids.txt
-          for workflow in 01-code-quality.yml 02-security-sast.yml 03-dependency-security.yml 04-code-health.yml; do
-            run_id=""
-            case "$workflow" in
-              01-code-quality.yml) run_title="Code Quality · $SCAN_BRANCH · $SCAN_SHA" ;;
-              02-security-sast.yml) run_title="Security / SAST · $SCAN_BRANCH · $SCAN_SHA" ;;
-              03-dependency-security.yml) run_title="Dependency & Supply Chain Security · $SCAN_BRANCH · $SCAN_SHA" ;;
-              04-code-health.yml) run_title="Code Health & Technical Debt · $SCAN_BRANCH · $SCAN_SHA" ;;
-              *) echo "Unknown scanner workflow: $workflow" >&2; exit 1 ;;
-            esac
-            for attempt in $(seq 1 40); do
-              : "$attempt"  # The bounded counter is intentionally used only to cap polling.
+          workflows=(01-code-quality.yml 02-security-sast.yml 03-dependency-security.yml 04-code-health.yml)
+          declare -A run_ids=()
+          for attempt in $(seq 1 40); do
+            : "$attempt"  # One shared deadline keeps the four-workflow handoff bounded.
+            missing=0
+            for workflow in "${workflows[@]}"; do
+              [[ -n "${run_ids[$workflow]:-}" ]] && continue
+              run_id=""
               if [[ "$MANUAL_SCAN" == "true" ]]; then
+                case "$workflow" in
+                  01-code-quality.yml) run_title="Code Quality · $SCAN_BRANCH · $SCAN_SHA" ;;
+                  02-security-sast.yml) run_title="Security / SAST · $SCAN_BRANCH · $SCAN_SHA" ;;
+                  03-dependency-security.yml) run_title="Dependency & Supply Chain Security · $SCAN_BRANCH · $SCAN_SHA" ;;
+                  04-code-health.yml) run_title="Code Health & Technical Debt · $SCAN_BRANCH · $SCAN_SHA" ;;
+                  *) echo "Unknown scanner workflow: $workflow" >&2; exit 1 ;;
+                esac
                 runs="$(gh run list --workflow "$workflow" --event workflow_dispatch --status success --limit 30 --json databaseId,displayTitle)"
                 run_id="$(jq -r --arg title "$run_title" '[.[] | select(.displayTitle == $title)] | first | .databaseId // empty' <<<"$runs")"
               else
                 run_id="$(gh run list --workflow "$workflow" --commit "$SCAN_SHA" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
               fi
-              [[ -n "$run_id" ]] && break
-              sleep 30
+              if [[ -n "$run_id" ]]; then
+                run_ids[$workflow]="$run_id"
+              else
+                ((missing+=1))
+              fi
             done
+            (( missing == 0 )) && break
+            sleep 30
+          done
+          for workflow in "${workflows[@]}"; do
+            run_id="${run_ids[$workflow]:-}"
             if [[ -z "$run_id" ]]; then
               echo "::error::No completed run found for $workflow at monitored commit $SCAN_SHA"
               exit 1

@@ -1,6 +1,6 @@
 # Code Analysis Implementation and Decision Record
 
-> **As of:** 2026-08-26  
+> **As of:** 2026-08-31
 > **Authority:** [`EXECUTION_PLAN.md`](EXECUTION_PLAN.md) and the checked-in workflows  
 > **Working repository:** fork `combustrrr/Agentic-Kibana`  
 > **Development branch:** `feature/static-code-analysis`  
@@ -29,7 +29,7 @@ complementary scanner web
   -> normalization
   -> conservative cross-tool deduplication
   -> canonical current findings
-  -> one read-only hosted dashboard
+  -> one authenticated offline Issue Wall artifact
 ```
 
 The goal is **detection and visualization**, not reducing the count to zero. An increase
@@ -75,8 +75,8 @@ infrastructure.
 - The analysis service does not become an Agentic SOC runtime dependency.
 - Active workflows do not create Issues or PR comments, apply fixes, push branches,
   alter branch protection, deploy, contact DefectDojo, or mutate production.
-- Raw evidence may contain sensitive paths/messages; access follows GitHub artifact
-  permissions and the future QA portal must sit behind company VPN/OIDC.
+- Raw evidence may contain sensitive paths/messages; access follows GitHub Actions and
+  artifact permissions. No separate portal or host is supported.
 
 ## 4. How analysis runs
 
@@ -135,11 +135,12 @@ This closes the GitHub trigger gap for clean or old branches that do not contain
 analysis workflow files. Native same-repository PR events remain the exact-head fast
 path; untrusted fork-PR execution is not elevated through `pull_request_target`.
 
-### QA VM and local analysis
+### Issue Wall delivery
 
-The same `scripts/code_analysis/pipeline.py` is used by Actions and the QA/local worker.
-The VM pulls immutable GitHub artifacts outbound, validates them, stages the new site,
-and atomically publishes it. GitHub needs no inbound path to the VM.
+`scripts/code_analysis/pipeline.py` runs in Actions and builds a self-contained artifact.
+Developers download it from the authenticated workflow or advisory Check and open
+`dashboard/START_HERE.md` followed by `dashboard/index.html`. Local servers, pull
+workers, QA hosts, and continuously hosted copies are retired and unsupported.
 
 ## 5. Implemented scanner web
 
@@ -175,7 +176,8 @@ Additional lanes:
 - **CodeRabbit:** automatic/incremental cloud-review configuration, exact-head GitHub
   review evidence collection, and dashboard refresh are implemented. Findings remain
   a separate `AI_ADVISORY` lane and do not corroborate deterministic results. Repository
-  owner GitHub App authorization and first live review remain externally pending.
+  exact-head advisory evidence has been observed; any future evaluation is tracked only
+  in [`PENDING_WORK.md`](PENDING_WORK.md).
 - **Shipping security:** the exact backend and web UI shipping images are built and
   scanned; CycloneDX/SPDX inventories, bounded denied-license policy results, and
   unsigned local provenance are retained.

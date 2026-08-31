@@ -1,5 +1,8 @@
 # Code-analysis session handoff — 2026-08-28
 
+> Historical session record. Active pending work lives only in
+> [`PENDING_WORK.md`](PENDING_WORK.md).
+
 ## Resume here
 
 The first three items in `docs/code-analysis/PENDING_WORK.md` were addressed in a
