@@ -11489,3 +11489,26 @@
   accounting, Linux actionlint/ShellCheck evidence, and optional uniqueness/governance
   decisions remain.
 - Status: done for the optional dynamic-evidence item.
+
+## 2026-08-31 — Sonar Browse-permission verification started
+
+- The owner reports the Sonar project permission change is complete. Started a focused
+  exact-branch verification to require `CONFIGURED_COMPLETE`, a bounded native issue
+  export, and exact branch/commit provenance before removing the external blocker.
+- Status: in progress.
+- Next: dispatch Code Quality for the current branch head and inspect retained evidence.
+
+## 2026-08-31 — Sonar permission recheck still returns 403
+
+- Cancelled queued run `33418380579` after detecting a mistyped requested SHA, then
+  dispatched corrected exact-head run `33418428037` for
+  `35b332222ab50e868eb3ca144454eebf6e1808fa`, avoiding a wasted invalid scan.
+- Native Sonar analysis completed successfully, but the subsequent minimal
+  `api/issues/search` request using `SONAR_API_TOKEN` still returned HTTP 403. Retained
+  `sonar-status.json` remains truthfully `CONFIGURED_PARTIAL`, and no native issue file
+  was fabricated.
+- The permission change therefore does not apply to the user represented by the current
+  `SONAR_API_TOKEN`, or the project remains private to that token. Confirm Browse Project
+  for that exact PAT owner (or public project visibility), then replace the secret if the
+  permission was granted to a different Sonar account.
+- Status: blocked externally; repository behavior is fail-honest.
