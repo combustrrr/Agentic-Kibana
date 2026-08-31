@@ -11404,3 +11404,18 @@
 - Historical handoffs/evidence documents retain their dated statements and already
   identify themselves as non-authoritative. No competing current backlog remains.
 - `docs/code-analysis/Issues.txt` was not modified or staged.
+## 2026-08-31 — Top three code-analysis backlog items started
+
+- Started the three active delivery priorities from `PENDING_WORK.md`: complete Sonar
+  native ingestion, prove the final manual Issue Wall path with UI/cost evidence, and
+  validate optional posture/dynamic evidence.
+- Work remains exact-commit, read-only, artifact-based, and separate from Agentic SOC
+  runtime. `docs/code-analysis/Issues.txt` will not be modified or staged.
+
+## 2026-08-31 — Sonar export request minimized before final permission proof
+
+- Removed `additionalFields=_all` from `api/issues/search`. Issue Wall needs only the
+  base read-only issue payload; requesting privileged actions/transitions was unnecessary
+  and could independently produce HTTP 403 even for a user who can browse the project.
+- The next exact-SHA Code Quality run will distinguish that over-broad request from a
+  genuine remaining Browse-permission problem.

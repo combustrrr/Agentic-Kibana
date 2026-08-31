@@ -52,8 +52,9 @@ def export(path: Path, output: Path, project: str, branch: str, commit: str,
     issues: list[dict[str, Any]] = []
     page = 1
     while True:
-        parameters = {"componentKeys": project, "p": page, "ps": 500,
-                      "additionalFields": "_all"}
+        # Request only the issue fields returned by the base endpoint. `_all` also asks
+        # for privileged actions/transitions and is unnecessary for read-only tracking.
+        parameters = {"componentKeys": project, "p": page, "ps": 500}
         parameters["pullRequest" if pull_request else "branch"] = pull_request or branch
         query = urllib.parse.urlencode(parameters)
         document = _request(f"{server}/api/issues/search?{query}", token)
