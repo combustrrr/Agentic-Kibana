@@ -11552,3 +11552,17 @@
   Sonar user and test whether that exact user appears in the project's Browse grant list.
 - Status: in progress; do not spend another full scan until permission membership is
   proven by the lightweight probe.
+
+## 2026-09-01 — Exact Sonar PAT identity verified; idempotent Browse grant prepared
+
+- Out-of-scope run `33428738073` completed only the credential probe and no Sonar scan.
+  Both stored PATs authenticate as `combustrrr-Uw7cT@github`; both still receive 403 for
+  non-main branch issues. Sonar Cloud's live API catalog exposes mutation endpoints but
+  no read-only project permission-list endpoint, so the legacy list probe correctly
+  returned HTTP 400 and could not establish membership.
+- Added an explicitly manual, idempotent `ensure_sonar_browse` operation that calls the
+  current `api/permissions/add_user` contract for the verified PAT identity, records only
+  HTTP status and identity, then immediately tests branch issue access. It never exposes
+  token material and does not run automatically.
+- Status: in progress; execute the manual grant once and cancel before analysis after the
+  grant/access result is retained in logs.

@@ -18,6 +18,11 @@ on:
         description: "Source branch associated with the selected commit"
         required: false
         type: string
+      ensure_sonar_browse:
+        description: "Idempotently grant Browse to the SONAR_API_TOKEN user, then verify"
+        required: false
+        default: false
+        type: boolean
   pull_request:
   push:
     branches: ["**"]
@@ -82,6 +87,14 @@ jobs:
         run: |
           python scripts/code_analysis/probe_sonar_access.py
           cat sonar-access-probe.json
+
+      - name: Ensure Browse for the verified Sonar API user
+        if: inputs.ensure_sonar_browse == true
+        env:
+          SCAN_BRANCH: ${{ inputs.scan_branch || github.head_ref || github.ref_name }}
+        run: |
+          python scripts/code_analysis/ensure_sonar_browse.py
+          cat sonar-browse-grant.json
 
       - name: Derive stable Sonar analysis branch
         id: sonar-identity
@@ -190,6 +203,7 @@ jobs:
           path: |
             sonar-status.json
             sonar-access-probe.json
+            sonar-browse-grant.json
             sonar-native-issues.json
             .scannerwork/report-task.txt
           if-no-files-found: error
