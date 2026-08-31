@@ -23,7 +23,8 @@ config/code-analysis/
   service-layout.json       executable module-ownership boundary
 
 scripts/code_analysis/
-  normalizer.py             scanner-native ingestion adapters
+  normalizer.py             canonical ingestion + SARIF/Sonar projections
+  export_sonar_issues.py    bounded native Sonar API adapter
   collect_coderabbit.py     bounded AI-advisory GitHub adapter
   monitoring.py             identity/correlation domain
   evidence_contract.py      immutable artifact contract
@@ -60,13 +61,16 @@ exact commit
   -> immutable native artifacts
   -> adapters and normalizer
   -> canonical finding + all observations
+  -> loop-safe outbound Sonar projection (deterministic code-local only)
   -> reconciled publishable snapshot
   -> security-focused and complete dashboard views
 ```
 
 A developer can start at a security count, filter by concept/component/path/scanner,
 open one canonical finding, inspect every contributing rule and native result, and
-follow the exact workflow/artifact proof. AI candidates remain a separate view.
+follow the exact workflow/artifact proof. AI candidates remain a separate
+`AI_ADVISORY` view and never enter the Sonar projection. Issue Wall records what was
+reported; it does not own assignment, acceptance, suppression, closure, or vendor state.
 
 ## Change discipline
 

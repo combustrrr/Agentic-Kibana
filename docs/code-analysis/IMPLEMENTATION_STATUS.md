@@ -189,10 +189,10 @@ Additional lanes:
   injection, and LLM output reaching execution.
 - **SonarQube Cloud:** exact-commit cloud analysis is verified. Bounded authenticated
   native-issue export, canonical normalization, and a generic external-issue projection
-  are implemented; cloud activation of native import awaits `SONAR_API_TOKEN` with
-  project Browse permission. The execute-analysis token is intentionally insufficient.
-  The projection excludes Sonar-native and `AI_ADVISORY` findings. CodeScene remains
-  deferred.
+  are implemented. Both GitHub secrets now exist, but the PAT owner still receives HTTP
+  403 from the Browse-protected issue API; operational proof therefore remains partial
+  until Sonar project permissions change. The projection excludes Sonar-native and
+  `AI_ADVISORY` findings. CodeScene is not active.
 - **Atheris:** a bounded weekly/manual Linux harness exercises deterministic
   case-decision state transitions for 25,000 inputs and retains crash evidence.
 - **KICS/tfsec:** not activated. Checkov and Trivy config already cover IaC; KICS is
@@ -249,7 +249,7 @@ The custom dashboard is the primary visualization. It shows:
 
 The visualization also exposes an **Additional analysis lanes** board. It displays the
 current status and evidence counts for Snyk and other optional/dynamic sources, keeps
-CodeRabbit visibly labelled `AI_ADVISORY`, and shows deferred tools as roadmap entries.
+  CodeRabbit visibly labelled `AI_ADVISORY`, and shows inactive tools as catalog entries.
 Only the separate required-channel board contributes to the publishability fraction.
 
 Rendering is bounded to 50/100/250 rows; the browser never mounts the complete 8,000+
@@ -261,14 +261,9 @@ local and QA-host serving were retired by owner decision on 2026-08-29.
 
 ## 9. Delivery decision
 
-No Issue Wall host is operated. GitHub Actions supplies scanner compute, aggregation,
-artifact retention, access control, and audit history. Do not co-locate production-grade
-SonarQube, DefectDojo, their databases, and untrusted scans until resource and security
-boundaries are measured.
-
-The dashboard container binds to `127.0.0.1`, runs read-only with dropped capabilities,
-and is placed behind company access controls. The worker uses Actions read access only
-and publishes atomically.
+No Issue Wall host, dashboard container, or pull worker is operated. GitHub Actions
+supplies scanner compute, aggregation, artifact retention, access control, and audit
+history. SonarQube Cloud is an optional external scanner; DefectDojo is not contacted.
 
 ## 10. Verified evidence
 
@@ -285,8 +280,11 @@ and publishes atomically.
 - Snyk activation: run `32965286130` at commit `e8caba62...` passed installation,
   Open Source SCA, Snyk Code, configured-status generation, and artifact upload;
   artifact `snyk-results` ID `9605455800` was retained.
-- Analysis-service regression suite: 37/37 tests passed after enterprise workflow
-  policy, Snyk partial-result, and conservative-identity hardening.
+- Sonar analysis/native-export proofs: runs `33404195186`, `33405919866`, and
+  `33409996015` completed exact-SHA analysis in 14–15 minutes and then truthfully
+  reported `CONFIGURED_PARTIAL` on issue-API HTTP 403.
+- Analysis-service regression suite: 48/48 tests pass, including Sonar native parsing,
+  projection loop prevention, and `AI_ADVISORY` exclusion.
 
 These prove configured pipeline behavior and the defined canary set. They do not prove
 that the application is secure or establish a universal vulnerability-detection rate.
@@ -304,27 +302,26 @@ product is unavailable. Snyk remains optional until unique detection value is me
 
 `.coderabbit.yaml` enables cloud automatic review and incremental review after every
 push to an eligible PR, explicitly includes every fork base branch, and disables
-automatic pausing. Request-changes behavior,
-chat auto-replies, and bot reviews remain disabled. Code-sharing approval was received.
+automatic pausing. Request-changes behavior and chat auto-replies remain disabled.
 GitHub Checks context is explicitly enabled with the maximum 15-minute scanner wait.
 Exact-head inline CodeRabbit comments now
 normalize through a read-only GitHub evidence collector and a CodeRabbit review event
 requests a dashboard-only refresh with explicit repository context; AI results remain
 separate and never corroborate deterministic findings. The local CLI/WSL path is not
-part of the deployment design. The repository owner reports the fork-only GitHub App
-installed; a real exact-head PR review remains the required verification evidence.
+part of the deployment design. Fork-only exact-head GitHub App evidence has been
+observed and verified.
 
-## 12. Deferred roadmap
+### SonarQube Cloud
 
-Separate approval is required for:
+The scanner and exporter use separate GitHub secrets. Native issues normalize into the
+same Issue Wall schema; compatible deterministic findings project outward in Sonar's
+generic format. Sonar-native and `AI_ADVISORY` findings cannot feed that projection.
+The current external Browse-permission blocker and all remaining work live only in
+[`PENDING_WORK.md`](PENDING_WORK.md).
 
-1. CodeRabbit exact-head cloud review proof and AI-advisory evidence-adapter evaluation.
-2. Non-redundant CodeScene export evaluation and Sonar unique-contribution measurement.
-3. Optional persistence or DefectDojo evaluation. Human triage is explicitly outside
-   the read-only Issue Wall contract.
-4. Precision/false-positive measurement.
-5. Review-only remediation suggestions.
-6. Sandboxed patches and, only after measured evidence, narrowly scoped automation.
+## 12. Work boundary
 
-No later phase should weaken the current evidence-preservation, exact-commit,
-fail-closed publication, fork isolation, or read-only defaults.
+Issue Wall does not implement human triage, remediation, patches, lifecycle persistence,
+or vendor-state synchronization. The sole current backlog is
+[`PENDING_WORK.md`](PENDING_WORK.md). No future change should weaken evidence preservation,
+exact-commit publication, fork isolation, or read-only defaults.

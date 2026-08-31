@@ -11382,3 +11382,25 @@
   not token type, GitHub secret wiring, scanner authentication, or Issue Wall code.
   Sonar project Administration > Permissions must grant that user Browse Project (or
   make this public-repository project public) before another proof run.
+## 2026-08-31 — Code-analysis documentation reconciliation started
+
+- Began a repository-wide code-analysis documentation audit after the Sonar dual-token
+  cloud proofs. The goal is to move all unfinished work into `PENDING_WORK.md`, make
+  current-state documents describe only implemented/proven behavior, preserve Issue
+  Wall as a read-only normalized tracker, and keep CodeRabbit under `AI_ADVISORY`.
+- `docs/code-analysis/Issues.txt` remains user-owned and will not be modified or staged.
+
+## 2026-08-31 — Code-analysis documentation reconciled to current evidence
+
+- Replaced the sprawling pending list with one prioritized backlog: Sonar Browse
+  permission/proof first, final manual/UI/cost acceptance second, optional-value
+  measurement third, and repository governance last. Human triage and remediation are
+  explicit non-features rather than implied pending work.
+- Updated README, implementation status, execution plan, production readiness, external
+  activation, monitoring architecture, and service architecture to record verified
+  CodeRabbit `AI_ADVISORY`, successful Sonar analysis plus HTTP-403 native-import
+  blocker, canonical Issue Wall authority, loop-safe outbound projection, and the
+  artifact-only read-only delivery model.
+- Historical handoffs/evidence documents retain their dated statements and already
+  identify themselves as non-authoritative. No competing current backlog remains.
+- `docs/code-analysis/Issues.txt` was not modified or staged.

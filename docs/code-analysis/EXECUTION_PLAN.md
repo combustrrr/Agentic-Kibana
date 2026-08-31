@@ -58,9 +58,10 @@ Statuses use these meanings:
 | Platform secret prevention | GitHub secret scanning / push protection | **Verification implemented; owner activation external** | Read-only metadata and alert-number collection records enabled/disabled/unavailable state without retaining secret values. |
 | IaC comparison | KICS/tfsec | **Deferred by measurement gate** | Checkov plus Trivy config remain active. The current KICS Action is not used while a public compromise advisory is open; any future standalone evaluation must prove unique findings. tfsec is not added merely to duplicate Trivy's integrated checks. |
 | AI review | CodeRabbit | **Verified advisory lane** | Every fork PR target is configured for automatic/incremental review, GitHub Checks wait up to 15 minutes, request-changes is disabled, and exact-head bot evidence has been observed. |
+| Optional quality/security | SonarQube Cloud | **Analysis verified; native import partial** | Exact-SHA analysis succeeds. Bounded native export/parser and loop-safe generic projection are implemented; the PAT owner still receives HTTP 403 until Sonar grants project Browse permission. |
 | AI review | PR-Agent | **Not implemented** | Fallback is documented only. |
 | Behavioral health | CodeScene | **Partial scaffold** | Compose draft exists; no license/configured service, scan, or dashboard integration. |
-| Finding management | DefectDojo | **Partial scaffold** | Compose draft exists; no deployed service, importer, persistence, or lifecycle sync. |
+| Finding management | DefectDojo | **Outside Issue Wall contract** | No deployed service, importer, persistence, or lifecycle sync; Issue Wall is a read-only tracker rather than a triage system. |
 | Supply-chain alternative | Snyk | **Verified optional** | Fork run `32965286130` passed Open Source SCA, Snyk Code, status generation, and artifact upload. Local OAuth used a different organization where Code was disabled; CI evidence is authoritative. No monitor, report, fix, patch, or PR command exists. |
 | Optional evaluator | Qodana | **Not selected / not implemented** | Appears in evaluation/parser compatibility only; it is not an active shortlisted lane. |
 | GitHub native | Dependency Review | **Active PR-only** | Runs for PRs targeting `claude/main` or `Testing`; it is correctly skipped for push/manual runs. |

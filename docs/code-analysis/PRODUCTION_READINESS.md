@@ -56,14 +56,14 @@ GitHub Actions is the only supported Issue Wall execution, storage, authorizatio
 delivery boundary. No workstation listener, local cache service, pull worker, nginx
 container, or QA host is deployed.
 
-## Deployment gates
+## Acceptance evidence
 
-1. Run `python scripts/code_analysis/audit_workflows.py` and all analysis-service tests.
-2. Authorize CodeRabbit and prove an exact-head review reaches `AI_ADVISORY`.
-3. Run a manual scan and reconcile 16 channels, run links, hashes, and finding counts.
-4. Download the authenticated artifact and verify its launch guide, snapshot, raw
-   observations, and self-contained `index.html`.
+Workflow policy and service tests pass; CodeRabbit exact-head review reaches only
+`AI_ADVISORY`; exact-commit 16-channel artifacts and the authenticated self-contained
+Issue Wall have been produced. SonarQube Cloud analysis also succeeds, while its native
+issue import remains honestly partial until the PAT owner receives project Browse
+permission. The sole remaining acceptance list is
+[`PENDING_WORK.md`](PENDING_WORK.md).
 
-DefectDojo and CodeScene remain deferred. Their profiles require explicit secrets and
-immutable image-digest variables and bind only to localhost. They are not part of the
-supported dashboard service.
+DefectDojo is not part of the supported read-only dashboard service. CodeScene is only
+an unapproved evaluation candidate; neither is contacted by the active pipeline.

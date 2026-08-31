@@ -22,16 +22,11 @@ heads, summaries without file locations, and other authors are excluded. If no o
 exists, CodeRabbit is `NOT_APPLICABLE`; if a PR exists but no exact-head review has been
 submitted, it is `PENDING_REVIEW`. Neither state blocks deterministic publication.
 
-Owner-reported state: the CodeRabbit GitHub App is installed on the fork. Remaining
-acceptance action:
-
-1. Complete the code-sharing/privacy review.
-2. Confirm the installed GitHub App is scoped to this fork only.
-3. Confirm the app has no access to the upstream company repository.
-4. Open or update a test PR against the fork default branch or `Testing`.
-5. Confirm the automatic review appears after each pushed PR commit.
-6. Confirm the subsequent dashboard rebuild shows its inline findings only under
-   **AI advisory**, with native evidence links and no deterministic corroboration.
+Verified state: the CodeRabbit GitHub App is installed on the fork, exact-head bot
+comments have been observed, and the dashboard adapter retains them only under
+`AI_ADVISORY` with native evidence links. They never corroborate deterministic findings.
+Any future permission/privacy review is repository governance and is tracked only in
+[`PENDING_WORK.md`](PENDING_WORK.md).
 
 The GitHub Checks integration waits up to 15 minutes for the required scanner workflows.
 The checkout-free review dispatcher carries explicit repository context, so a submitted
@@ -40,6 +35,25 @@ exact-head bot review can reliably dispatch the dashboard rebuild.
 The CodeRabbit CLI/WSL path is not part of the operating design. CodeRabbit runs as a
 cloud GitHub App on pull requests; deterministic full-codebase scanners continue to
 run in GitHub Actions and feed the hosted findings dashboard.
+
+## SonarQube Cloud
+
+`01-code-quality.yml` runs one source-change-gated exact-commit Sonar analysis in
+parallel with the fast quality jobs. `SONAR_TOKEN` authenticates analysis;
+`SONAR_API_TOKEN` is intentionally separate for read-only issue export. The exporter
+waits for the exact compute task, caps pagination at 20,000 issues, and rejects imported
+external issues so the outbound projection cannot feed back into Issue Wall.
+
+The normalizer accepts `sonar-native-issues.json` into the same canonical schema used by
+all scanners and emits `normalized/sonar-external-issues.json` for compatible code-local
+deterministic findings. Sonar-native findings and CodeRabbit/other `AI_ADVISORY` findings
+are excluded. The projection is retained as an outbound artifact; it does not launch a
+second 14–15 minute Sonar scan automatically.
+
+Current cloud state is `CONFIGURED_PARTIAL`: analysis succeeds, both GitHub secrets
+exist, but the PAT owner receives HTTP 403 from the Browse-protected issues API. The
+single required permission/proof action is maintained in
+[`PENDING_WORK.md`](PENDING_WORK.md).
 
 ## Snyk
 

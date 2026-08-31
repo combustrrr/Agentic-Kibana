@@ -1,8 +1,9 @@
 # Agentic SOC Current Findings Platform
 
 > **Authority:** [`EXECUTION_PLAN.md`](EXECUTION_PLAN.md) records implementation truth.
-> The original proposal remains a scanner-candidate roadmap; remediation, Issues,
-> DefectDojo, history, and production integration are deferred.
+> The original proposal remains a scanner-candidate roadmap. Issue Wall is deliberately
+> a read-only visualization/tracker; assignment, suppression, closure, remediation,
+> Issues, DefectDojo lifecycle, and production integration are outside its contract.
 > [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) is the consolidated architecture,
 > trigger, tool-status, delivery, safety, and verified-evidence handoff. Historical
 > session handoffs are retained as records and are not current operating instructions.
@@ -62,9 +63,9 @@ all 16 required channels was validated, not merely that four workflow shells ran
 
 Optional evidence now includes exact-commit shipping-image Trivy scans, CycloneDX and
 SPDX SBOMs with license-policy results and unsigned local provenance, zizmor, OpenSSF
-Scorecard, GitHub secret-scanning/push-protection posture, Snyk, and CodeRabbit. Weekly
-isolated Schemathesis and Atheris jobs remain dynamic evidence. None of these optional
-lanes can turn a missing required channel green.
+Scorecard, GitHub secret-scanning/push-protection posture, Snyk, SonarQube Cloud, and
+CodeRabbit. Weekly isolated Schemathesis and Atheris jobs remain dynamic evidence. None
+of these optional lanes can turn a missing required channel green.
 
 An artifact is not enough by itself: malformed scanner output now fails normalization
 and cannot publish a dashboard. Radon complexity blocks and Coverage.py file-level
@@ -99,9 +100,16 @@ See [`MONITORING_UI.md`](MONITORING_UI.md) for the authenticated GitHub artifact
   credentials or analysis surfaces are unavailable.
 - CodeRabbit cloud automatic and per-push incremental PR review is configured as an
   advisory lane. Exact-head inline bot comments are collected through GitHub's read-only
-  PR APIs and trigger a dashboard refresh into the separate `AI_ADVISORY` view. Fork-only
-  GitHub App execution remains unverified. SonarQube, CodeScene, and
-  additional tools enter only after an exportable, non-redundant contribution is verified.
+  PR APIs and trigger a dashboard refresh into the separate `AI_ADVISORY` view. Exact-head
+  GitHub App execution is verified.
+- SonarQube Cloud exact-commit analysis is verified. Bounded native issue export,
+  canonical parsing, and a loop-safe generic external-issue projection are implemented.
+  Native cloud ingestion currently reports `CONFIGURED_PARTIAL` because the PAT owner
+  still lacks project Browse permission; the precise acceptance step lives only in
+  [`PENDING_WORK.md`](PENDING_WORK.md). Sonar-native and all `AI_ADVISORY` findings are
+  excluded from the outbound projection.
+- CodeScene and additional tools enter only after an exportable, non-redundant
+  contribution is approved and measured.
 - `config/code-analysis/proposal-tool-catalog.json` (repository source; intentionally
   outside the packaged documentation tree)
   accounts explicitly for every selected proposal tool and its activation boundary.
@@ -160,7 +168,7 @@ application is secure or publish unsupported coverage percentages.
 |---|---|
 | Complementary scanner web and canaries | **Retained** |
 | Canonical identity with preserved observations | **Retained** |
-| Baseline/lifecycle/previous-run comparison | **Deferred** |
-| DefectDojo and persistent triage | **Deferred** |
-| Autofix, patches, Issues, and blocking gates | **Deferred** |
+| Baseline/lifecycle/previous-run comparison | **Outside current snapshot contract** |
+| DefectDojo and persistent triage | **Outside Issue Wall contract** |
+| Autofix, patches, Issues, and blocking gates | **Outside Issue Wall contract** |
 | Authenticated offline Issue Wall artifact | **Current delivery** |
