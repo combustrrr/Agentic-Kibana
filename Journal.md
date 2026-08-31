@@ -11372,3 +11372,13 @@
   `SONAR_API_TOKEN`. Until a Sonar user token with project Browse permission is stored
   under that GitHub secret, status remains explicit `CONFIGURED_PARTIAL` and no native
   issues are published. Updated pending/current docs and the tool catalog truthfully.
+
+## 2026-08-31 — Separate Sonar PAT verified; project Browse permission still absent
+
+- GitHub now contains both `SONAR_TOKEN` and `SONAR_API_TOKEN`. Exact-SHA run
+  `33409996015` proved the replacement PAT can execute the full Sonar analysis in
+  14m02s, but the separate PAT still received HTTP 403 from `api/issues/search`.
+- This isolates the remaining blocker to the token author's project access/visibility,
+  not token type, GitHub secret wiring, scanner authentication, or Issue Wall code.
+  Sonar project Administration > Permissions must grant that user Browse Project (or
+  make this public-repository project public) before another proof run.
