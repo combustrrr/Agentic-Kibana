@@ -11540,3 +11540,15 @@
   and exact commit as canonical provenance. Existing Sonar branches are not deleted or
   mutated.
 - Status: implementation complete; one exact-head Code Quality proof remains.
+
+## 2026-09-01 — Non-main Sonar API denial persists on long-lived projection
+
+- Exact-head run `33426863715` created `branch-issue-wall-3856d26362d57706`; Sonar
+  explicitly classified it as `LONG` and completed analysis successfully. Native issue
+  export still returned HTTP 403, and anonymous access to that branch also returns 403.
+- This disproves short-vs-long branch type as the authorization cause. Public visibility
+  applies to the main project issue set, while this project's non-main branch APIs remain
+  Browse-protected. Extended the zero-cost credential probe to identify each PAT's current
+  Sonar user and test whether that exact user appears in the project's Browse grant list.
+- Status: in progress; do not spend another full scan until permission membership is
+  proven by the lightweight probe.
