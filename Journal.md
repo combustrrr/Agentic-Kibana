@@ -11419,3 +11419,39 @@
   and could independently produce HTTP 403 even for a user who can browse the project.
 - The next exact-SHA Code Quality run will distinguish that over-broad request from a
   genuine remaining Browse-permission problem.
+
+## 2026-08-31 — Exact-branch Issue Wall acceptance and dynamic-lane diagnosis
+
+- Manual Full Code Analysis run `33414567342` resolved `feature/static-code-analysis`
+  to exact head `1e0f8d1b130774bbb5fa7275ccb8c54b5b8ab50f`, dispatched/waited for the
+  four required scanner groups, and built dashboard run `33415271105` successfully.
+  The retained 16,429,426-byte artifact reports 16/16 required channels complete,
+  15,780 canonical findings, 16,547 raw observations, and zero AI advisories.
+- Manual API fuzzing run `33414534863` exposed two operational defects rather than
+  product findings: Schemathesis 3.39 rejected OpenAPI 3.1 while exit 1 was mistakenly
+  accepted as findings, and the Atheris script could not import `backend/app` because
+  script-path execution excluded the backend root from `sys.path`. Local fixes enable
+  the explicit OpenAPI 3.1 mode, reject empty JUnit evidence, use the report's real
+  archive format, test the exact workflow checkout, expose import causes, and retain a
+  truthful Atheris operational-failure status.
+- The current Sonar proof remains in progress and is intentionally allowed to finish
+  before these local workflow fixes are pushed, avoiding cancellation of another
+  roughly 15-minute external analysis.
+- Tests: workflow YAML parsed and `git diff --check` passed. The local host lacks backend
+  dependencies, so the repaired Atheris campaign still requires its Actions proof.
+- Status: in progress.
+- Next: inspect the completed Sonar export, then commit/push and rerun the bounded
+  Schemathesis+Atheris campaign before reconciling the sole pending-work document.
+
+## 2026-08-31 — Minimal Sonar query confirms external Browse blocker
+
+- Exact-SHA Code Quality run `33414505282` completed its native Sonar analysis in
+  17m03s, but the minimized base-fields-only `api/issues/search` call still returned
+  HTTP 403. The optional job completed while its retained `sonar-status.json` correctly
+  says `CONFIGURED_PARTIAL`; no `sonar-native-issues.json` was fabricated.
+- This rules out `additionalFields=_all` as the blocker. The PAT owner still requires
+  Sonar project Browse permission/visibility before native Issue Wall ingestion can be
+  proven. Repository-side authentication, exact-SHA scanning, and failure reporting are
+  working as designed.
+- Status: blocked externally for Sonar native ingestion; the manual dashboard and
+  dynamic-lane fixes continue independently.

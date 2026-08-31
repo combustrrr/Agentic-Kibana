@@ -16,6 +16,14 @@ CI: runs in the 07-api-fuzzing.yml workflow (weekly + on API changes).
 
 import sys
 from dataclasses import dataclass
+from pathlib import Path
+
+# Executing a script by path makes its own directory, not the caller's working
+# directory, the first import root. Pin the repository's backend package here so
+# local and Actions invocations exercise the same target.
+_BACKEND_ROOT = Path(__file__).resolve().parents[3] / "backend"
+if str(_BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_ROOT))
 
 try:
     import atheris
@@ -33,8 +41,10 @@ try:
     from app.constants import Verdict
     from app.engine.case_manager import decide
     _BACKEND_AVAILABLE = True
-except ImportError:
+    _BACKEND_IMPORT_ERROR = None
+except ImportError as exc:
     _BACKEND_AVAILABLE = False
+    _BACKEND_IMPORT_ERROR = exc
 
 
 @dataclass
@@ -94,7 +104,9 @@ def _run_decide(fuzz_input: FuzzCaseInput):
     This is the core decision function that should never crash.
     """
     if not _BACKEND_AVAILABLE:
-        raise RuntimeError("backend decision target is unavailable")
+        raise RuntimeError(
+            f"backend decision target is unavailable: {_BACKEND_IMPORT_ERROR}"
+        ) from _BACKEND_IMPORT_ERROR
     verdict = Verdict(fuzz_input.verdict)
     policy = AutoClosePolicy()
     return decide(

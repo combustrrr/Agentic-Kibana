@@ -77,16 +77,22 @@ jobs:
           # Limit to 10 minutes to prevent infinite CI hang
           set +e
           timeout 600 schemathesis run schema.json \
+            --experimental=openapi-3.1 \
             --base-url http://localhost:8000 \
             --checks all \
             --max-response-time 5000 \
             --hypothesis-max-examples 250 \
             --junit-xml=../fuzzing-results.xml \
-            --report=../schemathesis-report.html
+            --report=../schemathesis-report.tar.gz
           scan_exit=$?
           set -e
           # Exit 1 represents reproducible API findings. Timeout or execution/config
           # failures are operational failures and must not be presented as findings.
+          # A real scan always finalizes a non-empty JUnit document.
+          if [[ ! -s ../fuzzing-results.xml ]]; then
+            echo "Schemathesis did not produce a valid JUnit report (exit $scan_exit)." >&2
+            exit 2
+          fi
           [[ "$scan_exit" -le 1 ]] || exit "$scan_exit"
 
       - name: Upload Fuzzing Report
@@ -96,7 +102,7 @@ jobs:
           name: schemathesis-report
           path: |
             fuzzing-results.xml
-            schemathesis-report.html
+            schemathesis-report.tar.gz
             backend/schema.json
           if-no-files-found: error
 
@@ -122,10 +128,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - name: Checkout trusted default-branch target
+      - name: Checkout exact workflow target
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ github.event.repository.default_branch }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -141,6 +145,7 @@ jobs:
           pip install -r backend/requirements.txt "atheris==3.0.0"
 
       - name: Run deterministic case-decision fuzz campaign
+        id: atheris
         shell: bash
         run: |
           set -euo pipefail
@@ -153,6 +158,13 @@ jobs:
             -artifact_prefix=../fuzz-crashes/ ../fuzz-corpus
           cd ..
           jq -n '{schema_version:"1",scanner_family:"Atheris",status:"COMPLETED_OPTIONAL",reason:"25,000 bounded inputs executed against deterministic case decision logic",finding_count:0,observation_count:0}' \
+            > atheris-status.json
+
+      - name: Record Atheris operational failure
+        if: failure() && steps.atheris.outcome == 'failure'
+        shell: bash
+        run: |
+          jq -n '{schema_version:"1",scanner_family:"Atheris",status:"OPERATIONAL_FAILURE",reason:"The bounded Atheris campaign did not complete; inspect the job log and retained crash input.",finding_count:0,observation_count:0}' \
             > atheris-status.json
 
       - name: Retain Atheris campaign evidence
