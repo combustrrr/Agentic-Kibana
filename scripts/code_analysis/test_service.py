@@ -11,7 +11,7 @@ from scripts.code_analysis.collect_coderabbit import collect as collect_coderabb
 from scripts.code_analysis.dashboard import artifact_readme, generate, github_summary, validate_snapshot, write_dashboard
 from scripts.code_analysis.evidence_contract import build as build_evidence_contract
 from scripts.code_analysis.monitoring import EvidenceError, build_snapshot, canonicalize, check_key, compare, defectdojo_fixture, effective_triage, scanner_family, stable_id
-from scripts.code_analysis.normalizer import CodeRabbitParser, CoverageParser, RadonParser, SarifParser, SchemathesisParser, TscParser, XenonParser, main as normalize_cli, normalize_concept
+from scripts.code_analysis.normalizer import CodeRabbitParser, CoverageParser, Finding, RadonParser, SarifParser, SchemathesisParser, SonarExternalIssuesExporter, SonarParser, TscParser, XenonParser, main as normalize_cli, normalize_concept
 from scripts.code_analysis.pipeline import build as build_pipeline
 from scripts.code_analysis.provenance import build as build_provenance
 from scripts.code_analysis.validate_sbom import _denied_license, evaluate as evaluate_sbom
@@ -32,6 +32,34 @@ def snapshot(items=None, channel_state=None):
     return build_snapshot(current,channels,provenance)
 
 class MonitoringTests(unittest.TestCase):
+    def test_sonar_native_import_and_external_projection_boundaries(self):
+        native = {"schema_version": "1", "project_key": "org_repo", "branch": "feature",
+                  "commit": "a" * 40, "issues": [
+                      {"key": "native-1", "rule": "python:S123", "component": "org_repo:backend/app/a.py",
+                       "message": "Native issue", "severity": "MAJOR", "line": 7,
+                       "textRange": {"startLine": 7, "endLine": 7, "startOffset": 2, "endOffset": 6}},
+                      {"key": "loop", "rule": "external_issue-wall:R1", "external": True,
+                       "component": "org_repo:backend/app/a.py", "message": "Do not loop", "line": 8}]}
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            source = root / "sonar-native-issues.json"
+            source.write_text(json.dumps(native), encoding="utf-8")
+            parsed = SonarParser().parse(source)
+            self.assertEqual(len(parsed), 1)
+            self.assertEqual(parsed[0].file, "backend/app/a.py")
+            self.assertEqual(parsed[0].source_tool, "SonarQube Cloud")
+
+            deterministic = Finding(source_tool="Ruff", file="backend/app/b.py", start_line=3,
+                                    end_line=3, rule_id="E501", rule_name="line length",
+                                    message="too long", severity="LOW", category="QUALITY")
+            advisory = Finding(source_tool="CodeRabbit", file="backend/app/c.py", start_line=4,
+                               rule_id="review", message="consider this", severity="INFO",
+                               category="AI_REVIEW", evidence_source="AI_ADVISORY")
+            output = root / "projection.json"
+            SonarExternalIssuesExporter().export([parsed[0], deterministic, advisory], output)
+            projection = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual([row["ruleId"] for row in projection["issues"]], ["Ruff:E501"])
+
     def test_identity_is_canonical_and_missing_symbol_explicit(self):
         a=raw();b={**a,"file":"backend\\app\\a.py"}
         self.assertEqual(stable_id("repo",a),stable_id("repo",b));self.assertIn("sid-v1:",stable_id("repo",a))

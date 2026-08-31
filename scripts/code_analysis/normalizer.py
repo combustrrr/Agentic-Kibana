@@ -34,7 +34,7 @@ import sys
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import click
 
@@ -853,6 +853,50 @@ class CodeRabbitParser:
         return findings
 
 
+class SonarParser:
+    """Parse a native Sonar export; never ingest external issues back from Sonar."""
+
+    _SEVERITY: ClassVar[dict[str, str]] = {
+        "BLOCKER": "CRITICAL", "CRITICAL": "HIGH", "MAJOR": "MEDIUM",
+        "MINOR": "LOW", "INFO": "INFO", "HIGH": "HIGH",
+        "MEDIUM": "MEDIUM", "LOW": "LOW",
+    }
+
+    def parse(self, path: Path) -> list[Finding]:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("schema_version") != "1" or not isinstance(data.get("issues"), list):
+            raise ValueError("unsupported Sonar native issue schema")
+        project = str(data.get("project_key") or "")
+        findings: list[Finding] = []
+        for row in data["issues"]:
+            rule_id = str(row.get("rule") or "")
+            if row.get("external") or rule_id.startswith("external_"):
+                continue
+            component = str(row.get("component") or "")
+            prefix = f"{project}:"
+            file_path = component[len(prefix):] if project and component.startswith(prefix) else component
+            location = row.get("textRange") or {}
+            impacts = row.get("impacts") or []
+            qualities = {str(item.get("softwareQuality") or "").upper() for item in impacts}
+            category = "SECURITY" if "SECURITY" in qualities or row.get("type") == "VULNERABILITY" else "QUALITY"
+            impact_severities = [self._SEVERITY.get(str(item.get("severity") or "").upper(), "MEDIUM") for item in impacts]
+            severity = max(impact_severities, key=lambda value: FindingDeduplicator._SEVERITY_RANK[value]) if impact_severities else self._SEVERITY.get(str(row.get("severity") or "").upper(), "MEDIUM")
+            findings.append(Finding(
+                source_tool="SonarQube Cloud", category=category, severity=severity,
+                confidence="HIGH", file=file_path,
+                start_line=int(location.get("startLine") or row.get("line") or 0),
+                end_line=int(location.get("endLine") or location.get("startLine") or row.get("line") or 0),
+                start_col=int(location.get("startOffset") or 0) + 1 if location else 0,
+                end_col=int(location.get("endOffset") or 0) + 1 if location else 0,
+                rule_id=rule_id, rule_name=rule_id, message=str(row.get("message") or ""),
+                commit=str(data.get("commit") or ""), branch=str(data.get("branch") or ""),
+                native_result_id=str(row.get("key") or ""),
+                analysis_category=str(row.get("type") or "sonar-native"),
+                tags=[str(tag) for tag in row.get("tags", [])] + sorted(qualities),
+            ))
+        return findings
+
+
 class FindingDeduplicator:
     """
     Groups findings by a conservative source-region identity.
@@ -987,6 +1031,40 @@ class SarifExporter:
         return {"CRITICAL": 9.5, "HIGH": 8.0, "MEDIUM": 5.0, "LOW": 2.0, "INFO": 0.0}.get(severity, 5.0)
 
 
+class SonarExternalIssuesExporter:
+    """Project code-local deterministic canonical findings to Sonar's generic format."""
+
+    _QUALITY: ClassVar[dict[str, str]] = {"SECURITY": "SECURITY", "SECRET": "SECURITY"}
+    _SEVERITY: ClassVar[dict[str, str]] = {
+        "CRITICAL": "BLOCKER", "HIGH": "HIGH", "MEDIUM": "MEDIUM",
+        "LOW": "LOW", "INFO": "INFO",
+    }
+
+    def export(self, findings: list[Finding], output_path: Path) -> None:
+        eligible = [f for f in findings if not f.is_duplicate
+                    and f.evidence_source != "AI_ADVISORY"
+                    and f.source_tool != "SonarQube Cloud" and f.file and f.start_line > 0]
+        rules: dict[str, dict[str, Any]] = {}
+        issues: list[dict[str, Any]] = []
+        for finding in eligible:
+            rule_id = f"{finding.source_tool}:{finding.rule_id}"
+            rules.setdefault(rule_id, {
+                "id": rule_id, "name": finding.rule_name or finding.rule_id,
+                "description": finding.description or finding.message,
+                "engineId": "issue-wall", "cleanCodeAttribute": "CONVENTIONAL",
+                "impacts": [{"softwareQuality": self._QUALITY.get(finding.category, "MAINTAINABILITY"),
+                             "severity": self._SEVERITY.get(finding.severity, "MEDIUM")}],
+            })
+            issues.append({"ruleId": rule_id, "primaryLocation": {
+                "message": finding.message or finding.rule_name, "filePath": finding.file,
+                "textRange": {"startLine": finding.start_line,
+                              "endLine": finding.end_line or finding.start_line,
+                              "startColumn": max(finding.start_col - 1, 0),
+                              "endColumn": max(finding.end_col - 1, 0)}}})
+        output_path.write_text(json.dumps({"rules": list(rules.values()), "issues": issues},
+                                          indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 # ─────────────────────────────────────────────────────────────
 # CLI Entry Point
 # ─────────────────────────────────────────────────────────────
@@ -1018,6 +1096,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
     coverage_parser = CoverageParser()
     schemathesis_parser = SchemathesisParser()
     coderabbit_parser = CodeRabbitParser()
+    sonar_parser = SonarParser()
     deduplicator = FindingDeduplicator()
     exporter = SarifExporter()
 
@@ -1038,6 +1117,16 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
 
     # ── Parse SARIF files ────────────────────────────────────
     parsed_files: set[Path] = set()
+    for sonar_file in input_path.rglob("sonar-native-issues.json"):
+        try:
+            findings = sonar_parser.parse(sonar_file)
+            retain(findings, sonar_file)
+            parsed_files.add(sonar_file)
+            if verbose:
+                print(f"[Sonar] {sonar_file.name}: {len(findings)} findings")
+        except Exception as e:
+            report_parse_error(sonar_file, e)
+
     for sarif_file in input_path.rglob("*.sarif"):
         try:
             tool_hint = sarif_file.stem.split("-")[0]
@@ -1222,11 +1311,14 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
 
     sarif_out = output_path / "normalized.sarif"
     exporter.export(canonical, sarif_out)
+    sonar_out = output_path / "sonar-external-issues.json"
+    SonarExternalIssuesExporter().export(canonical, sonar_out)
 
     print(f"\n Output written to: {output_dir}/")
     print(f"   unified-findings.json       ({len(all_findings)} total)")
     print(f"   deduplicated-findings.json  ({len(canonical)} unique)")
     print("   normalized.sarif            (for GitHub Security tab)")
+    print("   sonar-external-issues.json  (Sonar generic external-issue projection)")
 
 
 if __name__ == "__main__":

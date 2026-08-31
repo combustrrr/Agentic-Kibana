@@ -106,12 +106,31 @@ jobs:
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
 
+      - name: Export native Sonar issues for Issue Wall
+        id: sonar-export
+        if: always() && steps.sonar-scope.outputs.should_scan == 'true' && env.SONAR_TOKEN != '' && (steps.sonar-native.outcome == 'success' || steps.sonar-manual.outcome == 'success')
+        continue-on-error: true
+        env:
+          SCAN_BRANCH: ${{ inputs.scan_branch || github.head_ref || github.ref_name }}
+          SCAN_SHA: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          python scripts/code_analysis/export_sonar_issues.py \
+            --report-task .scannerwork/report-task.txt \
+            --output sonar-native-issues.json \
+            --project combustrrr_Agentic-Kibana \
+            --branch "$SCAN_BRANCH" \
+            --commit "$SCAN_SHA" \
+            --pull-request "$PULL_REQUEST"
+
       - name: Record configured scan status
         if: always() && steps.sonar-scope.outputs.should_scan == 'true' && env.SONAR_TOKEN != ''
         env:
           EVENT_NAME: ${{ github.event_name }}
           NATIVE_OUTCOME: ${{ steps.sonar-native.outcome }}
           MANUAL_OUTCOME: ${{ steps.sonar-manual.outcome }}
+          EXPORT_OUTCOME: ${{ steps.sonar-export.outcome }}
         shell: bash
         run: |
           outcome="$NATIVE_OUTCOME"
@@ -123,9 +142,12 @@ jobs:
           if [[ "$outcome" != success ]]; then
             status=CONFIGURED_PARTIAL
             reason="SonarQube Cloud analysis failed; inspect the scanner log"
+          elif [[ "$EXPORT_OUTCOME" != success ]]; then
+            status=CONFIGURED_PARTIAL
+            reason="SonarQube Cloud analysis completed but native issue export failed"
           fi
-          jq -n --arg status "$status" --arg reason "$reason" --arg outcome "$outcome" \
-            '{schema_version:"1",scanner_family:"SonarQube Cloud",status:$status,reason:$reason,surfaces:{analysis:$outcome}}' \
+          jq -n --arg status "$status" --arg reason "$reason" --arg outcome "$outcome" --arg export "$EXPORT_OUTCOME" \
+            '{schema_version:"1",scanner_family:"SonarQube Cloud",status:$status,reason:$reason,surfaces:{analysis:$outcome,native_issue_export:$export}}' \
             > sonar-status.json
 
       - name: Upload SonarQube Cloud status
@@ -135,6 +157,7 @@ jobs:
           name: sonar-results
           path: |
             sonar-status.json
+            sonar-native-issues.json
             .scannerwork/report-task.txt
           if-no-files-found: error
 

@@ -100,7 +100,7 @@ directly before each activation.
 
 | Candidate | Potential backlog value | Current disposition |
 |---|---|---|
-| [SonarQube Cloud](https://docs.sonarsource.com/sonarqube-cloud/administering-sonarcloud/managing-subscription/subscription-plans) | P1.1 semantic quality/security comparison; the public-project Free plan is independent of the OSS sponsorship plan | **Activated and exact-commit verified:** project binding, token-gated CI analysis, GitHub quality check, and retained status are live; finish machine-readable issue export and unique-contribution measurement before promotion |
+| [SonarQube Cloud](https://docs.sonarsource.com/sonarqube-cloud/administering-sonarcloud/managing-subscription/subscription-plans) | P1.1 semantic quality/security comparison; the public-project Free plan is independent of the OSS sponsorship plan | **Activated and exact-commit verified:** project binding, token-gated CI analysis, GitHub quality check, bounded native-issue export, canonical Issue Wall ingestion, and a loop-safe outbound generic-issue projection are implemented; measure unique contribution before promotion |
 | [Blacksmith](https://www.blacksmith.sh/) | Measure faster runners/cache downloads against P0.1 Actions duration and cost | **High-value performance candidate** after direct eligibility, permissions, runner trust, and data-boundary review |
 | [BrowserStack OSS](https://www.browserstack.com/open-source) | Cross-browser and responsive Issue Wall acceptance | **License-blocked OSS application**; use no sponsored entitlement until eligibility is truthful |
 | Argos/Chromatic | Automated visual-regression evidence for the self-contained dashboard | **Evaluate after BrowserStack**, with screenshot retention, GitHub App permissions, badge obligations, and unique value reviewed |
@@ -124,9 +124,14 @@ only one bounded evaluation at a time and remove it if it does not add exportabl
   revision `8d52a6156d4bcaed01f8ea2686af85299b3c7242`; both the Actions job and Sonar check
   passed. The first baseline took 14m18s, so automatic Sonar work is limited to product
   source/config changes while manual branch analysis remains available.
-- Configure read-only analysis and authenticated machine-readable issue export.
-- Ingest into the normalizer rather than making SonarQube a competing canonical UI.
-- Retain only if it adds useful issues not already represented.
+- Cloud-native issues now enter the normalized Issue Wall schema through an authenticated,
+  bounded export. Sonar-imported external issues are excluded so projections cannot loop.
+- The canonical build emits `normalized/sonar-external-issues.json` for compatible
+  code-local deterministic findings. Sonar-native findings and `AI_ADVISORY` findings
+  (including CodeRabbit) are excluded. Automatic re-analysis with that projection remains
+  pending a measured design that does not double the expensive Sonar scan.
+- Measure unique contribution and retain Sonar only if it adds useful issues not already
+  represented.
 
 ### P1.2 Evaluate CodeScene
 
@@ -174,7 +179,8 @@ only one bounded evaluation at a time and remove it if it does not add exportabl
 
 ## Deferred — Requires a new objective and approval
 
-- DefectDojo deployment, persistent finding lifecycle, SLA, or triage history.
+- DefectDojo deployment, persistent finding lifecycle, or SLA tracking. Human triage is
+  intentionally outside the Issue Wall product contract, not a pending feature.
 - Historical trends, commit ancestry, `NEW/MOVED/NOT_OBSERVED` as the primary product.
 - GitHub Issue synchronization or Projects boards.
 - Autofix, patches, dependency auto-merge, Copilot Autofix invocation, or AI remediation.

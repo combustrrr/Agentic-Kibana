@@ -117,4 +117,8 @@ real-data UI).
 The former local and QA-host serving paths are retired. GitHub Actions artifact access
 is the sole supported delivery path.
 
-DefectDojo, history, triage analytics, Issues, remediation, and autofix are deferred.
+Issue Wall is a read-only visualization/tracker, not a triage system: it does not assign,
+accept, suppress, close, or synchronize issue state. Sonar native issues are normalized
+into this same view; compatible deterministic code-local findings are also emitted as a
+loop-safe Sonar generic-issue projection. CodeRabbit remains visibly isolated in the
+`AI_ADVISORY` lane and is never included in that projection.

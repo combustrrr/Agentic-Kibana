@@ -187,8 +187,10 @@ Additional lanes:
 - **Custom security models:** CodeQL data extensions and Semgrep taint rules model
   FastAPI request input, SQL/path/SSRF sinks, authorization boundaries, React HTML
   injection, and LLM output reaching execution.
-- **SonarQube and CodeScene:** deferred until a stable machine-readable export proves
-  useful findings not already represented.
+- **SonarQube Cloud:** exact-commit cloud analysis, bounded authenticated native-issue
+  export, canonical Issue Wall normalization, and a generic external-issue projection
+  are implemented. The projection excludes Sonar-native and `AI_ADVISORY` findings to
+  prevent feedback and category collapse. CodeScene remains deferred.
 - **Atheris:** a bounded weekly/manual Linux harness exercises deterministic
   case-decision state transitions for 25,000 inputs and retains crash evidence.
 - **KICS/tfsec:** not activated. Checkov and Trivy config already cover IaC; KICS is
@@ -315,8 +317,9 @@ installed; a real exact-head PR review remains the required verification evidenc
 Separate approval is required for:
 
 1. CodeRabbit exact-head cloud review proof and AI-advisory evidence-adapter evaluation.
-2. Non-redundant SonarQube or CodeScene export ingestion.
-3. Human triage operations, persistence, or DefectDojo evaluation.
+2. Non-redundant CodeScene export evaluation and Sonar unique-contribution measurement.
+3. Optional persistence or DefectDojo evaluation. Human triage is explicitly outside
+   the read-only Issue Wall contract.
 4. Precision/false-positive measurement.
 5. Review-only remediation suggestions.
 6. Sandboxed patches and, only after measured evidence, narrowly scoped automation.
