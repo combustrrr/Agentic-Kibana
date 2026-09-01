@@ -822,6 +822,25 @@ pass · `decide()` byte-identical · zero new deps.
 
 ## 6. Known issues / deferred (next-round candidates)
 
+### Code-analysis shutdown checkpoint — 2026-09-01
+
+- Working branch: `feature/static-code-analysis`; implementation and evidence are pushed
+  through `6c13d2e` before this handoff-only commit.
+- Issue Wall remains the normalized, read-only source of truth. Sonar native import and
+  the loop-safe outbound Sonar projection are implemented; CodeRabbit remains isolated as
+  `AI_ADVISORY`.
+- Sonar run `33429643637` proved both PATs authenticate as
+  `combustrrr-Uw7cT@github`, and Sonar accepted the explicit Browse grant with HTTP 204.
+  Do not replace the PATs or repeat the grant.
+- The remaining Sonar blocker is plan entitlement, not authentication: the current Free
+  organization stores non-main analysis but its issues API returns HTTP 403. The owner
+  must complete Sonar's web-based OSS enrollment after license/ownership review; there is
+  no supported CLI/Web API plan mutation.
+- After OSS activation, run only Code Quality against the latest exact branch head, require
+  `CONFIGURED_COMPLETE`, then prove the Sonar-native artifact enters the canonical Issue
+  Wall. The authoritative ordered backlog is
+  [`docs/code-analysis/PENDING_WORK.md`](code-analysis/PENDING_WORK.md).
+
 Found by the adversarial audit, **deliberately deferred** (low severity or needs a deliberate
 architectural decision). Full detail + file:line in `docs/research/2026-06-round2/ROUND2_AUDIT.md`:
 - **Session KV optimistic concurrency** — the session store is lock-free read-modify-write; a revoke

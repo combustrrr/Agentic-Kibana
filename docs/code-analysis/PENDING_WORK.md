@@ -1,12 +1,15 @@
 # Code Analysis — Pending Work
 
-> **Prioritization date:** 2026-08-31
+> **Prioritization date:** 2026-09-01
 > **Primary objective:** trustworthy detection and one normalized current-findings view
 > **Not an objective:** triage workflows, fixing findings, or reducing the count to zero
 
 This is the only active code-analysis backlog. Other documents describe current behavior,
 durable decisions, or historical evidence and must link here instead of carrying their own
 next-step lists.
+
+Shutdown checkpoint: branch `feature/static-code-analysis` is pushed through `6c13d2e`.
+Resume with P0 step 1; do not replace either PAT or repeat the Browse grant.
 
 ## P0 — Unblock and prove Sonar native ingestion
 

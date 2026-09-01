@@ -11597,3 +11597,17 @@
   audit and diff check passed. Commits `4c4e2e8` and `e05bb18` contain the CLI grant path;
   current documentation changes record the proven external blocker and sole next action.
 - Status: complete for repository/CLI work; external Sonar OSS enrollment remains pending.
+
+## 2026-09-01 — Shutdown handoff session started
+
+- Owner requested a final commit/push and restart-safe handoff before shutting down.
+- Verified a clean worktree at pushed head `6c13d2e`; updating only the authoritative
+  pending-work checkpoint, `docs/HANDOFF.md`, and this durable journal.
+
+## 2026-09-01 — Shutdown handoff prepared
+
+- Added the exact branch/head, Sonar proof run, verified PAT/Browse state, external OSS-plan
+  blocker, and post-activation proof sequence to `docs/HANDOFF.md`.
+- Updated the sole code-analysis backlog date and restart checkpoint. No credentials or
+  transient local artifacts were recorded.
+- Validation: documentation diff check passed; final commit and push complete this session.
