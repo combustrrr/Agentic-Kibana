@@ -25,6 +25,7 @@ also assert the narrow ``metrics:view`` grant. No non-GET routes.
 from __future__ import annotations
 
 import logging
+import math
 from datetime import date, datetime, time, timezone
 from typing import Any
 
@@ -73,19 +74,41 @@ async def _load_cases(state: AppState) -> tuple[list, int]:
     ``_STORE_FETCH_LIMIT`` or a Demo Mode store swap always bypasses stale pages.
 
     Defensive: a store error degrades to an empty list (total 0) rather than failing
-    the request (a dashboard query must never 500 on a transient store hiccup)."""
+    the request (a dashboard query must never 500 on a transient store hiccup).
+
+    That degradation is INDISTINGUISHABLE from an empty store on its own — same rows,
+    same total — so any rollup that publishes a completeness assertion must take the
+    three-value :func:`_load_cases_ok` instead and thread ``load_ok`` through. This
+    two-value form is kept for the rollups that only report counts."""
+    cases, total, _ok = await _load_cases_ok(state)
+    return cases, total
+
+
+async def _load_cases_ok(state: AppState) -> tuple[list, int, bool]:
+    """:func:`_load_cases`, plus whether the fetch actually SUCCEEDED.
+
+    A soft-failed fetch returns ``([], 0, False)``. Both of the first two values are
+    also what a genuinely empty store returns, which is why the third exists: with only
+    the pair, ``truncation_marker(0, 0)`` reads "not truncated", and the posture rollup
+    went on to publish ``open_now.complete=true`` / ``window_covered=true`` with empty
+    reasons — a store outage rendered as a proven-complete "0 open cases"."""
     try:
         cases, total = await fetch_case_page(state.cases, _STORE_FETCH_LIMIT)
-        return cases, int(total)
+        return cases, int(total), True
     except Exception as exc:  # noqa: BLE001 — dashboards degrade, never fail hard
         logger.warning("posture/coverage case load soft-failed: %s", exc)
-        return [], 0
+        return [], 0, False
 
 
 def _subtract_counter_bands(
     combined: dict[str, Any] | None, current: dict[str, Any] | None
 ) -> dict[str, int]:
-    """Return the non-negative preceding-window remainder of two band tallies."""
+    """Return the non-negative preceding-window remainder of two band tallies.
+
+    Only sound when both windows banded on the SAME severity ladder — see
+    :func:`_severity_band_comparison`, which gates every call. The per-band
+    ``max(0, ...)`` clamp silently discards a negative remainder, so across a ladder
+    change it would both invent a vanished band and inflate the surviving ones."""
     combined = combined if isinstance(combined, dict) else {}
     current = current if isinstance(current, dict) else {}
     out: dict[str, int] = {}
@@ -97,6 +120,111 @@ def _subtract_counter_bands(
             continue
         out[str(key)] = max(0, total - recent)
     return out
+
+
+def _counter_band_total(counts: Any) -> int:
+    """Band-INDEPENDENT sum of one ``{band: int}`` tally (unusable entries count 0).
+
+    A total does not depend on which severity ladder produced the split, so it stays
+    comparable across a ladder change while the per-band breakdown does not."""
+    if not isinstance(counts, dict):
+        return 0
+    total = 0
+    for value in counts.values():
+        try:
+            total += max(0, int(value or 0))
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def _window_band_evidence(window: Any) -> tuple[dict[str, float | None], int, int]:
+    """What one counter window can PROVE about the ladder behind its band split.
+
+    Returns ``(recorded ceiling per source, volume attributed to those sources, pooled
+    volume)``. The durable counters are bucketed by band AT WRITE TIME, so a stored split
+    can never be re-projected; the per-source ``severity_scale_max`` the store records is
+    the only evidence of which ladder produced it. ``None`` for a source means the ceiling
+    was never recorded, or the window sums hours that recorded different ones."""
+    window = window if isinstance(window, dict) else {}
+    pooled = _counter_band_total(window.get("ingested")) + _counter_band_total(
+        window.get("clustered")
+    )
+    ceilings: dict[str, float | None] = {}
+    attributed = 0
+    by_source = window.get("by_source")
+    if isinstance(by_source, dict):
+        for sid, sub in by_source.items():
+            if not isinstance(sub, dict):
+                continue
+            raw = sub.get("severity_scale_max")
+            try:
+                ceiling = float(raw) if raw is not None and not isinstance(raw, bool) else None
+            except (TypeError, ValueError):
+                ceiling = None
+            # A non-positive or NON-FINITE recorded ceiling is not evidence of a ladder
+            # (``inf`` passes ``> 0`` yet could only have banded everything informational).
+            if ceiling is not None and (not math.isfinite(ceiling) or ceiling <= 0):
+                ceiling = None
+            ceilings[str(sid)] = ceiling
+            attributed += _counter_band_total(sub.get("ingested")) + _counter_band_total(
+                sub.get("clustered")
+            )
+    return ceilings, attributed, pooled
+
+
+def _severity_band_comparison(current: Any, combined: Any) -> dict[str, Any]:
+    """Whether two counter windows' SEVERITY-BAND splits may be compared to each other.
+
+    Comparing per-band tallies only means something when both windows projected raw source
+    severities onto the SAME declared ladder. When a source's declared severity ceiling
+    changes — including the one-off change that gave every undeclared source an honest
+    identity projection — the historical split cannot be recomputed, because the counters
+    store bands, not raw severities, and retain them for months. A band-level delta across
+    that boundary would report a band collapsing to zero and the tool would be crediting
+    itself with a measurement change.
+
+    Returns ``{"available": bool, "reason": str}``. Available ONLY when every source that
+    contributed volume to both windows recorded one and the same ceiling, and no counted
+    volume is unattributed. Band-INDEPENDENT totals stay comparable either way and are
+    reported separately. Never raises."""
+    cur_ceilings, cur_attributed, cur_pooled = _window_band_evidence(current)
+    comb_ceilings, comb_attributed, comb_pooled = _window_band_evidence(combined)
+    if comb_pooled <= 0 and cur_pooled <= 0:
+        # Nothing was counted in either window: there is no band split to mis-compare.
+        return {"available": True, "reason": ""}
+    if cur_attributed < cur_pooled or comb_attributed < comb_pooled:
+        return {
+            "available": False,
+            "reason": (
+                "part of the counted alert volume is not attributed to a source that "
+                "recorded the severity ceiling used to band it, so the two windows' band "
+                "splits cannot be shown to describe one ladder"
+            ),
+        }
+    if any(v is None for v in cur_ceilings.values()) or any(
+        v is None for v in comb_ceilings.values()
+    ):
+        return {
+            "available": False,
+            "reason": (
+                "a counted source did not record one single severity ceiling for the whole "
+                "window, so its stored per-band split cannot be shown to describe one "
+                "ladder; band totals recorded before the ceiling was captured cannot be "
+                "re-projected"
+            ),
+        }
+    for sid, ceiling in cur_ceilings.items():
+        other = comb_ceilings.get(sid)
+        if other is not None and other != ceiling:
+            return {
+                "available": False,
+                "reason": (
+                    "a counted source recorded a different severity ceiling in each "
+                    "window, so their per-band splits describe different ladders"
+                ),
+            }
+    return {"available": True, "reason": ""}
 
 
 async def _load_agent_outcome_inputs(
@@ -154,6 +282,10 @@ async def _load_agent_outcome_inputs(
             "available": False,
             "reason": "durable alert counters could not be read",
             "window_basis": "complete_utc_days",
+            "severity_band_comparison": {
+                "available": False,
+                "reason": "durable alert counters could not be read",
+            },
         }
         period_noise_comparisons = {
             "week_over_week": dict(noise_comparison),
@@ -166,6 +298,19 @@ async def _load_agent_outcome_inputs(
             available = bool(current_noise.get("available")) and bool(
                 combined_noise.get("available")
             )
+            # Band-INDEPENDENT totals. These stay valid across a severity-ladder change
+            # (a total does not depend on how the volume was split), and they are also
+            # the only correct preceding-window total: subtracting BAND BY BAND clamps
+            # each band at zero, so a band that moved would leave its whole count in the
+            # remainder and inflate the baseline total.
+            band_comparison = _severity_band_comparison(current_noise, combined_noise)
+            comparable = bool(band_comparison["available"])
+            totals: dict[str, dict[str, int]] = {"current": {}, "baseline": {}}
+            for key in ("ingested", "clustered"):
+                recent_total = _counter_band_total(current_noise.get(key))
+                combined_total = _counter_band_total(combined_noise.get(key))
+                totals["current"][f"{key}_total"] = recent_total
+                totals["baseline"][f"{key}_total"] = max(0, combined_total - recent_total)
             return {
                 "available": available,
                 "reason": "" if available else "durable alert counters are still warming up",
@@ -173,17 +318,31 @@ async def _load_agent_outcome_inputs(
                 or bool(combined_noise.get("incomplete")),
                 "window_basis": "complete_utc_days",
                 "end_exclusive": end.date().isoformat(),
+                # Whether the two windows' per-band splits may be compared at all, and
+                # (when not) the measured reason. Band-independent totals above remain
+                # reported either way, so volume reporting never degrades because of this.
+                "severity_band_comparison": band_comparison,
                 "current": {
-                    "ingested": current_noise.get("ingested"),
-                    "clustered": current_noise.get("clustered"),
+                    "ingested": current_noise.get("ingested") if comparable else None,
+                    "clustered": current_noise.get("clustered") if comparable else None,
+                    **totals["current"],
                 },
                 "baseline": {
-                    "ingested": _subtract_counter_bands(
-                        combined_noise.get("ingested"), current_noise.get("ingested")
+                    "ingested": (
+                        _subtract_counter_bands(
+                            combined_noise.get("ingested"), current_noise.get("ingested")
+                        )
+                        if comparable
+                        else None
                     ),
-                    "clustered": _subtract_counter_bands(
-                        combined_noise.get("clustered"), current_noise.get("clustered")
+                    "clustered": (
+                        _subtract_counter_bands(
+                            combined_noise.get("clustered"), current_noise.get("clustered")
+                        )
+                        if comparable
+                        else None
                     ),
+                    **totals["baseline"],
                 },
             }
 
@@ -218,8 +377,50 @@ async def metrics_posture(
     the store held more).
 
     ``compare=prev`` adds period-over-period deltas vs the immediately-preceding
-    equal-length window. SLA targets come from ``Preferences.sla`` (advisory; #3)."""
-    cases, store_total = await _load_cases(state)
+    equal-length window. SLA targets come from ``Preferences.sla`` (advisory; #3).
+
+    The headline populations, and which of them ``window_hours`` bounds — the five
+    Console tiles are built on exactly these and they are NOT interchangeable::
+
+        {"case_count": int,                     # arrival cohort in-window, policy-closed INCLUDED
+         "severity_counts": {"critical": int, "high": int, "medium": int,
+                             "low": int, "info": int},   # partitions case_count exactly
+         "open_now": {"count": int, "window_exempt": true, "as_of": iso8601,
+                      "complete": bool, "reason": str},  # STOCK, measured now, NOT windowed
+         "quality": {"terminal_cases": int, "auto_closed_cases": int,
+                     "human_closed_cases": int, "system_closed_cases": int,
+                     "false_positive_rate": float, ...},
+         "truncated": bool, "store_total": int, "fetched": int,
+         "window_covered": bool, "window_coverage_reason": str,
+         "oldest_fetched_at": iso8601 | null}
+
+    * ``severity_counts`` is server-side and covers the FULL windowed population; it
+      exists so no client has to infer a band total from whatever bounded page of
+      cases it happens to hold. Bands are the read-time advisory ladder
+      (``engine.priority.band_of_case``), resolved against each source's DECLARED
+      severity ceiling — hence ``Preferences`` is threaded in. Nothing is persisted.
+    * ``open_now`` is deliberately window-EXEMPT and carries ``window_exempt: true``
+      so it can never be rendered as summing with the windowed tiles.
+      ``aging.queue_depth`` is the cohort-scoped "arrived in-window and still open"
+      number and is a different figure.
+    * ``auto_closed_cases`` + ``human_closed_cases`` + ``system_closed_cases`` sum
+      EXACTLY to ``terminal_cases``. Render all three or none: the residual (SYSTEM
+      routing + legacy records with no recorded decider) must stay visible even at 0,
+      and human work is NEVER ``terminal_cases - auto_closed_cases``. These report the
+      LAST recorded decider — see ``engine.metrics.quality_metrics`` for the caveat a
+      "human vs AI" surface must disclose.
+    * ``window_covered`` is the honest-coverage flag. ``truncated`` alone is permanent
+      for any deployment above the 5000-case fetch bound; ``window_covered`` says
+      whether the SELECTED window is nonetheless fully answerable from the rows that
+      were read (cutoff at or after ``oldest_fetched_at``), which is what lets a tile
+      publish a real number instead of withholding forever. It does not apply to
+      ``open_now``, which carries its own ``complete`` flag.
+    * A case-store OUTAGE soft-fails to an empty fetch so the dashboard never 500s.
+      Both completeness flags then go False with a reason naming the failure: the
+      counts are still zeros, but zero-because-unreadable is not a measurement and must
+      never be published as one. ``truncated`` is unchanged (it compares fetched with
+      store-reported total, and both are 0)."""
+    cases, store_total, load_ok = await _load_cases_ok(state)
     sla_policy = getattr(state.prefs, "sla", None)
     return posture_metrics(
         cases,
@@ -227,6 +428,8 @@ async def metrics_posture(
         window_hours=max(0, int(window_hours)),
         compare=(compare or "").strip().lower(),
         store_total=store_total,
+        prefs=state.prefs,
+        load_ok=load_ok,
     )
 
 
@@ -361,6 +564,9 @@ async def metrics_agent_improvement(
         now=request_now,
         store_total=store_total,
         synthetic=state.demo_active,
+        # Resolve each case's advisory severity band for the mix strata (the persisted
+        # attribute is never written by a production path). Advisory only (#3).
+        prefs=state.execution_prefs,
         **outcome_inputs,
     )
 
@@ -398,7 +604,10 @@ async def metrics_noise_reduction(
         window_hours=wh,
         store_total=store_total,
         fetched_count=len(cases),
-        prefs=getattr(state, "prefs", None),
+        # ``execution_prefs`` so the funnel bands the SAME cases the same way as its own
+        # ``/lineage`` rows and the case surfaces (under an active demo sandbox the cases
+        # come from the demo stack, so the real tenant prefs are the wrong authority).
+        prefs=getattr(state, "execution_prefs", None),
         generated_at=iso_now(),
     )
 
@@ -425,7 +634,8 @@ async def metrics_noise_reduction_lineage(
     cases, store_total = await _load_cases(state)
     wh = max(0, int(window_hours))
     window_cases = _window_filter(cases, window_hours=wh)
-    rows = [build_case_lineage(case) for case in window_cases[:limit]]
+    prefs = state.execution_prefs
+    rows = [build_case_lineage(case, prefs) for case in window_cases[:limit]]
     store_truncated = store_total > len(cases)
     return {
         "window_hours": wh,

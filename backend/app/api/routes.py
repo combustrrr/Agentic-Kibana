@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
@@ -12,7 +13,7 @@ from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .. import __version__
 from ..build_identity import build_stamp
@@ -34,6 +35,7 @@ from ..constants import (
     SourceType,
     UserRole,
 )
+from ..engine.analyst_outcomes import CLASSIFIED_DISPOSITION_KEY
 from ..engine.correlation import cluster_from_events
 from ..engine.metrics import compute_metrics, feedback_stats
 from ..engine.priority import advisory_bands
@@ -561,6 +563,34 @@ class SourceUpsert(BaseModel):
     ingest_mode: str | None = None       # defaults to the connector's first mode
     is_primary: bool = False
     config: dict[str, Any] = Field(default_factory=dict)
+    # The operator-DECLARED ceiling of this source's native severity ladder (see
+    # ``config.SourceInstance.severity_scale_max``). Three-state on the wire, which is why
+    # it is declared here as well as on the stored model:
+    #   * OMITTED       → keep whatever the stored source already declares (carry-forward).
+    #   * a number > 0  → declare that ceiling.
+    #   * explicit null → CLEAR the declaration (undeclared → the 100 identity projection,
+    #                     or the connector's seeded default where one exists).
+    # ``upsert_source`` distinguishes the first two cases via ``model_fields_set``.
+    #
+    # Strict at the boundary: ``0``/negative 422, and so does a NON-FINITE literal. An
+    # overflowing JSON number such as ``1e309`` parses to ``inf``, which passes ``> 0``,
+    # divides without raising, would read every severity from that source as
+    # Informational, and would re-serialize as the non-standard token ``Infinity``.
+    severity_scale_max: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+
+    @field_validator("severity_scale_max", mode="before")
+    @classmethod
+    def _non_finite_ceiling_is_not_a_number(cls, value: Any) -> Any:
+        """Render a non-finite ceiling as TEXT so the boundary can 422 it.
+
+        ``allow_inf_nan=False`` already rejects it, but FastAPI's validation-error
+        response ECHOES the offending input, and a non-finite float cannot be written into
+        that JSON body at all — the rejection would itself fail to serialize. Handing the
+        parser the value's text instead keeps the 422 renderable and still names exactly
+        what was sent."""
+        if isinstance(value, float) and not math.isfinite(value):
+            return repr(value)
+        return value
 
 
 class ConnectorTestRequest(BaseModel):
@@ -742,6 +772,17 @@ async def upsert_source(
             is_primary=(body.is_primary and mode == IngestMode.PULL and not reg.is_receiver(st)),
             config=body.config,
             configured_secrets=(list(existing.configured_secrets) if existing else []),
+            # Same carry-forward hazard as `configured_secrets` above: the severity-ladder
+            # ceiling is set from the source editor, but EVERY enable/disable/make-primary
+            # posts a body without it, and a bare rebuild would silently wipe the operator's
+            # declaration (re-banding every one of that source's cases). `model_fields_set`
+            # is what tells an OMITTED key from an explicit `null`, so omission preserves
+            # the stored ceiling while an explicit null still CLEARS it on purpose.
+            severity_scale_max=(
+                body.severity_scale_max
+                if "severity_scale_max" in body.model_fields_set
+                else (existing.severity_scale_max if existing else None)
+            ),
             **({"created_at": existing.created_at} if existing else {}),
         )
         # Wave 6: keep ``config['data_view_pattern']`` synced to the comma-join of the
@@ -5075,37 +5116,18 @@ class CaseListResponse(BaseModel):
 
     cases: list[Case]
     total: int
-
-
-def _window_cases_by_created(
-    cases: list[Case], from_expr: str | None, to_expr: str | None
-) -> list[Case]:
-    """Keep only cases whose ``created_at`` is within [from, to] (each bound optional).
-
-    Bounds accept an ISO timestamp OR a relative ``now-24h`` expression (whatever the
-    TimeRangePicker emits). Best-effort + never-drop-on-error (#4): a case with a
-    missing/unparseable ``created_at`` is KEPT rather than silently excluded."""
-    lo = relative_to_millis(from_expr) if from_expr else None
-    hi = relative_to_millis(to_expr) if to_expr else None
-    if lo is None and hi is None:
-        return cases
-    out: list[Case] = []
-    for c in cases:
-        ts = getattr(c, "created_at", "") or ""
-        if not ts:
-            out.append(c)
-            continue
-        try:
-            ms = relative_to_millis(ts)
-        except Exception:  # noqa: BLE001 — unparseable ts → keep (never silently drop)
-            out.append(c)
-            continue
-        if lo is not None and ms < lo:
-            continue
-        if hi is not None and ms > hi:
-            continue
-        out.append(c)
-    return out
+    # ADDITIVE: whether ``total`` is the PROVEN count of rows matching the requested
+    # ``from``/``to`` window across the whole corpus. ``True`` on the bundled
+    # Elasticsearch/SQL stores, which push the window down as a real backend clause.
+    # ``False`` means ``total`` answers a DIFFERENT question than the one asked and must
+    # not be presented as the window's count — either a third-party case repository fell
+    # back to the bounded-scan compatibility path (``total`` is a lower bound), or a
+    # supplied ``from``/``to`` bound could not be parsed and was dropped, so the applied
+    # window is wider than the requested one (an unreadable bound is never silently
+    # resolved to ``now()``, which would empty the window instead). ``null`` when NO
+    # window was requested — the windowless response is otherwise unchanged, so a client
+    # can distinguish "not applicable" from "not proven".
+    window_total_exact: bool | None = None
 
 
 def _with_advisory_bands(case: Case, prefs: Preferences) -> Case:
@@ -5134,24 +5156,34 @@ async def list_cases(
     state: AppState = Depends(get_state),
     _=Depends(require_permission("cases", "read")),
 ) -> CaseListResponse:
-    cases, total = await state.cases.list(
-        status=status, source_surface=surface, entity_value=entity,
-        limit=min(limit, 200), offset=offset,
-    )
     # ADDITIVE (Round-6 #37): an OPTIONAL created_at time window so Overview widgets can
-    # honor the TimeRangePicker. Default (both None) == byte-identical prior behaviour.
-    # Cases sort created_at-desc, so a recent [from..to] window captures the front of the
-    # returned page; when a window is active, ``total`` reflects the windowed count (what
-    # the KPI widgets want). Full store-level windowing (accurate paged totals across the
-    # whole corpus) is a follow-up handoff on the case store (foreign file).
+    # honor the TimeRangePicker. Default (both None) == byte-identical prior behaviour:
+    # the windowless call below is untouched.
+    #
+    # The window is pushed into the STORE (``list_window``), not applied in Python to the
+    # page we happened to fetch. That was the defect: filtering one bounded page and then
+    # overwriting ``total = len(cases)`` meant a windowed total could never exceed the page
+    # cap, the window only ever saw the newest rows, and every page past the first was
+    # wrong — so a previous-window comparison fetch at 7d/30d could report ZERO while the
+    # true count was in the hundreds, and every delta at those ranges was measured against
+    # an empty set. ``window_total_exact`` reports whether the store could PROVE the total.
+    window_total_exact: bool | None = None
     if from_ or to:
-        cases = _window_cases_by_created(cases, from_, to)
-        total = len(cases)
+        cases, total, window_total_exact = await state.cases.list_window(
+            created_from=from_, created_to=to,
+            status=status, source_surface=surface, entity_value=entity,
+            limit=min(limit, 200), offset=offset,
+        )
+    else:
+        cases, total = await state.cases.list(
+            status=status, source_surface=surface, entity_value=entity,
+            limit=min(limit, 200), offset=offset,
+        )
     # ADDITIVE (Round-7 W0.7): populate the read-time advisory bands (severity/impact/
     # urgency/priority) for the list surface. Fail-open per case — never 500 (#3).
     prefs = state.execution_prefs
     cases = [_with_advisory_bands(c, prefs) for c in cases]
-    return CaseListResponse(cases=cases, total=total)
+    return CaseListResponse(cases=cases, total=total, window_total_exact=window_total_exact)
 
 
 @router.get("/cases/{case_id}", response_model=Case)
@@ -5164,7 +5196,10 @@ async def get_case(
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
     # ADDITIVE (Round-7 W0.7): read-time advisory bands, fail-open (never 500) (#3).
-    return _with_advisory_bands(case, state.prefs)
+    # ``execution_prefs`` (NOT ``prefs``) — the SAME authority the list surface above
+    # uses. The two diverged, so under an active demo sandbox one case could band
+    # differently in the list and in its own detail view.
+    return _with_advisory_bands(case, state.execution_prefs)
 
 
 class CaseAction(BaseModel):
@@ -5185,6 +5220,27 @@ class CaseAction(BaseModel):
     # F8 fields (additive, optional):
     disposition: str | None = None         # set_disposition target (a Disposition value)
     status: str | None = None              # set_status target (a CaseStatus value)
+    # GROUND-TRUTH INTENT (additive, defaults False — absent flag = today's behaviour,
+    # no migration and no backfill).
+    #
+    # ``disposition`` alone cannot express intent. ``case_manager.apply()`` derives a
+    # disposition from the LLM verdict, so a client that reads a case and posts its
+    # stored disposition straight back is echoing the MODEL, not labelling anything. A
+    # value on the wire is therefore evidence of nothing: only an affirmative
+    # declaration is. Set this true ONLY when a human actually chose the disposition in
+    # this very interaction; when it is false the disposition is still applied to the
+    # case, but the action records no analyst classification and
+    # ``engine.analyst_outcomes`` will not read the case as ground truth.
+    disposition_declared: bool = Field(
+        default=False,
+        title="The analyst chose this disposition in this action",
+        description=(
+            "True only when a human affirmatively selected `disposition` as part of this "
+            "action. The disposition is applied either way; this flag is what makes it "
+            "independent analyst evidence rather than a value echoed back from the "
+            "model-derived disposition already stored on the case."
+        ),
+    )
     # Deprecated compatibility input retained for older API clients. The Console
     # intentionally exposes only Escalate/Escalated, never a numbered tier.
     level: int | None = Field(
@@ -5223,6 +5279,38 @@ _ACTION_STATUS: dict[str, CaseStatus | None] = {
 # RBAC grant required per action (resource "cases"). Terminal/close-class moves
 # need cases:close; everything else needs cases:write.
 _CLOSE_ACTIONS = {"close", "confirm_fp", "resolve", "reopen"}
+
+# Actions that may carry an EXPLICIT analyst disposition in ``body.disposition``.
+#
+# ``set_disposition`` is the dedicated verb. ``close`` is here because the Console's
+# PRIMARY close — "Close with a disposition" — posts ``action="close"`` with the
+# disposition the analyst picked. That value used to be parsed off the wire and then
+# silently discarded: only ``set_disposition``/``confirm_fp`` ever assigned
+# ``case.disposition``, so the main close path could never produce analyst-confirmed
+# ground truth (``engine/analyst_outcomes``) and the precedent corpus it feeds could
+# never be refreshed. Assigning it here is what the dialog has always claimed to do.
+#
+# This is the analyst layer only: it never calls ``decide()`` and never changes the
+# deterministic close-axis (#3). An action NOT listed here still ignores the field, so
+# no lifecycle verb silently acquires classification power.
+#
+# APPLYING the disposition and CLASSIFYING the case are two different things. Every
+# action here applies it; only :data:`_SELF_DECLARING_ACTIONS` — or an explicit
+# ``disposition_declared`` — classifies. See ``_perform_case_action``.
+_DISPOSITION_ACTIONS = {"set_disposition", "close"}
+
+# Actions whose VERB is itself the analyst's declaration, so they need no separate
+# intent flag. ``set_disposition`` exists for no other purpose than classifying a case
+# and the wire rejects it without a disposition, so performing it IS the declaration —
+# and it is already in ``analyst_outcomes.CLASSIFICATION_ACTIONS``, so this only keeps
+# the history entry self-describing.
+#
+# ``close`` is deliberately ABSENT: closing is a lifecycle move that most analysts
+# perform without classifying anything, and the disposition it carries may simply be
+# the one ``case_manager.apply()`` derived from the model's own verdict, read off the
+# case and posted straight back. For ``close`` the classification is recorded only on
+# an affirmative ``disposition_declared``.
+_SELF_DECLARING_ACTIONS = {"set_disposition"}
 
 # Terminal lifecycle statuses (a case here is DONE). A backward move out of a
 # terminal status is only allowed via an explicit reopen.
@@ -5312,7 +5400,7 @@ async def case_action(
 
 
 async def _perform_case_action(
-    case_id: str, body: CaseAction, actor: str, state: AppState
+    case_id: str, body: CaseAction, actor: str, state: AppState, batch_id: str = ""
 ) -> dict[str, Any]:
     """Apply ONE human lifecycle action to ONE case — the SINGLE source of truth for
     the analyst-action path (used by the single-case endpoint AND the bulk endpoint).
@@ -5320,7 +5408,13 @@ async def _perform_case_action(
     #3-safe: this is the HUMAN analyst layer ONLY. It NEVER calls
     ``case_manager.decide()`` and never runs the deterministic auto-close path; the
     close-axis truth table is untouched. Caller has already done the RBAC check +
-    resolved ``actor``. Each call audits the transition individually (#2)."""
+    resolved ``actor``. Each call audits the transition individually (#2).
+
+    ``batch_id`` marks the cases that one bulk action touched as ONE operator
+    transaction. A bulk action is a single human decision applied to hundreds of cases,
+    and the bounded precedent window has to be able to tell that apart from hundreds of
+    independent decisions — otherwise one bulk action buys the whole window. Stamped
+    only when supplied, so a single-case action's history entry is unchanged."""
     case = await state.cases.get(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
@@ -5353,14 +5447,28 @@ async def _perform_case_action(
 
     _guard_transition(body.action, prev_status, target)
 
-    # set_disposition: validate + set the investigative outcome (no status move).
-    if body.action == "set_disposition":
-        if not body.disposition:
-            raise HTTPException(status_code=400, detail="set_disposition requires a disposition")
+    # A disposition supplied with the action. ``set_disposition`` requires one; ``close``
+    # accepts one (the Console's unified Close-with-disposition flow sends it).
+    #
+    # APPLY and CLASSIFY are separated on purpose. Applying is unconditional: the case
+    # carries the disposition the caller sent, which is what the dialog has always
+    # claimed to do. Classifying is what makes ``engine.analyst_outcomes`` treat that
+    # disposition as INDEPENDENT ground truth, and the presence of the field cannot
+    # establish it — ``case_manager.apply()`` derives a disposition from the LLM verdict,
+    # so a client echoing the stored value back is quoting the model to itself. Only the
+    # verb (``set_disposition``) or an affirmative ``disposition_declared`` says a human
+    # chose it. Absent both, the case is applied-but-unlabelled, exactly as before this
+    # path existed.
+    classified_disposition = ""
+    if body.action == "set_disposition" and not body.disposition:
+        raise HTTPException(status_code=400, detail="set_disposition requires a disposition")
+    if body.action in _DISPOSITION_ACTIONS and body.disposition:
         try:
             case.disposition = Disposition(body.disposition)
         except ValueError:
             raise HTTPException(status_code=400, detail=f"unknown disposition: {body.disposition}")
+        if body.action in _SELF_DECLARING_ACTIONS or body.disposition_declared:
+            classified_disposition = case.disposition.value
 
     # confirm_fp records the FALSE_POSITIVE disposition (an analyst confirming an FP),
     # overriding only an unset / UNDETERMINED auto-mapping — never a deliberate
@@ -5407,6 +5515,17 @@ async def _perform_case_action(
         "ts": case.updated_at, "event": "analyst_action", "action": body.action,
         "analyst": actor, "note": body.note,
     }
+    if batch_id:
+        entry["batch"] = batch_id
+    if classified_disposition:
+        # The DECLARED classification made by THIS action (see the apply/classify split
+        # above — set only for a self-declaring verb or an affirmative
+        # ``disposition_declared``). The action token alone cannot carry it, because the
+        # primary close posts ``action="close"``, which is not a classification verb, so
+        # ``engine.analyst_outcomes.is_classification_entry`` reads this key instead.
+        # Append-only (#2): a new key on a NEW entry; no existing history row is
+        # rewritten and no past case is relabelled.
+        entry[CLASSIFIED_DISPOSITION_KEY] = classified_disposition
     if body.resolution is not None:
         entry["resolution"] = str(body.resolution)
     if body.priority is not None:
@@ -5421,6 +5540,11 @@ async def _perform_case_action(
                 f"action={body.action} status {prev_status.value if prev_status else '?'}"
                 f"→{case.status.value} disposition={case.disposition.value if case.disposition else 'none'}"
                 + (f" reason={reason}" if reason else "")
+                # APPENDED at the end (never reordered — this summary is read
+                # positionally elsewhere): whether the analyst classified the case in
+                # this very action, which is what makes the disposition above
+                # independent evidence rather than an inherited value.
+                + (f" classified={classified_disposition}" if classified_disposition else "")
             ),
         )
     except Exception as exc:  # noqa: BLE001 — audit is best-effort, never blocks the action
@@ -5531,6 +5655,12 @@ async def cases_bulk_action(
     # applied identically to each target.
     single = CaseAction(**{k: v for k, v in body.model_dump().items() if k != "ids"})
 
+    # ONE transaction id for the whole bulk move, stamped onto every history entry it
+    # writes. This is what lets the bounded precedent window treat a bulk action as the
+    # single operator decision it is instead of N independent ones; see
+    # ``PrecedentWindowConfig.max_transaction_fraction``.
+    batch_id = new_id("bulk-")
+
     results: list[dict[str, Any]] = []
     seen: set[str] = set()
     for cid in ids:
@@ -5538,7 +5668,7 @@ async def cases_bulk_action(
             continue  # de-dupe so a repeated id isn't applied (and audited) twice
         seen.add(cid)
         try:
-            await _perform_case_action(cid, single, actor, state)
+            await _perform_case_action(cid, single, actor, state, batch_id=batch_id)
             results.append({"id": cid, "ok": True})
         except HTTPException as exc:
             results.append({"id": cid, "ok": False, "error": str(exc.detail)})

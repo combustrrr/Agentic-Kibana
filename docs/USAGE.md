@@ -175,6 +175,20 @@ editor renders a validated form from that connector's `auth_fields` +
   / RabbitMQ / NATS / MQTT / Redis Streams / S3 / GCS / Azure Blob / file): supply
   the transport's auth + config (e.g. a webhook `auth_mode` + `token`, or a
   syslog `bind_host` / `port` / `protocol`).
+- **The severity ladder** (any source, *Advanced → Severity ladder maximum*):
+  `severity_scale_max` is the highest value this source can put in its `severity_field`.
+  Every severity is then projected onto the canonical 0–100 scale as
+  `min(100, max(0, raw / severity_scale_max × 100))` before it is banded — one number
+  describes any native ladder, so no read path ever asks what product a source is.
+  **Declare it whenever the source does not rate severity on 0–100** (e.g. `10` for a
+  0–10 ladder, `16` for a 0–16 rule level). Leave it blank and the number is read as-is
+  on 0–100; a narrow ladder left undeclared reads roughly ten times too low on the case
+  severity chip, in the Noise-Reduction funnel and against a feed's `severity_floor`.
+  One connector ships a seeded default, applied only where you have declared nothing —
+  your own declaration always wins. A raw severity **above** the declared ceiling is
+  proof the declaration is wrong: the band clamps at 100, the case's `severity_source`
+  becomes `source_out_of_range` instead of `source_asserted`, and one log line names the
+  source, its ceiling and the offending value.
 
 For encrypted Syslog, choose `protocol: tls`, mount the server certificate and key
 inside the backend container, and enter those container paths as `tls_cert_file` and
@@ -460,8 +474,11 @@ cohort; use job counts, case history, and Audit for exact accountability.
 - **disposition** (what the case turned out to be): `true_positive`,
   `false_positive`, `benign`, `suspicious`, `duplicate`, `undetermined` (the default
   for cases that predate the taxonomy). Set it explicitly with the `set_disposition`
-  action; `confirm_fp` also stamps `false_positive` when the disposition is still
-  undetermined.
+  action or by supplying `disposition` on a `close`; `confirm_fp` also stamps
+  `false_positive` when the disposition is still undetermined. Note that
+  `case_manager.apply()` may already have derived a disposition from the model's
+  verdict, so a stored disposition is not by itself an analyst statement — see
+  `disposition_declared` below.
 
 ### Case detail + lifecycle
 
@@ -502,9 +519,32 @@ noted below):
 | `acknowledge` | `investigating` | mark the case as being worked (the first-response clock stops here) |
 
 The body may carry `status` (for `set_status`), `disposition` (for
-`set_disposition`), `reason` (recorded as `status_reason`
+`set_disposition` and `close`), `disposition_declared`, `reason` (recorded as
+`status_reason`
 on `hold` / `resolve` / `set_status`), and the existing `resolution` / `assignee` /
-`priority` / `tags`. A **transition guard** rejects illegal moves — e.g. leaving a
+`priority` / `tags`.
+
+**`disposition_declared` (boolean, default `false`) — ground-truth intent.** A
+disposition on the wire says *what* to record, never *who decided it*.
+`case_manager.apply()` derives a disposition from the LLM verdict, so a client that
+reads a case and posts its stored disposition straight back is quoting the model to
+itself. Both `set_disposition` and `close` therefore **apply** the value
+unconditionally, but only a declaration makes it **independent analyst evidence**
+(`engine/analyst_outcomes` → the precedent corpus's confirmed tier and the threshold
+tuner's independent-outcome population):
+
+- `set_disposition` is self-declaring — the verb exists for nothing else and the wire
+  rejects it without a disposition, so no flag is needed.
+- `close` records the classification only when `disposition_declared` is `true`.
+  Omit it and the close still honours the disposition; it simply records no label.
+
+The Console sets it from the close dialog's picker `onChange` only, and that picker
+opens **empty** rather than pre-filled from the case, so the "a disposition is
+required" guard is a real analyst choice. The case's existing disposition is shown
+beneath the picker as read-only context. The gate is on intent, not on the value
+differing: an analyst who reviews a case and affirmatively re-states the model's own
+conclusion has confirmed it, and labelling only disagreements would bias every
+downstream false-positive rate. A **transition guard** rejects illegal moves — e.g. leaving a
 terminal status (`closed` / `resolved`) is only legal via `reopen` (a `400`
 otherwise). Every action sets `decision_by=analyst`, stamps `updated_at`, appends
 an entry to the case **history** + `status_history`, and is audited. A `close` /
@@ -1175,6 +1215,11 @@ are best-effort chunked as `source="resolved_case"`; indexing never blocks the a
 and remains gated by `rag.enabled` + `threat_context.reuse_resolved_cases` /
 `rag.use_resolved_cases`. Resolved-case text is still UNTRUSTED-fenced when retrieved
 (§9); analyst confirmation makes it eligible evidence, not trusted instructions.
+"Independently analyst-confirmed" means a binary `actual_outcome` on case feedback,
+`set_disposition` / `confirm_fp`, or a close whose disposition the analyst DECLARED
+(`disposition_declared`, §3) — never a stored disposition the model's own verdict
+produced, and never an `assessment` of `disagree`, which says nothing about what
+actually happened.
 
 ---
 
@@ -2453,7 +2498,7 @@ sub-index out of a broad `events` pattern; longest-pattern-wins precedence).
 | `enabled` | turn a feed off without deleting it |
 | `query` | a connector-native filter applied to just this feed (operator-**TRUSTED**) |
 | `field_mapping` / `message_field` | per-feed overrides (fall back to the source-level mapping) |
-| `severity_floor` | OCSF `severity_id` 1–6; below it an event is **not auto-forwarded** but is **still correlated + live-tailed** (never dropped, #4) |
+| `severity_floor` | OCSF `severity_id` 1–6; below it an event is **not auto-forwarded** but is **still correlated + live-tailed** (never dropped, #4). The raw severity is mapped to that 1–6 id through the SOURCE's declared `severity_scale_max` (§Stage 2), so declare that ceiling or a narrow ladder is under-read against this floor |
 | `correlate` | the per-feed "Auto-Correlate" toggle (legacy `auto_correlate` maps onto this); `false` → candidate-only (manual triage), still correlated |
 | `auto_investigate` | `null` → derived from role/legacy (`alerts` or legacy `auto_correlate`); set `true`/`false` to pin it |
 

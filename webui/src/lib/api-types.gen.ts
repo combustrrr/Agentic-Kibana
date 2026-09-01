@@ -2733,6 +2733,48 @@ export interface paths {
          *
          *     ``compare=prev`` adds period-over-period deltas vs the immediately-preceding
          *     equal-length window. SLA targets come from ``Preferences.sla`` (advisory; #3).
+         *
+         *     The headline populations, and which of them ``window_hours`` bounds — the five
+         *     Console tiles are built on exactly these and they are NOT interchangeable::
+         *
+         *         {"case_count": int,                     # arrival cohort in-window, policy-closed INCLUDED
+         *          "severity_counts": {"critical": int, "high": int, "medium": int,
+         *                              "low": int, "info": int},   # partitions case_count exactly
+         *          "open_now": {"count": int, "window_exempt": true, "as_of": iso8601,
+         *                       "complete": bool, "reason": str},  # STOCK, measured now, NOT windowed
+         *          "quality": {"terminal_cases": int, "auto_closed_cases": int,
+         *                      "human_closed_cases": int, "system_closed_cases": int,
+         *                      "false_positive_rate": float, ...},
+         *          "truncated": bool, "store_total": int, "fetched": int,
+         *          "window_covered": bool, "window_coverage_reason": str,
+         *          "oldest_fetched_at": iso8601 | null}
+         *
+         *     * ``severity_counts`` is server-side and covers the FULL windowed population; it
+         *       exists so no client has to infer a band total from whatever bounded page of
+         *       cases it happens to hold. Bands are the read-time advisory ladder
+         *       (``engine.priority.band_of_case``), resolved against each source's DECLARED
+         *       severity ceiling — hence ``Preferences`` is threaded in. Nothing is persisted.
+         *     * ``open_now`` is deliberately window-EXEMPT and carries ``window_exempt: true``
+         *       so it can never be rendered as summing with the windowed tiles.
+         *       ``aging.queue_depth`` is the cohort-scoped "arrived in-window and still open"
+         *       number and is a different figure.
+         *     * ``auto_closed_cases`` + ``human_closed_cases`` + ``system_closed_cases`` sum
+         *       EXACTLY to ``terminal_cases``. Render all three or none: the residual (SYSTEM
+         *       routing + legacy records with no recorded decider) must stay visible even at 0,
+         *       and human work is NEVER ``terminal_cases - auto_closed_cases``. These report the
+         *       LAST recorded decider — see ``engine.metrics.quality_metrics`` for the caveat a
+         *       "human vs AI" surface must disclose.
+         *     * ``window_covered`` is the honest-coverage flag. ``truncated`` alone is permanent
+         *       for any deployment above the 5000-case fetch bound; ``window_covered`` says
+         *       whether the SELECTED window is nonetheless fully answerable from the rows that
+         *       were read (cutoff at or after ``oldest_fetched_at``), which is what lets a tile
+         *       publish a real number instead of withholding forever. It does not apply to
+         *       ``open_now``, which carries its own ``complete`` flag.
+         *     * A case-store OUTAGE soft-fails to an empty fetch so the dashboard never 500s.
+         *       Both completeness flags then go False with a reason naming the failure: the
+         *       counts are still zeros, but zero-because-unreadable is not a measurement and must
+         *       never be published as one. ``truncated`` is unchanged (it compares fetched with
+         *       store-reported total, and both are 0).
          */
         get: operations["metrics_posture_api_metrics_posture_get"];
         put?: never;
@@ -5714,6 +5756,12 @@ export interface components {
             assignee?: string | null;
             /** Disposition */
             disposition?: string | null;
+            /**
+             * The analyst chose this disposition in this action
+             * @description True only when a human affirmatively selected `disposition` as part of this action. The disposition is applied either way; this flag is what makes it independent analyst evidence rather than a value echoed back from the model-derived disposition already stored on the case.
+             * @default false
+             */
+            disposition_declared: boolean;
             /** Ids */
             ids?: string[];
             /**
@@ -5940,6 +5988,12 @@ export interface components {
             /** Disposition */
             disposition?: string | null;
             /**
+             * The analyst chose this disposition in this action
+             * @description True only when a human affirmatively selected `disposition` as part of this action. The disposition is applied either way; this flag is what makes it independent analyst evidence rather than a value echoed back from the model-derived disposition already stored on the case.
+             * @default false
+             */
+            disposition_declared: boolean;
+            /**
              * Legacy escalation compatibility value
              * @deprecated
              * @description Deprecated compatibility input for older clients. The case enters the single Escalated state; operator surfaces do not display numbered tiers.
@@ -6058,6 +6112,8 @@ export interface components {
             cases: components["schemas"]["Case"][];
             /** Total */
             total: number;
+            /** Window Total Exact */
+            window_total_exact?: boolean | null;
         };
         /**
          * CaseStatus
@@ -7845,6 +7901,8 @@ export interface components {
              * @default false
              */
             is_primary: boolean;
+            /** Severity Scale Max */
+            severity_scale_max?: number | null;
             /** Source Type */
             source_type: string;
         };

@@ -11651,3 +11651,172 @@
 - Validation: documentation consistency passed for 79 public pages, workflow service
   policy passed, stale Sonar blocker phrases are absent, and `git diff --check` passed.
   Status: code-analysis documentation cleanup complete and ready to publish.
+### 2026-08-30 20:30Z — orchestrator + sub-agent fleet — P1 severity ladder + Items F/G (precedent self-consumption)
+- Context: two briefs. (1) P1 "ship first": every case rendered Critical while its Risk column
+  read 7-47, because the severity ladder was inferred from SIEM vendor plus ingest mode and fell
+  through to a 0-10 assumption for every pull Elastic/OpenSearch/generic source. (2) Auto-close
+  remediation Items F and G: the agent was reading its own prior verdicts back as analyst ground
+  truth, and one bulk analyst action could own the whole bounded precedent window.
+- Did:
+  - **Recon first.** Both briefs were written against `0972ac0a`, which was not in the local
+    tree at session start (HEAD was `a799c76`). 12 parallel readers re-located every anchor by
+    symbol. Found real brief errors: `backend/app/evidence_fields.py` did not exist at `a799c76`
+    (it arrives WITH `#101`); `_band_of_case` is in `engine/`, not `stores/`; `SourceUpsert` is in
+    `routes.py`, not `config.py`; `mix.tsx` is under `soc/dashboard/`; the fifth KPI label is
+    `Auto-Resolved`, hyphenated. Also found two live bugs the briefs did not know about: the
+    never-drop-on-error window contract is already dead code (`relative_to_millis` never raises and
+    returns NOW for an unparseable value), and G1's root cause is bigger than described (the PRIMARY
+    close path parses a disposition and never assigns it, so it can never produce ground truth).
+    Resolved all 17 open questions into a binding decisions file before any code was written.
+  - **P1.** A source now DECLARES `severity_scale_max` (typed on `SourceInstance` AND `SourceUpsert`,
+    carried forward on omission via `model_fields_set` — without that it is wiped on every
+    enable/disable, the exact Round-9 `configured_secrets` bug). One projection,
+    `min(100, max(0, raw / ceiling * 100))`, shared with `ocsf/model.score_to_severity_id`; all 370
+    legacy string-alias combinations proven byte-identical. Vendor knowledge demoted to a config-time
+    seed; `_DEMO_SOURCE_IDS` retired. Saturation emits a third provenance token
+    `source_out_of_range` rather than claiming source provenance for a band our own arithmetic
+    invented. `band_of_case()` promoted public and the seven direct readers routed through it — five
+    of them were reading `None` in production, so the severity term of attention-queue ranking was
+    contributing exactly zero.
+  - **F.** Deleted the `model verdict {verdict}` clause from the rendered precedent text; kept
+    `metadata['verdict']`. Measured the compounding defect first: with a 365-char analyst note the
+    chunk was 903 chars, `model verdict` at offset 67 and `Analyst note:` at 523, against a 600-char
+    fence — so 77 of 365 analyst characters reached the model and the model's own verdict reached it
+    every time. Reordered so human provenance leads; the note now survives whole and total length
+    went DOWN (903 -> 882). Both tiers now build from an explicit field allowlist, proven by mutation.
+  - **G.** `stratified_selection` generalised to N ordered axes via nested round-robin, single-axis
+    contract byte-identical. `_source_signature` byte-identical at defaults, so no deployer pays a
+    full-corpus re-embed for a schema change. Fixed the global ordering bug: the projection scan
+    walked terminal statuses in sequence and concatenated, so its input was never globally
+    newest-first, and one shared scan budget let CLOSED starve RESOLVED.
+- Decisions: the adversarial review (5 lenses, every finding independently refuted before action)
+  produced 17 confirmed findings on P1 and 12 on F/G. Two are worth recording because they overturned
+  a decision:
+  1. **My DECISIONS Q4 was wrong in part.** Retiring `_DEMO_SOURCE_IDS` is behaviour-preserving on
+     the case-band READ path but NOT on the demo INGEST path: `demo-qradar` rates on a native 1-10
+     ladder and demo sources are read-time overlays that never enter `Preferences.sources`, so they
+     cannot declare a ceiling. Uncaught, that storyline's alert would have collapsed 90.0 -> 10.0,
+     byte-identical to its own benign noise. Fixed in the fixture module.
+  2. **The reviewers overrode the brief on G's axis and would have made the item a no-op.** They
+     changed the default to `["rule_identity","outcome"]` on the correct principle that analyst
+     ground truth outranks the model's judgement. Measured against the corpus shape that produced
+     the outage (bulk action putting false_positive/NEEDS_HUMAN at the head of every rule bucket):
+     rule-only selects 0/200 FALSE_POSITIVE, rule+outcome selects 2/198 — indistinguishable from the
+     defect — rule+verdict 92/108, rule+outcome+verdict 94/106. Analyst outcomes are near-uniform by
+     construction, so the compounding failure lives entirely in the verdict dimension. Shipped all
+     three axes, ground truth outermost, with a regression test pinning the BEHAVIOUR not the names.
+- Tests: backend **2934 collected, 0 failures** with `-p no:randomly` (the 3 network/AWS-env
+  deselects are environmental and proven so: this sandbox injects `AWS_ACCESS_KEY_ID` and has
+  outbound HTTPS, so `dshield` really answers). One ordering-dependent failure,
+  `test_state_store_sql.py::test_batch_submission_lease_converges_across_independent_sql_stores`,
+  was **proven pre-existing** by reproducing it 3/3 on a clean worktree of `0972ac0` with none of
+  this work applied. Console **311 files / 2153 passed**, zero stderr; eslint 0/0 at
+  `--max-warnings=0`; design gates 6/6; `check:types` no drift; ruff E9/F63/F7/F82 clean.
+  **#3 re-verified: `case_manager.py` md5 `212873cd13d822a7b64752635285ff1f` unchanged, and
+  `git diff` on `risk.py`/`signatures.py` empty.** Promotion still disabled by default, pinned.
+- Status: done for P1 + F + G; the remaining brief items (P3, P4, C, D, E, A, B, I, G1, H,
+  agnosticism lint) are NOT started and are tracked in the PR description.
+- Next: PR into `Testing` (the branch is protected by the required `CI passed` aggregate, so a
+  direct push is declined by design). Then P4's store-level windowing, which blocks P3 and P4 UI.
+
+### 2026-08-31 04:10Z — orchestrator + sub-agent fleet — P4 store windowing + P3 posture populations
+- Context: PR #102 (P1 severity ladder, F, G) merged as `f4b7d45`. Next blocker from Brief A: the
+  case list windows AFTER a 200-row fetch, so both the rows and the reported total are wrong past
+  the first page — which blocks the P3 tile re-spec and the P4 drill-down panel.
+- Did:
+  - `CaseRepository.list_window(created_from, created_to) -> (cases, total, exact)` following the
+    repo's OWN `count_created_since` precedent: NON-abstract with a bounded-scan default, so a
+    third-party repository cannot break with a TypeError. Native ES and SQL overrides return exact
+    totals. `window_total_exact` surfaced additively; the windowless response is unchanged.
+  - **Fixed the never-drop-on-error contract, which was DEAD CODE.** `relative_to_millis` never
+    raises (it ends `return to_millis(dt) if dt else to_millis(now)`), so the
+    `except Exception  # never-drop` branch was unreachable and an unparseable `created_at`
+    silently became NOW and was dropped from every historical window. Reproduced against the
+    verbatim pre-change helper before touching anything. Now expressed in each backend's own terms,
+    with a strict parser on the Python path. `relative_to_millis` itself untouched (other callers
+    depend on the now-default; pinned by a test).
+  - Found a third defect the brief did not know about: `coerce_float(value, None)` raised
+    `TypeError` on any non-numeric string, and `es/fake.py` calls it exactly that way behind an
+    `# type: ignore[arg-type]` and a None guard — so an unreadable timestamp blew up range
+    evaluation in the in-memory client. Narrowed so only the crashing path changes.
+  - P3 backend: a server-side per-band tally over the same windowed population as `case_count`
+    (there was none — the Critical tile derived it from a bounded 200-row sample), a window-EXEMPT
+    open-now count over the non-terminal status set, and `window_covered` emitted alongside the
+    existing marker so a deployment past the 5000-row fetch bound stops withholding every tile
+    permanently when the window IS fully covered. `truncation_marker` untouched (four rollups share
+    it; its shape is pinned).
+- Decisions:
+  - **Deliberate deviation from the brief:** the ES never-drop clause is a `must_not` complement,
+    not the specified `should` union. `created_at` is mapped as a `date`, so a `term ''` probe makes
+    real Elasticsearch reject the whole request. The complement is equivalent for readable dates and
+    keeps unreadable ones, in one clause. SQL cannot use the same trick (lexicographic comparison
+    always yields a definite answer) so it gets an explicit shape gate, chosen over an
+    index-friendlier bracket because LIKE is collation-independent. Cost: the OR branch defeats the
+    btree index; correctness over the plan, documented at the call site.
+  - The default `list_window` returns `exact=False` unconditionally even when the scan demonstrably
+    saw the whole corpus — an out-of-tree `list()` that ignores `limit` would otherwise be reported
+    as proven. Conservative is right for an unknown implementation.
+  - Adversarial review confirmed 8 of 15 findings. Two are worth recording because the code was
+    ASSERTING a guarantee it had not achieved: the never-drop contract was still not held by either
+    bundled backend despite all three docstrings claiming it, and the test LABELLED a never-drop
+    regression test did not exercise the unreadable-timestamp case. Also: posture published its new
+    completeness assertions affirmatively when the case store errored, because `_load_cases`
+    soft-fails to `([], 0)` — a store outage would have reported "window fully covered" over zero rows.
+- Tests: backend **3119 passed, 4 skipped, 3 deselected, 0 failures** (independently re-run by the
+  orchestrator, not taken from the agent's report). Console **311 files / 2161 passed**. eslint 0/0
+  at `--max-warnings=0`; design gates 6/6; `check:types` no drift (openapi.json + api-types.gen.ts
+  regenerated and committed); ruff E9/F63/F7/F82 clean.
+  **#3 re-verified: `case_manager.py` md5 `212873cd13d822a7b64752635285ff1f` unchanged.**
+- Status: done for the P4 store contract and the P3 BACKEND. The P3 tile renames and the P4 panel
+  are UI work and are NOT started.
+- Next: P3/P4 UI on top of this (the two disagreeing `>= 200` heuristics at `Overview.tsx:1520` and
+  `:2028` can now be deleted in favour of `window_total_exact`), then G1, C, E, H, agnosticism, D, A.
+
+### 2026-08-31 06:25Z — orchestrator + sub-agent fleet — G1 ground-truth intake + portability lint
+- Context: PRs #102 (P1/F/G) and #103 (P4 store + P3 posture) merged; `Testing` at `fb8f314`.
+  Items F and G changed how the precedent corpus is RENDERED and SELECTED, but neither creates
+  SUPPLY. With intake dead the corpus can never refresh, so both operate on a frozen population.
+- Did:
+  - **G1, both channels, verified dead before fixing.** Channel A: the Console had no control that
+    ever SET `actual_outcome` — it was typed, dirty-checked, forwarded and displayed, never written
+    — so every graded close resolved to the UNKNOWN member and `analyst_confirmed_outcome` returned
+    `(None, None)`. Channel B (the bigger half): the primary close posts `wireAction:'close'` WITH a
+    disposition that the backend parsed and never assigned, and its history row recorded
+    `action:"close"`, absent from the classification set. `set_disposition` — the one verb that
+    worked — is reachable only from the overflow of an already-closed case.
+  - Added the outcome control (options derived from the GENERATED schema via
+    `as const satisfies`, plus an exhaustiveness type that fails `tsc` if the union gains a member).
+    Made a close carrying a DECLARED disposition record ground truth. Stopped the feedback POST
+    swallowing 4xx. Added a threshold-free corpus-supply signal (days since last qualifying
+    precedent; share of feedback with no ground truth) reported as measured values, null when
+    unmeasurable — never 0, because "no feedback" is not a 0% gap.
+  - **Portability lint** asserting SHAPE not vocabulary (playbook rule ids and seeded catalog names
+    match `^[a-z][a-z0-9_]*$`; catalog match fields are dotted lowercase; no date literals in
+    `engine/metrics.py`). Renamed the three bundled playbooks carrying verbatim SIEM rule titles
+    (incl. a vendor product name and an Elastic query-language marker) and every reference to them.
+- Decisions / what review caught:
+  - 🔴 **CRITICAL, found by two independent lenses: the naive G1 fix REINTRODUCED the exact
+    self-consumption loop Item F had just closed, through the intake door.** `case_manager.apply()`
+    derives `case.disposition` from the LLM verdict; the close dialog PRE-SEEDED its picker from
+    that stored value; so a bare "Close → Confirm" would have posted the model's own label back and
+    stamped it `classified_disposition`, making `analyst_confirmed_outcome` return the MODEL's
+    verdict as `explicit_analyst_disposition` ground truth — feeding the confirmed precedent tier
+    AND the tuner's independent-evidence count. Strictly worse than the original bug: it poisons the
+    SOURCE, not the rendering. It also contradicted two load-bearing comments the change shipped.
+    Fix: separate APPLYING a disposition from CLASSIFYING it. The UI pre-seed is deleted, and a
+    `disposition_declared` flag whose ONLY writer is the picker's `onChange` must be affirmatively
+    true. Presence of a field cannot establish provenance; a human operating the control can.
+  - Chose a `classified_disposition` marker on the new history entry over widening the classification
+    verb set to include `close` — most closes carry no disposition, so making `close` a
+    classification verb would promote the model-derived disposition on every bare close, the precise
+    failure `analyst_outcomes` exists to prevent. Also rejected emitting a synthetic second
+    `set_disposition` row: it would double-count in every consumer that counts analyst actions.
+  - Three more findings held: the lint applied two different grammars to ONE namespace
+    (contradicting itself), it missed `any_tags`/`mitre` which resolve against the same rule-name
+    space, and the generic renamed playbook id could collide with an operator's durable entry.
+- Tests: backend **3149 passed, 4 skipped, 0 failures** (orchestrator re-ran independently). Console
+  **311 files / 2175 passed**. eslint 0/0 at `--max-warnings=0`; design gates 6/6; ruff clean; build
+  entry 392.66 kB; `check:types` no drift.
+  **#3 re-verified: `case_manager.py` md5 `212873cd13d822a7b64752635285ff1f` unchanged.**
+- Status: done for G1 + portability. Nothing was relabelled; no migration, no backfill.
+- Next: P3/P4 UI (tile renames + drill-down panel), then C, E+G3, H, D, A, B, I.
