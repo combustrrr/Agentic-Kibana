@@ -189,10 +189,11 @@ Additional lanes:
   injection, and LLM output reaching execution.
 - **SonarQube Cloud:** exact-commit cloud analysis is verified. Bounded authenticated
   native-issue export, canonical normalization, and a generic external-issue projection
-  are implemented. Both PATs authenticate, but Sonar's API returns HTTP 403 for the
-  existing short-lived branch even though the project is public. Non-default Git branches
-  therefore map to a stable long-lived `branch-issue-wall-<hash>` Sonar analysis branch;
-  operational proof remains pending. Issue Wall still records the real Git branch and
+  are implemented. Both PATs authenticate as the same Sonar user and Sonar accepted an
+  explicit Browse grant, but the current Free organization still hides stored non-main
+  analysis with HTTP 403. Non-default Git branches map to a stable long-lived
+  `branch-issue-wall-<hash>` Sonar analysis branch; operational proof awaits OSS-plan
+  activation. Issue Wall still records the real Git branch and
   exact SHA. The projection excludes Sonar-native and
   `AI_ADVISORY` findings. CodeScene is not active.
 - **Atheris:** a bounded weekly/manual Linux harness exercises deterministic

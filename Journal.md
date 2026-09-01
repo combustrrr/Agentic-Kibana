@@ -11574,3 +11574,26 @@
   `[ensure-sonar-browse]` push-message trigger so the feature-branch workflow can execute
   the one-time grant with its protected repository secret. The grant remains opt-in.
 - Validation: workflow YAML parses and the repository workflow policy audit passes.
+
+## 2026-09-01 — Sonar blocker isolated to branch-analysis plan entitlement
+
+- Run `33429643637` executed the protected-secret CLI helper. Sonar returned HTTP 204 for
+  the explicit Browse grant to `combustrrr-Uw7cT@github`, but the immediate branch query
+  remained HTTP 403 and native export truthfully remained `CONFIGURED_PARTIAL`.
+- Sonar's current official plan documentation explains the result: Free organizations
+  may analyze non-main branches and retain the data, but cannot access those results;
+  unlimited branch analysis is available under Team, Enterprise, or the free OSS plan.
+  OSS enrollment is exposed as a web signup flow, not a supported CLI/Web API mutation.
+- Updated the sole pending-work ledger and current-state documentation. The remaining
+  owner action is OSS enrollment after license/ownership review, followed by one exact-head
+  proof run; no additional token replacement or Browse grant is required.
+
+## 2026-09-01 — Sonar CLI verification session complete
+
+- Verified the public project, authenticated PAT identity, accepted Browse grant, Free-plan
+  branch entitlement boundary, and truthful partial Issue Wall status without exposing
+  credentials. Removed temporary downloaded artifacts after recording secret-free facts.
+- Validation: 49 code-analysis tests passed before publication; the final workflow policy
+  audit and diff check passed. Commits `4c4e2e8` and `e05bb18` contain the CLI grant path;
+  current documentation changes record the proven external blocker and sole next action.
+- Status: complete for repository/CLI work; external Sonar OSS enrollment remains pending.

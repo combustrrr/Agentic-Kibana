@@ -10,16 +10,21 @@ next-step lists.
 
 ## P0 — Unblock and prove Sonar native ingestion
 
-Both GitHub secrets are valid PATs and exact-SHA Sonar analysis succeeds. Public API and
-credential probes isolated the remaining failure to Sonar's existing short-lived branch:
-main-project issues are public, but both authenticated PATs receive HTTP 403 for
-`feature/static-code-analysis`. The repository now maps non-default Git branches to a
-stable `branch-issue-wall-<hash>` Sonar analysis branch so Sonar classifies the projection
-as long-lived on first analysis while Issue Wall retains the real branch and exact SHA.
+Both GitHub secrets are valid PATs and exact-SHA Sonar analysis succeeds. Run
+`33429643637` authenticated both PATs as `combustrrr-Uw7cT@github` and Sonar accepted an
+explicit project Browse grant with HTTP 204. The project is public and main-project issues
+are anonymously readable, but the same user still receives HTTP 403 for both short- and
+long-lived non-main branches. This matches the organization's current Free-plan behavior:
+Sonar stores non-main analysis but does not expose its results until the organization has
+Team, Enterprise, or the free OSS plan. The stable `branch-issue-wall-<hash>` projection
+is ready and Issue Wall retains the real branch and exact SHA.
 
-1. Re-run only **Code Quality** for the current branch head to create and analyze the
-   stable long-lived Sonar projection.
-2. Confirm the projected branch is publicly API-readable after its first analysis.
+1. Complete Sonar's web-based **Get SonarQube for OSS** enrollment for organization
+   `combustrrr`. Sonar exposes no supported CLI/Web API operation for changing to OSS.
+   The repository is public but currently has no published license; complete the legal/
+   ownership decision and publish an eligible license before claiming OSS eligibility.
+2. After Sonar confirms OSS activation, re-run only **Code Quality** for the current
+   branch head and confirm the projected branch issues API returns HTTP 200.
 3. Require `sonar-status.json` = `CONFIGURED_COMPLETE` and retain
    `sonar-native-issues.json` with the exact branch, commit, analysis ID, bounded count,
    and zero imported `external_*` issues.
@@ -28,12 +33,11 @@ as long-lived on first analysis while Issue Wall retains the real branch and exa
    deterministic code-local non-Sonar findings only. CodeRabbit must remain excluded as
    `AI_ADVISORY`.
 
-Cloud runs `33404195186`, `33405919866`, `33409996015`, `33414505282`, and `33418428037` each completed
-native analysis and truthfully retained `CONFIGURED_PARTIAL` because
-short-branch `api/issues/search` returned HTTP 403. Anonymous main-project issue search
-returns HTTP 200 with 1,135 issues, and run `33426194272` proved both stored PATs authenticate
-successfully while both are refused only on the short branch. Do not call native ingestion
-operational until the four checks above pass.
+Cloud runs through `33429643637` completed native analysis and truthfully retained
+`CONFIGURED_PARTIAL`. Anonymous main-project issue search returns HTTP 200 with 1,135
+issues. The latest run proves this is no longer a token or Browse-grant problem; access to
+stored non-main analysis is the remaining subscription entitlement. Do not call native
+ingestion operational until the four checks above pass.
 
 ## P1 — Finish acceptance and cost budgets
 
@@ -71,8 +75,8 @@ Already active:
 - Snyk: verified optional SCA/SAST; do not add a second integration.
 - CodeRabbit: verified exact-head GitHub App evidence; permanently isolated under
   `AI_ADVISORY`.
-- SonarQube Cloud: analysis and both PATs verified; native import awaits proof of the
-  stable long-lived branch projection after Sonar refused its existing short branch.
+- SonarQube Cloud: analysis, both PATs, and the explicit Browse grant are verified;
+  native non-main import awaits Sonar OSS-plan activation and one exact-head proof run.
 
 Candidates such as Blacksmith, BrowserStack, Argos/Chromatic, CodeScene, Qodo, Codacy,
 DeepSource, Code Climate, and 1Password require a separate measured decision. Do not

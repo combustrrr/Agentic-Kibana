@@ -51,8 +51,11 @@ are excluded. The projection is retained as an outbound artifact; it does not la
 second 14–15 minute Sonar scan automatically.
 
 Current cloud state is `CONFIGURED_PARTIAL`: analysis succeeds, both GitHub secrets
-exist, but the PAT owner receives HTTP 403 from the Browse-protected issues API. The
-single required permission/proof action is maintained in
+authenticate as the same Sonar user, and an explicit Browse grant was accepted with HTTP
+204. Non-main branch issues still return HTTP 403 because the organization has not yet
+received Team/Enterprise or free OSS branch-analysis entitlement. Plan enrollment is a
+Sonar web operation, not a supported CLI/Web API mutation. The remaining activation and
+proof actions are maintained only in
 [`PENDING_WORK.md`](PENDING_WORK.md).
 
 ## Snyk
