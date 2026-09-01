@@ -57,7 +57,7 @@ setting was changed.
   workflow dispatch. Analysis has no repository-content or collaboration write access.
 - `audit_workflows.py` enforces immutable Actions, job timeouts, safe shell input,
   read-only analysis permissions, and private/pinned optional portal profiles.
-- The manual supervisor workflow derives the repository default branch at runtime; no
+- The manual analysis workflow derives the repository default branch at runtime; no
   fork-only default-branch name is embedded in its execution contract.
 
 ## Artifact-only delivery
@@ -74,11 +74,8 @@ Issue Wall have been produced. SonarQube Cloud analysis, both PATs, and the expl
 Browse grant are verified; native non-main issue import remains honestly partial because
 the current Free organization does not expose branch issues through the API.
 
-The release-facing acceptance is dashboard run `33528827999` over implementation commit
-`c92032a`: 16/16 required channels, 16,257 canonical findings, 16,927 observations, and
-artifact SHA-256 `5a04e175015952d1d78637c00dd118e353a121f52821f070ac1f6387452f2ee7`.
-The final workflow definition passed pinned actionlint 1.7.7 and ShellCheck 0.10.0 in CI
-run `33532282654`, job `99938491711`, on implementation head `7a06380`. Local release
-revalidation on 2026-09-01 passed the 63 CI-policy tests, 49 analysis-service tests,
-workflow service-policy audit, 79-page documentation consistency check, and the
-10,000-finding/13,000-observation bounded dashboard benchmark.
+Release evidence must be generated for the commit under review and taken from that
+manual workflow run; this document intentionally carries no fixed run IDs, artifact
+digests, finding counts, or historical output links. Local release revalidation on
+2026-09-01 passed the CI-policy tests, analysis-service tests, workflow service-policy
+audit, documentation consistency check, and bounded dashboard benchmark.

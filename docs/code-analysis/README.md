@@ -12,21 +12,22 @@
 | Production and GitHub readiness | [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) |
 | Run and use Issue Wall | [`MONITORING_UI.md`](MONITORING_UI.md) |
 | Upstream integration and enterprise acceptance | [`UPSTREAM_INTEGRATION.md`](UPSTREAM_INTEGRATION.md) |
+| Current limitations and decisions | [`PENDING_WORK.md`](PENDING_WORK.md) |
+| Latest session handoff | [`SESSION/_HANDOFF_2026-09-02.md`](SESSION/_HANDOFF_2026-09-02.md) |
 
-## Supervisor demonstration
+## Review walkthrough
 
-Use the accepted immutable artifact rather than a locally generated mock:
+Generate a current immutable artifact rather than relying on a recorded example:
 
-1. Open [GitHub Actions run `33528827999`](https://github.com/combustrrr/Agentic-Kibana/actions/runs/33528827999) and download
-   `current-findings-dashboard-feature-static-code-analysis-3856d26362d5-c92032a54e4159268abc91d4667c9bf47e9b5b28-33528827999`.
-2. Verify the artifact digest is
-   `sha256:5a04e175015952d1d78637c00dd118e353a121f52821f070ac1f6387452f2ee7`,
-   extract it, read `dashboard/START_HERE.md`, and open `dashboard/index.html`.
-3. Show exact branch/SHA provenance, `16/16` required channels, the security posture,
+1. Open Actions, select **Full Code Analysis (Manual)**, choose the approved workflow
+   ref, and enter the branch plus optional exact SHA to analyze.
+2. When the run succeeds, open **Review-ready artifact handoff**, download the artifact,
+   verify the displayed digest, extract it, read `dashboard/START_HERE.md`, and open
+   `dashboard/index.html`.
+3. Review exact branch/SHA provenance, `16/16` required channels, the security posture,
    severity and affected-area charts, searchable findings, one Evidence dialog, an
    immutable source link, filtered CSV export, optional-lane status, workflow run IDs,
-   and artifact hashes. The accepted snapshot contains 16,257 canonical findings and
-   16,927 retained observations.
+   and artifact hashes. Counts vary by commit and are evidence rather than release claims.
 4. To demonstrate fresh operation, use Actions → **Full Code Analysis (Manual)**,
    select the trusted default workflow ref, enter the target fork branch, and run it.
    The job summary provides the resolved source SHA, four scanner runs, dashboard run,
@@ -48,7 +49,8 @@ These files describe behavior that implementations and workflows must continue t
 | [`SERVICE_ARCHITECTURE.md`](SERVICE_ARCHITECTURE.md) | External service, package, and dependency boundaries |
 | [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) | Artifact security and readiness gates |
 | [`DATA_HANDLING_INVENTORY.md`](DATA_HANDLING_INVENTORY.md) | Release-facing scanner, credential, retention, failure, and removal inventory |
-| [`UPSTREAM_INTEGRATION.md`](UPSTREAM_INTEGRATION.md) | Scoped upstream application, enterprise gate, and supervisor demonstration |
+| [`UPSTREAM_INTEGRATION.md`](UPSTREAM_INTEGRATION.md) | Scoped upstream application and enterprise gate |
+| [`PENDING_WORK.md`](PENDING_WORK.md) | Current external limitations and open decisions |
 
 ### Operator guides
 
@@ -129,10 +131,9 @@ See [`MONITORING_UI.md`](MONITORING_UI.md) for the authenticated GitHub artifact
 - Deterministic findings are the primary canonical table.
 - Optional AI output is labelled `AI_ADVISORY` and never counts as deterministic
   corroboration.
-- Snyk has a scan-only, token-gated SARIF lane. The fork secret is configured and run
-  `32965286130` verified both Open Source and Code scans plus retained evidence. It
-  remains optional and reports `NOT_CONFIGURED` or `CONFIGURED_PARTIAL` truthfully when
-  credentials or analysis surfaces are unavailable.
+- Snyk has a scan-only, token-gated SARIF lane. Successful runs retain both Open Source
+  and Code evidence. It remains optional and reports `NOT_CONFIGURED` or
+  `CONFIGURED_PARTIAL` truthfully when credentials, quota, or analysis surfaces are unavailable.
 - CodeRabbit cloud automatic and per-push incremental PR review is configured as an
   advisory lane. A manually requested Issue Wall collects exact-head inline bot comments
   through GitHub's read-only PR APIs into the separate `AI_ADVISORY` view. Exact-head
@@ -171,7 +172,7 @@ dashboard for a newer commit.
   scanner runs concurrently, invokes the private reusable dashboard job, and publishes
   the artifact in the same manual workflow run. A failed scanner or incomplete snapshot
   stops the flow without replacing the last valid dashboard. The final
-  **Supervisor-ready artifact handoff** job provides one prominent download link,
+  **Review-ready artifact handoff** job provides one prominent download link,
   branch, exact SHA, artifact ID/digest, and three-step offline launch instructions.
 
 The dashboard leads with security posture, critical/high counts, affected areas,

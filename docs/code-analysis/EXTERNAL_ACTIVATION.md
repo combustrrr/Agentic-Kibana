@@ -69,12 +69,11 @@ Owner action:
 4. Confirm `snyk-open-source.sarif` and `snyk-code.sarif` are retained and parse.
 5. Measure unique detection value before making Snyk a required channel.
 
-Fork status: the repository-level `SNYK_TOKEN` Actions secret was added on
-2026-08-26. Post-secret run
-[`32965286130`](https://github.com/combustrrr/Agentic-Kibana/actions/runs/32965286130)
-then passed pinned CLI installation, Open Source SCA, Snyk Code, configured-status
-generation, and artifact upload. Artifact `snyk-results` (`9605455800`, 66,570 bytes)
-was retained. Snyk is therefore a verified optional source, not a required channel.
+Fork status: the repository-level `SNYK_TOKEN` Actions secret is configured. Current
+validation passes pinned CLI installation, Open Source SCA, Snyk Code,
+configured-status generation, and structured artifact upload. Snyk is therefore a
+verified optional source, not a required channel. Use the latest exact-SHA workflow run
+for review evidence; historical run and artifact identifiers are intentionally omitted.
 
 Local validation on 2026-08-26 used the same pinned CLI version as CI. OAuth succeeded
 and SCA emitted parseable SARIF for both npm projects, with no vulnerable paths found.

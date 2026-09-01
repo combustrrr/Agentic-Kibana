@@ -271,8 +271,8 @@ jobs:
       contents: read
       pull-requests: read
 
-  supervisor-handoff:
-    name: Supervisor-ready artifact handoff
+  review-handoff:
+    name: Review-ready artifact handoff
     if: always()
     needs: [dispatch, dashboard]
     runs-on: ubuntu-latest
@@ -292,7 +292,7 @@ jobs:
         run: |
           set -euo pipefail
           {
-            echo "# Supervisor Issue Wall handoff"
+            echo "# Issue Wall artifact handoff"
             echo
             printf '%s\n' "- Branch: \`${SCAN_BRANCH:-unavailable}\`"
             printf '%s\n' "- Exact commit: \`${SCAN_SHA:-unavailable}\`"

@@ -23,7 +23,8 @@ integration patch.
 
 ## Upstream preparation
 
-1. Start an integration branch from the latest upstream default branch.
+1. Start an integration branch from the latest upstream `Testing` branch. `main` is a
+   release branch and is not the code-analysis integration target.
 2. Apply only the scoped paths above from the validated feature head.
 3. Resolve upstream workflow-policy changes deliberately; never merge the feature
    branch wholesale or overwrite newer upstream CI/release definitions.
@@ -40,11 +41,11 @@ integration patch.
 
 An enterprise-facing release is accepted only when all of the following are true:
 
-- **Full Code Analysis (Manual)** appears on the repository default branch and requires
-  no input for the common default-branch demonstration.
+- **Full Code Analysis (Manual)** is available from an approved workflow ref and accepts
+  an explicit branch or exact reachable commit.
 - One manual run resolves an exact SHA, completes or safely reuses all four scanner
   groups, validates all 16 required channels, and publishes one immutable artifact.
-- The final **Supervisor-ready artifact handoff** job provides the authenticated artifact
+- The final **Review-ready artifact handoff** job provides the authenticated artifact
   link, branch, full SHA, artifact ID and digest, plus offline launch instructions.
 - Extracting the artifact and opening `dashboard/index.html` requires no VM, service,
   token, package installation, CDN, or internet access.
@@ -53,15 +54,15 @@ An enterprise-facing release is accepted only when all of the following are true
 - CodeRabbit stays `AI_ADVISORY`; Sonar and other optional channels cannot satisfy or
   bypass a required channel.
 - Failed, corrupt, expired, mixed-commit, or incomplete evidence cannot produce a
-  supervisor-facing artifact.
+  review-ready artifact.
 - Workflows cannot patch code, create PRs or Issues, push refs, deploy the application,
   or contact production.
 
-## Supervisor demonstration
+## Review walkthrough
 
 1. Open **Actions → Full Code Analysis (Manual) → Run workflow**.
 2. Leave both inputs blank to analyze the repository default branch at its latest HEAD.
-3. When the run completes, open **Supervisor-ready artifact handoff** and select the
+3. When the run completes, open **Review-ready artifact handoff** and select the
    prominent Issue Wall download link.
 4. Extract the artifact, open `dashboard/START_HERE.md`, then open
    `dashboard/index.html`.

@@ -61,7 +61,7 @@ def artifact_readme(snapshot: dict) -> str:
         "4. Use the Fix queue, filters, CSV export, and evidence drawer to investigate.",
         "5. Use the Web of Scanners controls to open GitHub's authenticated Actions pages.",
         "",
-        "## Two-minute supervisor demonstration",
+        "## Two-minute review walkthrough",
         "",
         "1. Confirm the branch and full commit SHA at the top of Issue Wall.",
         "2. Show `16/16` required scanner evidence and the Critical/High review queue.",

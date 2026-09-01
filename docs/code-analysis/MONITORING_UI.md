@@ -35,7 +35,7 @@ component, and scanner filters. Findings are severity-sorted Critical through Lo
 Low and informational notes. Separate downloads expose the complete snapshot and raw
 observation collection.
 
-The board keeps supervisor assurance ahead of scanner detail: current branch/SHA and
+The board keeps release assurance ahead of scanner detail: current branch/SHA and
 freshness, deterministic security posture, highest-risk areas, required-channel
 coverage, optional-control evidence, and the critical/high review queue are visible at
 a glance. Optional detail is collapsed by default to prevent scanner noise from
@@ -109,11 +109,9 @@ the analyzed SHA and links to the immutable
 `current-findings-dashboard-<branch>-<sha>-<run-id>` artifact. Download it and open
 `dashboard/START_HERE.md`, then `dashboard/index.html`; this is the complete offline
 Issue Wall, while GitHub's
-Security and quality count remains a separate native-alert surface. The release-facing
-accepted example is dashboard run `33528827999` for implementation commit `c92032a`,
-with 16/16 required channels, 16,257 canonical findings, 16,927 observations, and
-artifact SHA-256 `5a04e175015952d1d78637c00dd118e353a121f52821f070ac1f6387452f2ee7`.
-Runs `32938363593` and `32940124398` remain earlier platform/UI evidence only.
+Security and quality count remains a separate native-alert surface. Always use the
+latest successful manual run for the branch and exact commit being reviewed. Historical
+run IDs, counts, and digests are intentionally not treated as current release evidence.
 
 The former local and QA-host serving paths are retired. GitHub Actions artifact access
 is the sole supported delivery path.
