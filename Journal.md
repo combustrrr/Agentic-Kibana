@@ -11842,3 +11842,24 @@
   its complete 3149-passed backend and 2175-passed Console acceptance before integration.
 - Status: synchronized locally with upstream while preserving the code-analysis work; final
   journal commit and push to the fork branch remain.
+## 2026-09-01 — Fork and upstream branch audit started
+
+- Owner requested a complete review of branch state across the fork (`origin`) and canonical
+  repository (`upstream`) after synchronizing `feature/static-code-analysis`.
+- The audit will classify remote branches and safely synchronize applicable fork refs without
+  deleting branches, rewriting history, or pushing to upstream.
+
+## 2026-09-01 — Fork and upstream branch audit completed
+
+- Refreshed and reviewed every visible branch on both remotes, including ancestry against
+  upstream `Testing`/`main`, the synchronized code-analysis feature, and same-name branches.
+- Fast-forwarded fork `origin/Testing` from `0972ac0` to canonical `upstream/Testing` at
+  `b957dfc` (three commits, no force). Fork `origin/upstream-main` already exactly matches
+  canonical `upstream/main` at `c3f1fa3`.
+- Preserved all fork-only branches. `claude/main`, both acceptance/test branches, and
+  `phase3-monitoring-acceptance` are already ancestors of the code-analysis feature;
+  Dependabot branches retain independent proposals; the historical wireframe branch and
+  local-only divergent branch tips require owner review before any deletion or rewrite.
+- No upstream ref, default branch, protection setting, or branch history was modified.
+- Status: safe remote synchronization complete; destructive branch cleanup and changing the
+  fork default from `claude/main` remain intentionally outside this audit.
