@@ -11820,3 +11820,25 @@
   **#3 re-verified: `case_manager.py` md5 `212873cd13d822a7b64752635285ff1f` unchanged.**
 - Status: done for G1 + portability. Nothing was relabelled; no migration, no backfill.
 - Next: P3/P4 UI (tile renames + drill-down panel), then C, E+G3, H, D, A, B, I.
+## 2026-09-01 — Upstream synchronization session started
+
+- Owner requested synchronizing the fork branch with the latest upstream repository while
+  preserving the fork-only static code-analysis work.
+- Verified a clean worktree on `feature/static-code-analysis` at `bdeb014`; `origin` is the
+  fork and `upstream` is the canonical repository. Reading the dated session handoff and
+  comparing histories precedes any integration.
+
+## 2026-09-01 — Upstream synchronization completed
+
+- Fetched both remotes and merged canonical `upstream/Testing` at `b957dfc` into
+  `feature/static-code-analysis` as merge commit `6596a53`; the incoming range comprised
+  `f4b7d45`, `fb8f314`, and `b957dfc`.
+- The sole merge conflict was the append-only `Journal.md`; both the complete fork history
+  and complete upstream history were retained. Fork-only code-analysis paths and workflow
+  files have no merge delta relative to the feature branch's pre-merge parent.
+- Validation: workflow service-policy audit passed; code-analysis regression suite 49/49
+  passed; `git diff --check` passed. The checkout has no backend pytest environment, so the
+  newly integrated upstream pytest files were not rerun locally; upstream's journal records
+  its complete 3149-passed backend and 2175-passed Console acceptance before integration.
+- Status: synchronized locally with upstream while preserving the code-analysis work; final
+  journal commit and push to the fork branch remain.
