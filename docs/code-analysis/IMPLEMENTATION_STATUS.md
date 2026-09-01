@@ -319,7 +319,9 @@ observed and verified.
 The scanner and exporter use separate GitHub secrets. Native issues normalize into the
 same Issue Wall schema; compatible deterministic findings project outward in Sonar's
 generic format. Sonar-native and `AI_ADVISORY` findings cannot feed that projection.
-The current external Browse-permission blocker and all remaining work live only in
+Main/eligible-PR native results are imported when Sonar exposes them. Free-plan arbitrary
+branch HTTP 403 is a truthful optional-channel `CONFIGURED_PARTIAL` state and never blocks
+Issue Wall publication. All remaining work lives only in
 [`PENDING_WORK.md`](PENDING_WORK.md).
 
 ## 12. Work boundary

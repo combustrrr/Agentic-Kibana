@@ -83,6 +83,24 @@ Candidates such as Blacksmith, BrowserStack, Argos/Chromatic, CodeScene, Qodo, C
 DeepSource, Code Climate, and 1Password require a separate measured decision. Do not
 activate overlapping services by default.
 
+### Enterprise/OSS release hygiene
+
+- Complete the repository ownership and license decision before marketing the work as
+  open source. Public visibility alone is not an OSS license.
+- Before an enterprise or public release, run the documentation consistency checker and
+  verify that README/current-contract files contain no stale scanner, permission, plan,
+  branch, or delivery claims.
+- Keep the code-analysis documentation index grouped as current contracts, operator
+  guides, and historical evidence. Put all unfinished work only in this file; do not add
+  another status/TODO document.
+- After final Issue Wall acceptance, mark the dated session handoff immutable and retain
+  older handoffs only as historical evidence. Do not delete accepted run IDs, artifact
+  hashes, security decisions, or provenance needed for audit.
+- Produce a release-facing scanner/data-handling inventory from the existing architecture
+  and activation contracts: service, purpose, data sent, credential scope, retention,
+  failure behavior, and removal procedure. Do not claim certification or guaranteed
+  security coverage.
+
 ### Fork pull requests
 
 - Inventory current Dependabot PRs, regenerate stale candidates, review major upgrades

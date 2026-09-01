@@ -8,22 +8,55 @@
 > trigger, tool-status, delivery, safety, and verified-evidence handoff. Historical
 > session handoffs are retained as records and are not current operating instructions.
 
-## Engineering document map
+## Start here
 
 | Need | Read |
 |---|---|
-| Start from the current operational state | This README, then [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) |
-| What the platform is and how it works | [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) |
-| What has actually been completed | [`WORK_COMPLETED.md`](WORK_COMPLETED.md) |
-| Why the architecture uses these boundaries | [`ADRS.md`](ADRS.md) |
-| Cloud artifact security and readiness gates | [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) |
-| External service package and dependency architecture | [`SERVICE_ARCHITECTURE.md`](SERVICE_ARCHITECTURE.md) |
+| Current architecture and verified state | [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) |
 | Sole active backlog and priority order | [`PENDING_WORK.md`](PENDING_WORK.md) |
 | Latest development-session restart snapshot | [`SESSION_HANDOFF_2026-09-01.md`](SESSION_HANDOFF_2026-09-01.md) |
-| Authoritative phase/status table | [`EXECUTION_PLAN.md`](EXECUTION_PLAN.md) |
-| Where and how the dashboard is viewed | [`MONITORING_UI.md`](MONITORING_UI.md) |
-| External service activation state | [`EXTERNAL_ACTIVATION.md`](EXTERNAL_ACTIVATION.md) |
-| Snyk overlap and retention decision | [`SNYK_UNIQUE_CONTRIBUTION.md`](SNYK_UNIQUE_CONTRIBUTION.md) |
+
+## Documentation structure
+
+### Current contracts
+
+These files describe behavior that implementations and workflows must continue to honor.
+
+| Document | Purpose |
+|---|---|
+| [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) | Consolidated architecture, triggers, scanner status, safety boundaries, and accepted evidence |
+| [`EXECUTION_PLAN.md`](EXECUTION_PLAN.md) | Authoritative phase and implementation-status table |
+| [`ADRS.md`](ADRS.md) | Durable architectural decisions and rejected alternatives |
+| [`SERVICE_ARCHITECTURE.md`](SERVICE_ARCHITECTURE.md) | External service, package, and dependency boundaries |
+| [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) | Artifact security and readiness gates |
+
+### Operator guides
+
+| Document | Purpose |
+|---|---|
+| [`MONITORING_UI.md`](MONITORING_UI.md) | How to run, open, and use Issue Wall |
+| [`EXTERNAL_ACTIVATION.md`](EXTERNAL_ACTIVATION.md) | Optional service activation and credential boundaries |
+| [`PENDING_WORK.md`](PENDING_WORK.md) | The only active backlog |
+
+### Evidence and historical records
+
+These files explain how the current state was reached. They are not alternate operating
+instructions and must not carry active pending work.
+
+| Document | Purpose |
+|---|---|
+| [`WORK_COMPLETED.md`](WORK_COMPLETED.md) | Delivered-work inventory |
+| [`PHASE1_BASELINE.md`](PHASE1_BASELINE.md) | Initial findings baseline |
+| [`ACKNOWLEDGED_GAPS.md`](ACKNOWLEDGED_GAPS.md) | Historical canary-gap resolution evidence |
+| [`SNYK_UNIQUE_CONTRIBUTION.md`](SNYK_UNIQUE_CONTRIBUTION.md) | Snyk overlap and retention measurement |
+| [`Finding-Lifecycle-and-Coherence.md`](Finding-Lifecycle-and-Coherence.md) | Earlier lifecycle/coherence design record |
+| [`SESSION_HANDOFF_2026-08-26.md`](SESSION_HANDOFF_2026-08-26.md) | Historical session snapshot |
+| [`SESSION_HANDOFF_2026-08-28.md`](SESSION_HANDOFF_2026-08-28.md) | Historical session snapshot |
+| [`SESSION_HANDOFF_2026-09-01.md`](SESSION_HANDOFF_2026-09-01.md) | Latest restart snapshot |
+
+Document lifecycle is intentionally simple: update current contracts when behavior
+changes, place every unfinished action only in `PENDING_WORK.md`, and retain dated
+handoffs as immutable evidence. Do not add another top-level status or TODO document.
 
 ## Objective
 
@@ -105,10 +138,11 @@ See [`MONITORING_UI.md`](MONITORING_UI.md) for the authenticated GitHub artifact
   GitHub App execution is verified.
 - SonarQube Cloud exact-commit analysis is verified. Bounded native issue export,
   canonical parsing, and a loop-safe generic external-issue projection are implemented.
-  Native cloud ingestion currently reports `CONFIGURED_PARTIAL` because the PAT owner
-  still lacks project Browse permission; the precise acceptance step lives only in
-  [`PENDING_WORK.md`](PENDING_WORK.md). Sonar-native and all `AI_ADVISORY` findings are
-  excluded from the outbound projection.
+  Both PATs authenticate and Sonar accepted the explicit Browse grant. Main and eligible
+  PR results are imported when exposed; Free-plan arbitrary-branch issue access remains
+  HTTP 403 and is represented truthfully as `CONFIGURED_PARTIAL` without blocking Issue
+  Wall. Sonar-native and all `AI_ADVISORY` findings are excluded from the outbound
+  projection.
 - CodeScene and additional tools enter only after an exportable, non-redundant
   contribution is approved and measured.
 - `config/code-analysis/proposal-tool-catalog.json` (repository source; intentionally

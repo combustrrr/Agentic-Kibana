@@ -11635,3 +11635,19 @@
   migration, PAT rotation, or repeated Browse grants are explicitly unnecessary.
 - Validation: documentation consistency passed for 79 public pages, workflow service
   policy passed, and `git diff --check` passed. Status: decision documentation complete.
+
+## 2026-09-01 — Code-analysis documentation prepared for enterprise/OSS review
+
+- Owner requested a neat, limited cleanup of the code-analysis work before enterprise and
+  possible OSS presentation.
+- Reorganized the code-analysis README into a short start path plus current contracts,
+  operator guides, and historical evidence. Added a lifecycle rule preventing duplicate
+  status/TODO documents and corrected the stale Sonar Browse-permission statement.
+- Added bounded enterprise/OSS release hygiene to the sole pending-work ledger: license
+  and ownership, stale-claim audit, durable evidence retention, and a release-facing
+  scanner/data-handling inventory.
+- The stale-claim sweep also corrected the consolidated implementation record so it no
+  longer describes Sonar as a Browse-permission blocker.
+- Validation: documentation consistency passed for 79 public pages, workflow service
+  policy passed, stale Sonar blocker phrases are absent, and `git diff --check` passed.
+  Status: code-analysis documentation cleanup complete and ready to publish.
