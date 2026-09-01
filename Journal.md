@@ -11623,3 +11623,15 @@
 - Validation: documentation consistency passed for 79 public pages, workflow service
   policy passed, and `git diff --check` passed. Status: session handoff complete and ready
   for final commit/push.
+
+## 2026-09-01 — Unified Issue Wall priority clarified
+
+- Owner chose the simplest operating model: one normalized Issue Wall containing all
+  available scanner evidence; external vendors are inputs and never publication gates.
+- Reprioritized P0 from Sonar OSS activation to end-to-end dashboard acceptance, complete
+  channel normalization, truthful optional-channel status, and cost/artifact evidence.
+- Updated the session handoff: Sonar main/eligible-PR findings remain best-effort,
+  Free-plan non-main HTTP 403 remains `CONFIGURED_PARTIAL`, and repository/workspace
+  migration, PAT rotation, or repeated Browse grants are explicitly unnecessary.
+- Validation: documentation consistency passed for 79 public pages, workflow service
+  policy passed, and `git diff --check` passed. Status: decision documentation complete.

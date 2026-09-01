@@ -8,48 +8,41 @@ This is the only active code-analysis backlog. Other documents describe current 
 durable decisions, or historical evidence and must link here instead of carrying their own
 next-step lists.
 
-Shutdown checkpoint: branch `feature/static-code-analysis` is pushed through `32b3ca4`
-before this dedicated session-handoff commit.
-Resume with P0 step 1; do not replace either PAT or repeat the Browse grant.
+Shutdown checkpoint: branch `feature/static-code-analysis` is pushed through `f22246d`.
+Resume with P0 step 1. Do not replace either PAT, repeat the Browse grant, migrate the
+repository, or create another Sonar organization merely to unblock reporting.
 The restart narrative and accepted evidence are recorded in
 [`SESSION_HANDOFF_2026-09-01.md`](SESSION_HANDOFF_2026-09-01.md); this file remains the
 only source of pending actions.
 
-## P0 — Unblock and prove Sonar native ingestion
+## P0 — Accept the unified Issue Wall as the deliverable
 
-Both GitHub secrets are valid PATs and exact-SHA Sonar analysis succeeds. Run
-`33429643637` authenticated both PATs as `combustrrr-Uw7cT@github` and Sonar accepted an
-explicit project Browse grant with HTTP 204. The project is public and main-project issues
-are anonymously readable, but the same user still receives HTTP 403 for both short- and
-long-lived non-main branches. This matches the organization's current Free-plan behavior:
-Sonar stores non-main analysis but does not expose its results until the organization has
-Team, Enterprise, or the free OSS plan. The stable `branch-issue-wall-<hash>` projection
-is ready and Issue Wall retains the real branch and exact SHA.
+The product objective is one normalized, read-only visualization containing every result
+that each configured service makes available for the selected branch and exact commit.
+No optional vendor may block dashboard publication. A channel that is unavailable,
+rate-limited, plan-limited, or not configured must appear truthfully with its status while
+the remaining scanner web still publishes.
 
-1. Complete Sonar's web-based **Get SonarQube for OSS** enrollment for organization
-   `combustrrr`. Sonar exposes no supported CLI/Web API operation for changing to OSS.
-   The repository is public but currently has no published license; complete the legal/
-   ownership decision and publish an eligible license before claiming OSS eligibility.
-2. After Sonar confirms OSS activation, re-run only **Code Quality** for the current
-   branch head and confirm the projected branch issues API returns HTTP 200.
-3. Require `sonar-status.json` = `CONFIGURED_COMPLETE` and retain
-   `sonar-native-issues.json` with the exact branch, commit, analysis ID, bounded count,
-   and zero imported `external_*` issues.
-4. Let exact-SHA aggregation finish and prove Sonar findings appear in the canonical
-   Issue Wall while `normalized/sonar-external-issues.json` contains compatible
-   deterministic code-local non-Sonar findings only. CodeRabbit must remain excluded as
-   `AI_ADVISORY`.
+1. Download the latest complete Issue Wall artifact and visually accept desktop and narrow
+   layouts, fresh severity colors, charts, filters, exact source locations, evidence
+   dialog, channel-status explanations, and CSV export.
+2. Prove the exact branch/SHA report includes every available deterministic quality,
+   security, dependency, and repository channel in the canonical schema. Keep Snyk in
+   that same view and CodeRabbit visible but clearly labelled `AI_ADVISORY`.
+3. Prove an optional-channel failure still produces a successful Issue Wall artifact and
+   a truthful channel card; it must not suppress findings from healthy scanners.
+4. Record final runner minutes, cache behavior, artifact size, channel count, canonical
+   finding count, and observation count.
 
-Cloud runs through `33429643637` completed native analysis and truthfully retained
-`CONFIGURED_PARTIAL`. Anonymous main-project issue search returns HTTP 200 with 1,135
-issues. The latest run proves this is no longer a token or Browse-grant problem; access to
-stored non-main analysis is the remaining subscription entitlement. Do not call native
-ingestion operational until the four checks above pass.
+Sonar is explicitly best-effort. Import its native findings for main and eligible PR
+analyses when the API exposes them. On arbitrary branches under the current Free plan,
+retain `CONFIGURED_PARTIAL` and publish all other findings. Run `33429643637` proved both
+PATs and the Browse grant are correct; the remaining HTTP 403 is a plan entitlement, not
+an Issue Wall blocker. OSS enrollment may be reconsidered later, but it is not required
+for P0 and must not trigger repository/workspace migration by default.
 
-## P1 — Finish acceptance and cost budgets
+## P1 — Finish platform-level acceptance
 
-- Download the final artifact and visually accept desktop and narrow layouts, fresh
-  severity colors, charts, filtering, source locations, evidence dialog, and CSV export.
 - Record billed runner minutes and cache behavior. Manual run `33414567342` already
   proved exact-head orchestration and immutable dashboard publication in 8m20s; dashboard
   run `33415271105` completed in 48s and retained a 16,429,426-byte artifact with 16/16
@@ -82,8 +75,9 @@ Already active:
 - Snyk: verified optional SCA/SAST; do not add a second integration.
 - CodeRabbit: verified exact-head GitHub App evidence; permanently isolated under
   `AI_ADVISORY`.
-- SonarQube Cloud: analysis, both PATs, and the explicit Browse grant are verified;
-  native non-main import awaits Sonar OSS-plan activation and one exact-head proof run.
+- SonarQube Cloud: best-effort optional input. Analysis, both PATs, and the explicit Browse
+  grant are verified. Import exposed main/eligible-PR results; represent Free-plan non-main
+  HTTP 403 as `CONFIGURED_PARTIAL` without blocking Issue Wall.
 
 Candidates such as Blacksmith, BrowserStack, Argos/Chromatic, CodeScene, Qodo, Codacy,
 DeepSource, Code Climate, and 1Password require a separate measured decision. Do not
