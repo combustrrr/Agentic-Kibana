@@ -1,0 +1,10 @@
+{
+  "schema_version": "2",
+  "baseline_id": "accepted-run-32578162932",
+  "baseline_commit_sha": "ad960b29b258e5f7a2fbc83b983f7d90ab0d073d",
+  "accepted_run_id": "32578162932",
+  "accepted_at": "2026-08-22T00:00:00Z",
+  "accepted_by_process": "fork PR #2 monitoring acceptance",
+  "replacement_policy": "explicit-reviewed-operation-only",
+  "expected_finding_count": 8535
+}

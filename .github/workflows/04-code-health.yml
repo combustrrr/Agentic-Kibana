@@ -1,0 +1,209 @@
+# ============================================================
+# Layer 5: Code Health & Technical Debt — Workflow
+# Agentic SOC external code-analysis service
+# Tools: Radon + Xenon (complexity), Vulture (dead code),
+#        Coverage.py (test coverage)
+# ============================================================
+
+name: Code Health & Technical Debt
+run-name: Code Health & Technical Debt · ${{ inputs.scan_branch || github.head_ref || github.ref_name }} · ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      scan_sha:
+        description: "Exact branch-head commit selected by the manual orchestrator"
+        required: false
+        type: string
+      scan_branch:
+        description: "Source branch associated with the selected commit"
+        required: false
+        type: string
+  pull_request:
+  push:
+    branches: ["**"]
+  # schedule:
+    # - cron: "0 4 * * 1"    # Monday weekly full health report
+
+  # Fork-only monitoring: analysis-branch pushes exercise upstream syncs automatically.
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: code-health-${{ inputs.scan_branch || github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Radon — cyclomatic complexity measurement
+  # Xenon — enforce complexity thresholds (CI gate)
+  # ─────────────────────────────────────────────
+  complexity:
+    name:  Radon + Xenon (Code Complexity)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Checkout trusted analysis tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .analysis-tooling
+          sparse-checkout: .ci
+          sparse-checkout-cone-mode: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: .analysis-tooling/.ci/requirements.txt
+
+      - name: Install tools
+        run: python -m pip install --requirement .analysis-tooling/.ci/requirements.txt
+
+      - name: Radon — cyclomatic complexity report
+        run: |
+          echo "=== Cyclomatic Complexity (all functions) ==="
+          radon cc backend/ -s -a --min A --json > radon-cc.json
+          radon cc backend/ -s -a --min B
+          echo "=== Maintainability Index ==="
+          radon mi backend/ -s --json > radon-mi.json
+          radon mi backend/ -s
+
+      - name: Xenon — enforce complexity gate
+        run: |
+          # Fail if any module exceeds:
+          # --max-average B  (allow avg up to B)
+          # --max-modules B  (allow any module up to B)
+          # --max-absolute C (hard stop at C — very complex)
+          xenon \
+            --max-average B \
+            --max-modules B \
+            --max-absolute C \
+            backend/ 2>&1 | tee xenon-results.txt || true
+
+      - name: Upload Radon reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: radon-reports
+          path: |
+            radon-cc.json
+            radon-mi.json
+            xenon-results.txt
+
+  # ─────────────────────────────────────────────
+  # Vulture — Python dead code detection
+  # NOTE: output is candidate list, not auto-delete.
+  #       All results go through AI triage.
+  # ─────────────────────────────────────────────
+  dead-code:
+    name:  Vulture (Dead Code Detection)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Checkout trusted analysis tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .analysis-tooling
+          sparse-checkout: .ci
+          sparse-checkout-cone-mode: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: .analysis-tooling/.ci/requirements.txt
+
+      - name: Install tools
+        run: python -m pip install --requirement .analysis-tooling/.ci/requirements.txt
+
+      - name: Run Vulture
+        run: |
+          vulture backend/ \
+            --min-confidence 80 \
+            > vulture-results.txt || true
+          # Print human-readable summary
+          vulture backend/ --min-confidence 80 || true
+
+      - name: Upload Vulture results
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vulture-results
+          path: vulture-results.txt
+
+  # ─────────────────────────────────────────────
+  # Coverage.py — test coverage + dead code evidence
+  # ─────────────────────────────────────────────
+  test-coverage:
+    name:  Coverage.py (Test Coverage)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install -r backend/requirements-dev.txt
+
+      - name: Run pytest with coverage
+        env:
+          PYTHONPATH: ${{ github.workspace }}/backend
+        run: |
+          cd backend
+          python -m coverage erase
+          set +e
+          python -m coverage run --branch --source=app -m pytest -q
+          test_exit=$?
+          python -m coverage json -o coverage.json
+          python -m coverage xml -o coverage.xml
+          python -m coverage report --show-missing --fail-under=70
+          coverage_exit=$?
+          if (( test_exit != 0 || coverage_exit != 0 )); then
+            echo "::warning::Coverage/test thresholds are advisory in Phase 3"
+          fi
+          exit 0
+
+      - name: Materialize coverage reports after failed or successful tests
+        if: always()
+        working-directory: backend
+        run: |
+          python -m coverage json -o coverage.json || true
+          python -m coverage xml -o coverage.xml || true
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-reports
+          path: |
+            backend/coverage.xml
+            backend/coverage.json

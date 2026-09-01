@@ -1,0 +1,51 @@
+{
+  "schema_version": "1",
+  "service": "external-code-analysis",
+  "boundary": "read-only-external",
+  "layers": {
+    "contracts": [
+      "config/code-analysis/required-channels.json",
+      "config/code-analysis/proposal-tool-catalog.json"
+    ],
+    "ingestion_adapters": [
+      "scripts/code_analysis/normalizer.py",
+      "scripts/code_analysis/collect_coderabbit.py"
+    ],
+    "domain": [
+      "scripts/code_analysis/monitoring.py"
+    ],
+    "application": [
+      "scripts/code_analysis/evidence_contract.py",
+      "scripts/code_analysis/channel_status.py",
+      "scripts/code_analysis/provenance.py",
+      "scripts/code_analysis/snapshot.py",
+      "scripts/code_analysis/pipeline.py"
+    ],
+    "presentation": [
+      "scripts/code_analysis/bound_sarif.py",
+      "scripts/code_analysis/validate_sbom.py",
+      "scripts/code_analysis/dashboard.py",
+      "scripts/code_analysis/dashboard_template.html"
+    ],
+    "infrastructure_adapters": [
+      ".github/workflows/05-issue-aggregation.yml"
+    ],
+    "verification": [
+      "scripts/code_analysis/audit_workflows.py",
+      "scripts/code_analysis/validate_canary.py",
+      "scripts/code_analysis/benchmark_monitoring.py",
+      "scripts/code_analysis/test_service.py"
+    ],
+    "compatibility_entrypoints": [
+      "scripts/code_analysis/normalizer.py",
+      "scripts/code_analysis/pipeline.py",
+      "scripts/code_analysis/collect_coderabbit.py",
+      "scripts/code_analysis/validate_canary.py",
+      "scripts/code_analysis/audit_workflows.py"
+    ]
+  },
+  "forbidden_runtime_dependencies": [
+    "backend/app",
+    "webui/src"
+  ]
+}

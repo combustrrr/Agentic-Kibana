@@ -1,0 +1,314 @@
+name: Full Code Analysis (Manual)
+run-name: Analyze branch · ${{ inputs.scan_branch || github.event.repository.default_branch }} · ${{ inputs.scan_sha || 'latest HEAD' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      scan_branch:
+        description: "Branch to scan; leave blank for the repository default branch"
+        required: false
+        default: ""
+        type: string
+      scan_sha:
+        description: "Optional exact 40-character commit SHA from that branch; leave blank for latest HEAD"
+        required: false
+        type: string
+
+# One operator action pins a branch head, runs the four read-only scanner groups,
+# waits for them, and builds the exact-commit dashboard.
+permissions:
+  contents: read
+
+concurrency:
+  group: manual-code-analysis-${{ inputs.scan_branch || github.event.repository.default_branch }}
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    name: Scan branch head and build dashboard
+    outputs:
+      scan_branch: ${{ steps.target.outputs.branch }}
+      scan_sha: ${{ steps.target.outputs.sha }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      actions: write
+      checks: read
+      contents: read
+    # This orchestration job intentionally does not check out source. Give gh an
+    # explicit repository so workflow/run commands never depend on local .git state.
+    env:
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Resolve and validate the selected fork branch
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_BRANCH: ${{ inputs.scan_branch }}
+          REQUESTED_SHA: ${{ inputs.scan_sha }}
+          GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="${REQUESTED_BRANCH:-$GITHUB_DEFAULT_BRANCH}"
+          if [[ -z "$branch" || "$branch" == refs/* || "$branch" == *$'\n'* || "$branch" == *$'\r'* ]]; then
+            echo "Invalid branch name" >&2
+            exit 1
+          fi
+          encoded="$(jq -rn --arg value "$branch" '$value|@uri')"
+          payload="$(gh api "repos/${GITHUB_REPOSITORY}/branches/${encoded}")"
+          head_sha="$(jq -r '.commit.sha // empty' <<<"$payload")"
+          if [[ ! "$head_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "The selected branch has no valid head commit" >&2
+            exit 1
+          fi
+          sha="${head_sha,,}"
+          if [[ -n "$REQUESTED_SHA" ]]; then
+            if [[ ! "$REQUESTED_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+              echo "Specific SHA must contain exactly 40 hexadecimal characters" >&2
+              exit 1
+            fi
+            sha="${REQUESTED_SHA,,}"
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}" >/dev/null
+            if [[ "$sha" != "${head_sha,,}" ]]; then
+              comparison="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${sha}...${head_sha,,}")"
+              relation="$(jq -r '.status // empty' <<<"$comparison")"
+              if [[ "$relation" != "ahead" ]]; then
+                echo "Specific SHA $sha is not reachable from branch $branch at ${head_sha,,}" >&2
+                exit 1
+              fi
+            fi
+          fi
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "head-sha=${head_sha,,}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Web of Scanners · live pipeline"
+            echo
+            echo "1. ✅ Branch resolved: \`$branch\` · selected \`$sha\` · current HEAD \`${head_sha,,}\`"
+            echo "2. ⏳ Resolve or dispatch the four scanner groups"
+            echo "3. ⏳ Validate all required scanner evidence"
+            echo "4. ⏳ Build and publish Issue Wall"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dispatch all required full-codebase scanners
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCAN_BRANCH: ${{ steps.target.outputs.branch }}
+          SCAN_SHA: ${{ steps.target.outputs.sha }}
+          BRANCH_HEAD_SHA: ${{ steps.target.outputs.head-sha }}
+          WORKFLOW_REF: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dispatched_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          : > scanner-runs.tsv
+          {
+            echo "## Full code analysis"
+            echo
+            echo "- Branch: \`$SCAN_BRANCH\`"
+            echo "- Locked head commit: \`$SCAN_SHA\`"
+            echo "- Mode: read-only security and quality diagnosis"
+            echo
+            echo "### Scanner runs"
+          } > manual-analysis-summary.md
+          encoded="$(jq -rn --arg value "$SCAN_BRANCH" '$value|@uri')"
+          for workflow in \
+            01-code-quality.yml \
+            02-security-sast.yml \
+            03-dependency-security.yml \
+            04-code-health.yml
+          do
+            case "$workflow" in
+              01-code-quality.yml) run_title="Code Quality · $SCAN_BRANCH · $SCAN_SHA" ;;
+              02-security-sast.yml) run_title="Security / SAST · $SCAN_BRANCH · $SCAN_SHA" ;;
+              03-dependency-security.yml) run_title="Dependency & Supply Chain Security · $SCAN_BRANCH · $SCAN_SHA" ;;
+              04-code-health.yml) run_title="Code Health & Technical Debt · $SCAN_BRANCH · $SCAN_SHA" ;;
+              *) echo "Unknown scanner workflow: $workflow" >&2; exit 1 ;;
+            esac
+            runs="$(gh run list --workflow "$workflow" --status success --limit 100 \
+              --json databaseId,displayTitle,url)"
+            reusable="$(jq -r --arg title "$run_title" \
+              '([.[] | select(.displayTitle == $title)] | first) // empty | [.databaseId,.url] | @tsv' \
+              <<<"$runs")"
+            if [[ -n "$reusable" ]]; then
+              IFS=$'\t' read -r run_id run_url <<<"$reusable"
+              artifact_count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts" --jq '.total_count')"
+              if (( artifact_count > 0 )); then
+                printf '%s\t%s\t%s\n' "$workflow" "$run_id" "$run_url" >> scanner-runs.tsv
+                printf '%s\n' "- ♻️ [$workflow]($run_url) — reused exact-commit evidence" >> manual-analysis-summary.md
+                echo "::notice title=Scanner evidence reused::$workflow already succeeded for $SCAN_SHA"
+                continue
+              fi
+              echo "::warning title=Expired scanner evidence::$workflow succeeded before, but its artifacts are unavailable; dispatching a fresh run"
+            fi
+            current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/${encoded}" --jq '.commit.sha')"
+            if [[ "${current_sha,,}" != "$BRANCH_HEAD_SHA" ]]; then
+              echo "Branch moved from $BRANCH_HEAD_SHA to $current_sha before $workflow dispatch; refusing a mixed-branch-state scan" >&2
+              exit 1
+            fi
+            # The selected target branch need not contain the analysis workflows.
+            # Execute the approved default-branch definition; inputs pin checkout to
+            # the exact selected branch head.
+            gh workflow run "$workflow" --ref "$WORKFLOW_REF" \
+              -f scan_sha="$SCAN_SHA" \
+              -f scan_branch="$SCAN_BRANCH"
+          done
+          final_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/${encoded}" --jq '.commit.sha')"
+          if [[ "${final_sha,,}" != "$BRANCH_HEAD_SHA" ]]; then
+            echo "Branch moved while scanners were dispatched; no publication is authorized" >&2
+            exit 1
+          fi
+          for workflow in \
+            01-code-quality.yml \
+            02-security-sast.yml \
+            03-dependency-security.yml \
+            04-code-health.yml
+          do
+            if awk -F '\t' -v workflow="$workflow" '$1 == workflow { found=1 } END { exit !found }' scanner-runs.tsv; then
+              continue
+            fi
+            run_id=""
+            run_url=""
+            case "$workflow" in
+              01-code-quality.yml) run_title="Code Quality · $SCAN_BRANCH · $SCAN_SHA" ;;
+              02-security-sast.yml) run_title="Security / SAST · $SCAN_BRANCH · $SCAN_SHA" ;;
+              03-dependency-security.yml) run_title="Dependency & Supply Chain Security · $SCAN_BRANCH · $SCAN_SHA" ;;
+              04-code-health.yml) run_title="Code Health & Technical Debt · $SCAN_BRANCH · $SCAN_SHA" ;;
+              *) echo "Unknown scanner workflow: $workflow" >&2; exit 1 ;;
+            esac
+            for attempt in $(seq 1 30); do
+              : "$attempt"  # The bounded counter is intentionally used only to cap polling.
+              runs="$(gh run list --workflow "$workflow" \
+                --event workflow_dispatch --limit 20 \
+                --json databaseId,createdAt,displayTitle,url)"
+              run_id="$(jq -r --arg started "$dispatched_at" --arg title "$run_title" \
+                '[.[] | select(.createdAt >= $started and .displayTitle == $title)] | sort_by(.createdAt) | last | .databaseId // empty' \
+                <<<"$runs")"
+              run_url="$(jq -r --arg started "$dispatched_at" --arg title "$run_title" \
+                '[.[] | select(.createdAt >= $started and .displayTitle == $title)] | sort_by(.createdAt) | last | .url // empty' \
+                <<<"$runs")"
+              [[ -n "$run_id" ]] && break
+              sleep 5
+            done
+            if [[ -z "$run_id" ]]; then
+              echo "::error::Could not locate the dispatched $workflow run for $SCAN_SHA"
+              exit 1
+            fi
+            printf '%s\t%s\t%s\n' "$workflow" "$run_id" "$run_url" >> scanner-runs.tsv
+            printf '%s\n' "- ▶️ [$workflow]($run_url) — dispatched for selected head" >> manual-analysis-summary.md
+          done
+          {
+            echo
+            echo "### Scanner resolution"
+            echo "All four scanner identities are locked to \`$SCAN_SHA\`. Existing retained evidence was reused where valid; missing evidence was dispatched."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Wait for all scanner groups
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          declare -a pids=()
+          declare -a labels=()
+          while IFS=$'\t' read -r workflow run_id run_url; do
+            echo "::notice title=Scanner running::$workflow · run $run_id · $run_url"
+            (
+              echo "::group::$workflow live progress"
+              gh run watch "$run_id" --interval 15 --exit-status
+              status=$?
+              echo "::endgroup::"
+              exit "$status"
+            ) &
+            pids+=("$!")
+            labels+=("$workflow")
+          done < scanner-runs.tsv
+          failed=0
+          for index in "${!pids[@]}"; do
+            if wait "${pids[$index]}"; then
+              echo "::notice title=Scanner complete::${labels[$index]} succeeded"
+            else
+              echo "::error title=Scanner failed::${labels[$index]} did not produce successful evidence"
+              failed=1
+            fi
+          done
+          (( failed == 0 )) || exit 1
+          echo >> manual-analysis-summary.md
+          echo "All four scanner groups completed successfully." >> manual-analysis-summary.md
+          {
+            echo
+            echo "### Scanner evidence complete"
+            echo "All four workflow groups succeeded. Issue Wall aggregation can now enforce the 16-channel evidence contract."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish operator summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f manual-analysis-summary.md ]]; then
+            cat manual-analysis-summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Full code analysis did not initialize" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          {
+            echo
+            echo "- Issue Wall publication: runs next as the reusable dashboard job in this manual workflow"
+            echo "- Source, Issue, PR-comment, patch, autofix, and deployment writes: disabled"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  dashboard:
+    name: Build exact-commit Issue Wall artifact
+    needs: dispatch
+    uses: ./.github/workflows/05-issue-aggregation.yml
+    with:
+      scan_branch: ${{ needs.dispatch.outputs.scan_branch }}
+      scan_sha: ${{ needs.dispatch.outputs.scan_sha }}
+    permissions:
+      actions: read
+      checks: write
+      contents: read
+      pull-requests: read
+
+  supervisor-handoff:
+    name: Supervisor-ready artifact handoff
+    if: always()
+    needs: [dispatch, dashboard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Publish launch instructions
+        env:
+          SCAN_BRANCH: ${{ needs.dispatch.outputs.scan_branch }}
+          SCAN_SHA: ${{ needs.dispatch.outputs.scan_sha }}
+          DASHBOARD_RESULT: ${{ needs.dashboard.result }}
+          ARTIFACT_URL: ${{ needs.dashboard.outputs.artifact_url }}
+          ARTIFACT_ID: ${{ needs.dashboard.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.dashboard.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "# Supervisor Issue Wall handoff"
+            echo
+            printf '%s\n' "- Branch: \`${SCAN_BRANCH:-unavailable}\`"
+            printf '%s\n' "- Exact commit: \`${SCAN_SHA:-unavailable}\`"
+            printf '%s\n' "- Dashboard build: \`${DASHBOARD_RESULT}\`"
+            printf '%s\n' "- Artifact ID: \`${ARTIFACT_ID:-unavailable}\`"
+            printf '%s\n' "- Artifact digest: \`${ARTIFACT_DIGEST:-unavailable}\`"
+            echo
+            if [[ "$DASHBOARD_RESULT" == "success" && -n "$ARTIFACT_URL" ]]; then
+              printf '## [Download the complete Issue Wall artifact](%s)\n' "$ARTIFACT_URL"
+              echo
+              echo "Extract the ZIP, open \`dashboard/START_HERE.md\`, then open \`dashboard/index.html\`."
+              echo "No VM, server, installation, or network connection is required after download."
+            else
+              echo "## Issue Wall was not published"
+              echo
+              echo "Inspect the failed scanner/dashboard job. No incomplete artifact is presented as release evidence."
+              exit 1
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,23 @@
+{
+  "schema_version": "1",
+  "required_static_channels": [
+    {"channel": "ruff", "scanner_family": "Ruff", "surface": "python-quality", "workflow": "01-code-quality.yml", "artifact_patterns": ["*ruff*.json"]},
+    {"channel": "pyright", "scanner_family": "Pyright", "surface": "python-types", "workflow": "01-code-quality.yml", "artifact_patterns": ["*pyright*.json"]},
+    {"channel": "eslint", "scanner_family": "ESLint", "surface": "typescript-quality", "workflow": "01-code-quality.yml", "artifact_patterns": ["*eslint*.json"]},
+    {"channel": "typescript", "scanner_family": "TypeScript", "surface": "typescript-types", "workflow": "01-code-quality.yml", "artifact_patterns": ["*tsc*.txt"]},
+    {"channel": "bandit", "scanner_family": "Bandit", "surface": "python-security", "workflow": "01-code-quality.yml", "artifact_patterns": ["*bandit*.json"]},
+    {"channel": "codeql", "scanner_family": "CodeQL", "surface": "semantic-sast", "workflow": "02-security-sast.yml", "artifact_patterns": ["*codeql*.sarif", "*codeql*/*.sarif", "*codeql*/*/*.sarif"]},
+    {"channel": "semgrep", "scanner_family": "Semgrep", "surface": "pattern-sast", "workflow": "02-security-sast.yml", "artifact_patterns": ["*semgrep*.sarif", "*semgrep*.json"]},
+    {"channel": "osv", "scanner_family": "OSV-Scanner", "surface": "dependency", "workflow": "03-dependency-security.yml", "artifact_patterns": ["*osv*.sarif"]},
+    {"channel": "gitleaks", "scanner_family": "Gitleaks", "surface": "secrets", "workflow": "03-dependency-security.yml", "artifact_patterns": ["*gitleaks*.sarif"]},
+    {"channel": "trivy", "scanner_family": "Trivy", "surface": "dependency-container", "workflow": "03-dependency-security.yml", "artifact_patterns": ["*trivy*.sarif"]},
+    {"channel": "checkov", "scanner_family": "Checkov", "surface": "iac", "workflow": "03-dependency-security.yml", "artifact_patterns": ["*checkov*.sarif", "*checkov*/*.sarif", "*checkov*/*/*.sarif"]},
+    {"channel": "hadolint", "scanner_family": "Hadolint", "surface": "dockerfile", "workflow": "03-dependency-security.yml", "artifact_patterns": ["*hadolint*.sarif"]},
+    {"channel": "vulture", "scanner_family": "Vulture", "surface": "dead-code", "workflow": "04-code-health.yml", "artifact_patterns": ["*vulture*.txt", "*vulture*.json"]},
+    {"channel": "radon", "scanner_family": "Radon", "surface": "complexity-metrics", "workflow": "04-code-health.yml", "artifact_patterns": ["*radon*.json"]},
+    {"channel": "xenon", "scanner_family": "Xenon", "surface": "complexity-thresholds", "workflow": "04-code-health.yml", "artifact_patterns": ["*xenon*.txt"]},
+    {"channel": "coverage", "scanner_family": "Coverage.py", "surface": "runtime-evidence", "workflow": "04-code-health.yml", "artifact_patterns": ["*coverage.json"]}
+  ],
+  "dynamic_channels": ["schemathesis", "atheris"],
+  "ai_advisory_channels": []
+}

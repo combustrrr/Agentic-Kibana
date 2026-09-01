@@ -1,0 +1,13 @@
+name: "Canary-only CodeQL configuration"
+
+queries:
+  - uses: security-and-quality
+  - uses: security-extended
+
+paths:
+  - tests/security_canary/python/
+  - tests/security_canary/typescript/
+
+paths-ignore:
+  - backend/
+  - webui/

@@ -1,0 +1,191 @@
+# ============================================================
+# Workflow 6: Canary Coverage Validation
+# Agentic SOC external code-analysis service
+#
+# This workflow is the INTEGRATION TEST for the entire tool web.
+# It runs all scanners against the deliberately-vulnerable canary
+# test suite and verifies every expected vulnerability is caught.
+#
+# Runs: Weekly (Sunday) + after any tool config change
+# Fails: If any expected vulnerability is NOT detected
+# ============================================================
+
+name: Canary Coverage Validation
+
+on:
+  workflow_dispatch:
+  # Fork-development validation only. This never runs on upstream or production refs.
+  push:
+    branches:
+      - feature/static-code-analysis
+    paths:
+      - ".github/semgrep-rules/**"
+      - ".github/codeql/**"
+      - ".github/workflows/02-security-sast.yml"
+      - ".github/workflows/03-dependency-security.yml"
+      - ".github/workflows/06-canary-validation.yml"
+      - "scripts/code_analysis/**"
+      - "tests/security_canary/**"
+  # schedule:
+  #   - cron: "0 5 * * 0"    # Sunday 05:00 UTC
+permissions:
+  contents: read
+
+jobs:
+  canary-scan:
+    name:  Scan Canary Suite with All Tools
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: .ci/requirements.txt
+
+      - name: Initialize canary-only CodeQL
+        uses: github/codeql-action/init@42947a340483f03ba47bb1a039b2c519aab3df85 # v4
+        with:
+          languages: python,javascript-typescript
+          queries: +security-extended,security-and-quality
+          config-file: .github/codeql/codeql-canary-config.yml
+
+      - name: Analyze canary fixtures with CodeQL
+        uses: github/codeql-action/analyze@42947a340483f03ba47bb1a039b2c519aab3df85 # v4
+        with:
+          output: canary-results-codeql
+          upload: false
+
+      - name: Install tools
+        run: |
+          python -m pip install --requirement .ci/requirements.txt
+          python -m pip install "checkov==3.2.468"
+
+      - name: Prepare non-ignored canary scan root
+        run: |
+          mkdir -p canary-input/canary
+          cp -R tests/security_canary/. canary-input/canary/
+
+      - name: Run Semgrep on canary suite
+        run: |
+          semgrep \
+            --config=.github/semgrep-rules/ \
+            --config=p/python \
+            --config=p/owasp-top-ten \
+            --config=p/jwt \
+            --no-git-ignore \
+            --json \
+            --output=canary-results-semgrep.json \
+            canary-input/canary/ || true
+
+      - name: Run Bandit on canary suite
+        run: |
+          bandit \
+            -r tests/security_canary/python/ \
+            --format json \
+            --output canary-results-bandit.json \
+            --exit-zero || true
+
+      - name: Run Ruff on canary suite
+        run: |
+          ruff check tests/security_canary/ \
+            --output-format=json \
+            --exit-zero \
+            > canary-results-ruff.json || true
+
+      - name: Run Gitleaks on canary suite
+        run: |
+          mkdir -p canary-gitleaks-input/canary/python
+          cp tests/security_canary/python/hardcoded_secret.py canary-gitleaks-input/canary/python/
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.24.2 detect \
+            --source /repo/canary-gitleaks-input \
+            --config /repo/.gitleaks.toml \
+            --no-git \
+            --report-format=sarif \
+            --report-path /repo/canary-results-gitleaks.sarif \
+            --exit-code 0 || true
+
+      - name: Run OSV-Scanner on vulnerable canary dependencies
+        shell: bash
+        run: cp tests/security_canary/requirements-vulnerable.fixture canary-input/requirements-vulnerable.txt
+
+      - name: Scan vulnerable canary dependencies with OSV-Scanner
+        continue-on-error: true
+        uses: google/osv-scanner-action/osv-scanner-action@6e4298ebc4db23e847df9b2e2de2939d6f066c67 # v2.5.1
+        with:
+          scan-args: |-
+            --lockfile=canary-input/requirements-vulnerable.txt
+            --format=sarif
+            --output=canary-results-osv.sarif
+
+      - name: Run Hadolint on insecure canary Dockerfile
+        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
+        with:
+          dockerfile: tests/security_canary/Dockerfile.insecure
+          format: sarif
+          output-file: canary-results-hadolint.sarif
+          no-fail: true
+
+      - name: Run Checkov on insecure canary Dockerfile
+        run: |
+          checkov \
+            --file tests/security_canary/Dockerfile.insecure \
+            --framework dockerfile \
+            --output sarif \
+            --output-file-path canary-results-checkov.sarif \
+            --soft-fail || true
+
+      - name: Collect all canary scan outputs
+        run: |
+          mkdir -p canary-scan-results
+          cp canary-results-semgrep.json canary-scan-results/ 2>/dev/null || true
+          cp canary-results-bandit.json canary-scan-results/ 2>/dev/null || true
+          cp canary-results-ruff.json canary-scan-results/ 2>/dev/null || true
+          cp canary-results-gitleaks.sarif canary-scan-results/ 2>/dev/null || true
+          cp canary-results-osv.sarif canary-scan-results/ 2>/dev/null || true
+          cp canary-results-hadolint.sarif canary-scan-results/ 2>/dev/null || true
+          find canary-results-checkov.sarif -type f -name '*.sarif' \
+            -exec cp {} canary-scan-results/canary-results-checkov.sarif \; 2>/dev/null || true
+          cp -R canary-results-codeql canary-scan-results/ 2>/dev/null || true
+
+      - name: Normalize canary findings
+        run: |
+          python scripts/code_analysis/normalizer.py \
+            --input-dir canary-scan-results \
+            --output-dir canary-normalized \
+            --verbose
+
+      - name: Validate coverage — integration test
+        run: |
+          python scripts/code_analysis/validate_canary.py \
+            --findings-dir canary-normalized \
+            --verbose
+        # This step FAILS if any expected vulnerability is missed
+        # That failure means the tool web has a dead spot
+
+      - name: Upload canary results (for debugging)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: canary-validation-results
+          path: |
+            canary-scan-results/
+            canary-normalized/
+
+      - name: Post coverage summary
+        if: always()
+        run: |
+          echo "## 🛡️ Canary Coverage Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f canary-normalized/deduplicated-findings.json ]; then
+            COUNT=$(python -c "import json; d=json.load(open('canary-normalized/deduplicated-findings.json')); print(len(d))")
+            echo "- **Total canary findings (deduplicated):** $COUNT" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "- **Run date:** $(date -u +%Y-%m-%d)" >> "$GITHUB_STEP_SUMMARY"
