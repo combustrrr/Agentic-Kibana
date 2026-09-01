@@ -81,7 +81,7 @@ jobs:
 
       - name: Autobuild (TypeScript/React)
         if: matrix.language == 'javascript-typescript'
-        uses: github/codeql-action/autobuild@42947a340483f03ba47bb1a039b2c519aab3df85 # v4
+        uses: github/codeql-action/autobuild@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@42947a340483f03ba47bb1a039b2c519aab3df85 # v4
