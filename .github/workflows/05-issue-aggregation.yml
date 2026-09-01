@@ -234,6 +234,7 @@ jobs:
             printf '\nArtifact ID for validated manual recovery: \140%s\140\n' "${ARTIFACT_ID:-unavailable}"
           } >> dashboard/github-summary.md
           existing="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${MONITORED_SHA}/check-runs?filter=latest&per_page=100")"
+          # shellcheck disable=SC2016  # $name/$external are jq variables, not shell variables.
           check_id="$(jq -r --arg name "$check_name" --arg external "$external_id" \
             '[.check_runs[] | select(.name == $name and .external_id == $external)] | first | .id // empty' <<<"$existing")"
           conclusion="failure"
@@ -242,6 +243,7 @@ jobs:
             conclusion="success"
             if (( finding_count > 0 )); then conclusion="neutral"; fi
           fi
+          # shellcheck disable=SC2016  # All dollar-prefixed names in the program are jq --arg values.
           jq -n \
             --arg name "$check_name" \
             --arg sha "$MONITORED_SHA" \

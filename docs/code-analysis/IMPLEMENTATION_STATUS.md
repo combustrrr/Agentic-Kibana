@@ -286,7 +286,7 @@ history. SonarQube Cloud is an optional external scanner; DefectDojo is not cont
 - Sonar analysis/native-export proofs: runs `33404195186`, `33405919866`, and
   `33409996015` completed exact-SHA analysis in 14–15 minutes and then truthfully
   reported `CONFIGURED_PARTIAL` on issue-API HTTP 403.
-- Analysis-service regression suite: 48/48 tests pass, including Sonar native parsing,
+- Analysis-service regression suite: 49/49 tests pass, including Sonar native parsing,
   projection loop prevention, and `AI_ADVISORY` exclusion.
 
 These prove configured pipeline behavior and the defined canary set. They do not prove

@@ -60,9 +60,10 @@ container, or QA host is deployed.
 
 Workflow policy and service tests pass; CodeRabbit exact-head review reaches only
 `AI_ADVISORY`; exact-commit 16-channel artifacts and the authenticated self-contained
-Issue Wall have been produced. SonarQube Cloud analysis also succeeds, while its native
-issue import remains honestly partial until the PAT owner receives project Browse
-permission. The sole remaining acceptance list is
+Issue Wall have been produced. SonarQube Cloud analysis, both PATs, and the explicit
+Browse grant are verified; native non-main issue import remains honestly partial because
+the current Free organization does not expose branch issues through the API. The sole
+remaining governance and optional-evidence list is
 [`PENDING_WORK.md`](PENDING_WORK.md).
 
 DefectDojo is not part of the supported read-only dashboard service. CodeScene is only

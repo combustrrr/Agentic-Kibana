@@ -11887,3 +11887,22 @@
 - Validation: workflow service-policy audit passed; code-analysis suite 49/49 passed;
   documentation consistency passed for 79 pages; `git diff --check` passed. Superseded bounded
   wait runs `33526167579` and `33525103069` were cancelled before publishing the fix.
+
+## 2026-09-01 — Issue Wall P0/P1 acceptance completed
+
+- Exact-head orchestrator `33527080901` completed successfully in 17m21s and dashboard run
+  `33528827999` published the immutable artifact for implementation head `c92032a`.
+- Accepted artifact: 17,431,210 bytes; SHA-256
+  `5a04e175015952d1d78637c00dd118e353a121f52821f070ac1f6387452f2ee7`; publishable
+  16/16 required channels; 16,257 canonical findings; 16,927 observations. Snyk contributed
+  382/383 findings/observations; CodeRabbit was correctly `AI_ADVISORY`/`NOT_APPLICABLE`;
+  Sonar and repository posture were truthful `CONFIGURED_PARTIAL` without blocking.
+- Visual acceptance covered the real desktop artifact and a regenerated 500px narrow view.
+  The first constrained capture exposed horizontal viewport containment, which was corrected
+  in the source template before acceptance. Source links, evidence dialog, severity grammar,
+  charts, filters, and filtered CSV implementation were verified.
+- Summed job time was approximately 64.6 runner minutes. Logs proved restored npm, Python,
+  Gitleaks, Trivy binary, and Trivy database caches; Sonar remained the dominant lane and no
+  second automatic Sonar projection scan was added.
+- Corrected the last stale Browse-permission claim, updated the 49-test evidence, marked P0/P1
+  accepted, and retained only conditional vendor/governance decisions in the sole backlog.
