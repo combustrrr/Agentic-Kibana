@@ -19,6 +19,7 @@
 | Cloud artifact security and readiness gates | [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) |
 | External service package and dependency architecture | [`SERVICE_ARCHITECTURE.md`](SERVICE_ARCHITECTURE.md) |
 | Sole active backlog and priority order | [`PENDING_WORK.md`](PENDING_WORK.md) |
+| Latest development-session restart snapshot | [`SESSION_HANDOFF_2026-09-01.md`](SESSION_HANDOFF_2026-09-01.md) |
 | Authoritative phase/status table | [`EXECUTION_PLAN.md`](EXECUTION_PLAN.md) |
 | Where and how the dashboard is viewed | [`MONITORING_UI.md`](MONITORING_UI.md) |
 | External service activation state | [`EXTERNAL_ACTIVATION.md`](EXTERNAL_ACTIVATION.md) |

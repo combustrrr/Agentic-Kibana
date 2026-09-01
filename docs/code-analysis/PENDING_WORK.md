@@ -8,8 +8,12 @@ This is the only active code-analysis backlog. Other documents describe current 
 durable decisions, or historical evidence and must link here instead of carrying their own
 next-step lists.
 
-Shutdown checkpoint: branch `feature/static-code-analysis` is pushed through `6c13d2e`.
+Shutdown checkpoint: branch `feature/static-code-analysis` is pushed through `32b3ca4`
+before this dedicated session-handoff commit.
 Resume with P0 step 1; do not replace either PAT or repeat the Browse grant.
+The restart narrative and accepted evidence are recorded in
+[`SESSION_HANDOFF_2026-09-01.md`](SESSION_HANDOFF_2026-09-01.md); this file remains the
+only source of pending actions.
 
 ## P0 — Unblock and prove Sonar native ingestion
 
