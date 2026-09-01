@@ -1,0 +1,71 @@
+name: CodeRabbit Advisory Evidence
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+# CodeRabbit remains an automatic, read-only AI advisory source. This workflow retains
+# exact-head evidence only; it cannot publish or refresh Issue Wall. The next operator-
+# initiated Full Code Analysis (Manual) run collects the same current evidence.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  collect:
+    name: Retain exact-head AI advisory evidence
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.actor == 'coderabbitai[bot]' || github.actor == 'coderabbitai')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: coderabbit-evidence-${{ github.event.pull_request.head.sha }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout trusted evidence collector
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: scripts/code_analysis/collect_coderabbit.py
+          sparse-checkout-cone-mode: false
+
+      - name: Collect exact-head CodeRabbit evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCAN_BRANCH: ${{ github.event.pull_request.head.ref }}
+          SCAN_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/code_analysis/collect_coderabbit.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --branch "$SCAN_BRANCH" \
+            --commit "$SCAN_SHA" \
+            --output-dir coderabbit-evidence
+
+      - name: Retain advisory evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coderabbit-advisory-evidence-${{ github.event.pull_request.head.sha }}
+          path: coderabbit-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish evidence summary
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "## CodeRabbit AI advisory evidence retained"
+            echo
+            printf '%s\n' "- PR: #${PR_NUMBER}"
+            printf '%s\n' "- Branch: \`${PR_HEAD_BRANCH}\`"
+            printf '%s\n' "- Exact head: \`${PR_HEAD_SHA}\`"
+            echo "- Evidence lane: \`AI_ADVISORY\`"
+            echo "- Issue Wall publication: \`manual only\`"
+          } >> "$GITHUB_STEP_SUMMARY"

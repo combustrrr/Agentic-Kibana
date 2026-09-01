@@ -1,0 +1,289 @@
+name: Code Analysis Dashboard
+run-name: Dashboard · ${{ inputs.scan_branch }} · ${{ inputs.scan_sha }}
+
+on:
+  workflow_call:
+    inputs:
+      scan_branch:
+        description: "Branch identity for the manually selected source commit"
+        required: true
+        type: string
+      scan_sha:
+        description: "Exact source commit selected by Full Code Analysis (Manual)"
+        required: true
+        type: string
+    outputs:
+      artifact_url:
+        description: "Authenticated download page for the complete offline Issue Wall artifact"
+        value: ${{ jobs.aggregate.outputs.artifact_url }}
+      artifact_id:
+        description: "GitHub artifact identifier for audit and recovery"
+        value: ${{ jobs.aggregate.outputs.artifact_id }}
+      artifact_digest:
+        description: "SHA-256 digest reported by GitHub for the uploaded artifact"
+        value: ${{ jobs.aggregate.outputs.artifact_digest }}
+
+# Reusable publication implementation. Only Full Code Analysis (Manual) calls it.
+# Scanner push/PR workflows may retain evidence, but cannot publish Issue Wall.
+
+permissions:
+  actions: read
+  checks: write
+  contents: read
+  pull-requests: read
+
+# A report for an older commit must not consume time or publish after a newer branch
+# head begins aggregation. Different branches remain fully independent.
+concurrency:
+  group: issue-wall-${{ inputs.scan_branch }}
+  cancel-in-progress: true
+
+jobs:
+  aggregate:
+    name: Build one advisory findings dashboard
+    outputs:
+      artifact_url: ${{ steps.analysis-artifact.outputs.artifact-url }}
+      artifact_id: ${{ steps.analysis-artifact.outputs.artifact-id }}
+      artifact_digest: ${{ steps.analysis-artifact.outputs.artifact-digest }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout this fork branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+
+      - name: Install pinned service dependencies
+        run: python -m pip install "click==8.2.1" "ruff==0.12.5"
+
+      - name: Download latest completed scanner artifacts for this branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCAN_BRANCH: ${{ inputs.scan_branch }}
+          SCAN_SHA: ${{ inputs.scan_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p scan-artifacts
+          : > scanner-run-ids.txt
+          workflows=(01-code-quality.yml 02-security-sast.yml 03-dependency-security.yml 04-code-health.yml)
+          declare -A run_ids=()
+          for attempt in $(seq 1 40); do
+            : "$attempt"  # One shared deadline keeps the four-workflow handoff bounded.
+            missing=0
+            for workflow in "${workflows[@]}"; do
+              [[ -n "${run_ids[$workflow]:-}" ]] && continue
+              run_id=""
+              case "$workflow" in
+                01-code-quality.yml) run_title="Code Quality · $SCAN_BRANCH · $SCAN_SHA" ;;
+                02-security-sast.yml) run_title="Security / SAST · $SCAN_BRANCH · $SCAN_SHA" ;;
+                03-dependency-security.yml) run_title="Dependency & Supply Chain Security · $SCAN_BRANCH · $SCAN_SHA" ;;
+                04-code-health.yml) run_title="Code Health & Technical Debt · $SCAN_BRANCH · $SCAN_SHA" ;;
+                *) echo "Unknown scanner workflow: $workflow" >&2; exit 1 ;;
+              esac
+              # Manual aggregation may reuse any successful exact-title run whose
+              # retained artifacts still exist, including native push/PR evidence.
+              runs="$(gh run list --workflow "$workflow" --status success --limit 30 --json databaseId,displayTitle)"
+              run_id="$(jq -r --arg title "$run_title" '[.[] | select(.displayTitle == $title)] | first | .databaseId // empty' <<<"$runs")"
+              if [[ -n "$run_id" ]]; then
+                run_ids[$workflow]="$run_id"
+              else
+                ((missing+=1))
+              fi
+            done
+            (( missing == 0 )) && break
+            sleep 30
+          done
+          for workflow in "${workflows[@]}"; do
+            run_id="${run_ids[$workflow]:-}"
+            if [[ -z "$run_id" ]]; then
+              echo "::error::No completed run found for $workflow at monitored commit $SCAN_SHA"
+              exit 1
+            fi
+            mkdir -p "scan-artifacts/$workflow"
+            gh run download "$run_id" --dir "scan-artifacts/$workflow"
+            printf '%s\n' "$run_id" >> scanner-run-ids.txt
+          done
+
+      - name: Collect optional exact-head CodeRabbit advisories
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MONITORED_SHA: ${{ inputs.scan_sha }}
+          MONITORED_BRANCH: ${{ inputs.scan_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p scan-artifacts/coderabbit
+          if ! python scripts/code_analysis/collect_coderabbit.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --branch "$MONITORED_BRANCH" \
+            --commit "$MONITORED_SHA" \
+            --output-dir scan-artifacts/coderabbit
+          then
+            printf '%s\n' '{"schema_version":"1","scanner_family":"CodeRabbit","status":"UNAVAILABLE","reason":"GitHub review evidence could not be collected","finding_count":0,"observation_count":0}' \
+              > scan-artifacts/coderabbit/coderabbit-status.json
+          fi
+
+      - name: Run the shared current-findings pipeline
+        env:
+          MONITORED_SHA: ${{ inputs.scan_sha }}
+          MONITORED_BRANCH: ${{ inputs.scan_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_args=()
+          while IFS= read -r run_id; do run_args+=(--workflow-run-id "$run_id"); done < scanner-run-ids.txt
+          set +e
+          python scripts/code_analysis/pipeline.py \
+            --artifacts scan-artifacts \
+            --output pipeline-output \
+            --repository "$GITHUB_REPOSITORY" \
+            --commit "$MONITORED_SHA" \
+            --branch "$MONITORED_BRANCH" \
+            "${run_args[@]}" \
+            --manifest config/code-analysis/required-channels.json \
+            2>&1 | tee pipeline-diagnostic.log
+          pipeline_exit=${PIPESTATUS[0]}
+          set -e
+          if (( pipeline_exit != 0 )); then
+            mkdir -p dashboard
+            {
+              echo "## Issue Wall — Web of Scanners"
+              echo
+              echo "A publishable snapshot could not be produced. The previous hosted snapshot remains active."
+              echo
+              echo "### Bounded pipeline diagnostic"
+              echo '```text'
+              tail -n 30 pipeline-diagnostic.log \
+                | sed -E 's/(token|secret|password|authorization)([^[:space:]]*)/REDACTED/Ig'
+              echo '```'
+            } > dashboard/github-summary.md
+            exit "$pipeline_exit"
+          fi
+          mv pipeline-output/normalized normalized
+          mv pipeline-output/dashboard dashboard
+          mv pipeline-output/channel-status.json channel-status.json
+          mv pipeline-output/snapshot-provenance.json snapshot-provenance.json
+          mv pipeline-output/scanner-evidence-contract.json scanner-evidence-contract.json
+          rmdir pipeline-output
+
+      - name: Build portable snapshot artifact identity
+        id: snapshot-key
+        if: always()
+        env:
+          MONITORED_BRANCH: ${{ inputs.scan_branch }}
+          MONITORED_SHA: ${{ inputs.scan_sha }}
+        shell: bash
+        run: |
+          if [[ ! "$MONITORED_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "Invalid full source commit SHA: $MONITORED_SHA" >&2
+            exit 1
+          fi
+          branch_slug="$(printf '%s' "$MONITORED_BRANCH" | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+|-+$//g' | cut -c1-80)"
+          [[ -n "$branch_slug" ]] || branch_slug=unknown
+          branch_hash="$(printf '%s' "$MONITORED_BRANCH" | sha256sum | cut -c1-12)"
+          branch_key="${branch_slug}-${branch_hash}"
+          echo "branch-key=$branch_key" >> "$GITHUB_OUTPUT"
+          echo "commit-key=${MONITORED_SHA,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload complete current snapshot
+        id: analysis-artifact
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: current-findings-dashboard-${{ steps.snapshot-key.outputs.branch-key }}-${{ steps.snapshot-key.outputs.commit-key }}-${{ github.run_id }}
+          path: |
+            normalized/
+            dashboard/
+            channel-status.json
+            snapshot-provenance.json
+            scanner-evidence-contract.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish one advisory GitHub Check for this commit
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MONITORED_SHA: ${{ inputs.scan_sha }}
+          ARTIFACT_URL: ${{ steps.analysis-artifact.outputs.artifact-url }}
+          ARTIFACT_ID: ${{ steps.analysis-artifact.outputs.artifact-id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          check_name="Code Analysis Dashboard"
+          check_namespace="agentic-soc-current-findings-v1"
+          check_key="${GITHUB_REPOSITORY}:${MONITORED_SHA}:${check_name}:${check_namespace}"
+          external_id="$(printf '%s' "$check_key" | sha256sum | cut -d' ' -f1)"
+          details_url="${ARTIFACT_URL:-$RUN_URL}"
+          mkdir -p dashboard
+          if [[ ! -f dashboard/github-summary.md ]]; then
+            printf '## Issue Wall — Web of Scanners\n\nA publishable snapshot could not be produced. The previous accepted artifact remains authoritative.\n' > dashboard/github-summary.md
+          fi
+          {
+            printf '\n[Download the complete offline Issue Wall artifact](%s)\n' "$ARTIFACT_URL"
+            printf '\nAfter extraction, open \140dashboard/index.html\140; \140dashboard/START_HERE.md\140 contains the launch guide.\n'
+            printf '\nArtifact ID for validated manual recovery: \140%s\140\n' "${ARTIFACT_ID:-unavailable}"
+          } >> dashboard/github-summary.md
+          existing="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${MONITORED_SHA}/check-runs?filter=latest&per_page=100")"
+          # The dollar-prefixed names below are jq variables supplied with --arg.
+          # shellcheck disable=SC2016
+          check_id="$(jq -r --arg name "$check_name" --arg external "$external_id" \
+            '[.check_runs[] | select(.name == $name and .external_id == $external)] | first | .id // empty' <<<"$existing")"
+          conclusion="failure"
+          if [[ -f normalized/current-snapshot.json ]] && [[ "$(jq -r .publishable normalized/current-snapshot.json)" == "true" ]]; then
+            finding_count="$(jq -r '.finding_count // 0' normalized/current-snapshot.json)"
+            conclusion="success"
+            if (( finding_count > 0 )); then conclusion="neutral"; fi
+          fi
+          # All dollar-prefixed names below are jq variables supplied with --arg.
+          # shellcheck disable=SC2016
+          jq -n \
+            --arg name "$check_name" \
+            --arg sha "$MONITORED_SHA" \
+            --arg external "$external_id" \
+            --arg url "$details_url" \
+            --arg conclusion "$conclusion" \
+            --rawfile summary dashboard/github-summary.md \
+            '{name:$name, head_sha:$sha, external_id:$external, status:"completed", conclusion:$conclusion, details_url:$url, output:{title:"Current findings snapshot", summary:$summary}}' \
+            > check-run.json
+          if [[ -n "$check_id" ]]; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/check-runs/${check_id}" --input check-run.json >/dev/null
+          else
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/check-runs" --input check-run.json >/dev/null
+          fi
+
+      - name: Publish run summary
+        if: always()
+        env:
+          SUMMARY_BRANCH: ${{ inputs.scan_branch }}
+          SUMMARY_SHA: ${{ inputs.scan_sha }}
+          SUMMARY_ARTIFACT_URL: ${{ steps.analysis-artifact.outputs.artifact-url }}
+          SUMMARY_ARTIFACT_ID: ${{ steps.analysis-artifact.outputs.artifact-id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            if [[ -f dashboard/github-summary.md ]]; then
+              cat dashboard/github-summary.md
+            else
+              echo "## Issue Wall"
+              echo
+              echo "Dashboard generation did not complete. Inspect this run's logs."
+            fi
+            echo
+            printf '%s\n' "- Monitored branch: \`${SUMMARY_BRANCH}\`"
+            printf '%s\n' "- Monitored commit: \`${SUMMARY_SHA}\`"
+            printf '%s\n' "- Complete offline Issue Wall artifact: ${SUMMARY_ARTIFACT_URL:-not published}"
+            printf '%s\n' "- Validated artifact ID: ${SUMMARY_ARTIFACT_ID:-not published}"
+            echo "- Issue writes: \`disabled\`"
+            echo "- Autofix generation/application: \`disabled\`"
+            echo "- Merge blocking: \`disabled\`"
+            echo "- Automatic closing: \`disabled\`"
+          } >> "$GITHUB_STEP_SUMMARY"

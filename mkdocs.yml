@@ -178,6 +178,17 @@ nav:
           - Permissions: reference/permissions.md
           - Compatibility: reference/compatibility.md
           - Security invariants: reference/security.md
+      - Code analysis:
+          - Overview: code-analysis/README.md
+          - Issue Wall: code-analysis/MONITORING_UI.md
+          - Architecture: code-analysis/SERVICE_ARCHITECTURE.md
+          - Production readiness: code-analysis/PRODUCTION_READINESS.md
+          - Data handling: code-analysis/DATA_HANDLING_INVENTORY.md
+          - External activation: code-analysis/EXTERNAL_ACTIVATION.md
+          - Snyk contribution: code-analysis/SNYK_UNIQUE_CONTRIBUTION.md
+          - Integration gate: code-analysis/UPSTREAM_INTEGRATION.md
+          - Current decisions: code-analysis/PENDING_WORK.md
+          - Current handoff: code-analysis/SESSION/_HANDOFF_2026-09-02.md
       - Develop and extend:
           - Overview: development/index.md
           - Backend: development/backend.md

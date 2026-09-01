@@ -1,0 +1,204 @@
+# ============================================================
+# Layer 2: Security / SAST — GitHub Actions Workflow
+# Agentic SOC external code-analysis service
+# Tools: CodeQL (Python+JS), Semgrep (OWASP+custom), Bandit
+# All findings → SARIF → GitHub Security tab
+# ============================================================
+
+name: Security / SAST
+run-name: Security / SAST · ${{ inputs.scan_branch || github.head_ref || github.ref_name }} · ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      scan_sha:
+        description: "Exact branch-head commit selected by the manual orchestrator"
+        required: false
+        type: string
+      scan_branch:
+        description: "Source branch associated with the selected commit"
+        required: false
+        type: string
+  pull_request:
+  push:
+    branches: ["**"]
+  # schedule:
+    # - cron: "0 2 * * 1"    # weekly full scan — Monday 02:00 UTC
+
+  # Fork-only monitoring: analysis-branch pushes exercise upstream syncs automatically.
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: security-sast-${{ inputs.scan_branch || github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────
+  # CodeQL — semantic taint/data-flow analysis
+  # Covers: Python + JavaScript (TypeScript)
+  # Offline: YES — runs entirely on the CI runner
+  # ─────────────────────────────────────────────
+  codeql:
+    name:  CodeQL (Semantic SAST)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+
+      - name: Checkout trusted analysis tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .analysis-tooling
+          sparse-checkout: .github/codeql
+          sparse-checkout-cone-mode: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@42947a340483f03ba47bb1a039b2c519aab3df85 # v4
+        with:
+          languages: ${{ matrix.language }}
+          queries: +security-extended,security-and-quality
+          config-file: .analysis-tooling/.github/codeql/codeql-config.yml
+
+      - name: Build (Python — no explicit build needed)
+        if: matrix.language == 'python'
+        run: echo "Python — autobuild skipped, using source"
+
+      - name: Autobuild (TypeScript/React)
+        if: matrix.language == 'javascript-typescript'
+        uses: github/codeql-action/autobuild@42947a340483f03ba47bb1a039b2c519aab3df85 # v4
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@42947a340483f03ba47bb1a039b2c519aab3df85 # v4
+        with:
+          category: "/language:${{ matrix.language }}"
+          output: codeql-output
+          upload: false
+
+      - name: Canonicalize CodeQL SARIF artifact
+        shell: bash
+        env:
+          CODEQL_LANGUAGE: ${{ matrix.language }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' sarif_files < <(find codeql-output -type f -name '*.sarif' -print0)
+          if (( ${#sarif_files[@]} != 1 )); then
+            echo "::error::Expected exactly one CodeQL SARIF file, found ${#sarif_files[@]}"
+            exit 1
+          fi
+          cp "${sarif_files[0]}" "codeql-${CODEQL_LANGUAGE}.sarif"
+
+      - name: Upload SARIF to GitHub Security tab
+        if: success()
+        uses: github/codeql-action/upload-sarif@42947a340483f03ba47bb1a039b2c519aab3df85 # v4
+        with:
+          sarif_file: codeql-${{ matrix.language }}.sarif
+          category: "codeql-${{ matrix.language }}"
+
+      - name: Upload SARIF artifact (for normalizer)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: codeql-${{ matrix.language }}-sarif
+          path: codeql-${{ matrix.language }}.sarif
+
+  # ─────────────────────────────────────────────
+  # Semgrep — fast pattern + custom rules
+  # Covers: Python FastAPI, LangGraph, OWASP Top 10
+  # Offline: YES (OSS rules bundled, no Semgrep.dev required)
+  # ─────────────────────────────────────────────
+  semgrep:
+    name:  Semgrep (Pattern Analysis)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Checkout trusted analysis tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .analysis-tooling
+          sparse-checkout: |
+            .github/semgrep-rules
+            scripts/code_analysis
+          sparse-checkout-cone-mode: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+
+      - name: Install Semgrep
+        run: pip install semgrep==1.80.0 click==8.1.7 python-dateutil==2.9.0.post0
+
+      - name: Validate custom Semgrep rules
+        run: semgrep --validate --config=.analysis-tooling/.github/semgrep-rules/
+
+      - name: Run Semgrep (JSON output)
+        run: |
+          semgrep \
+            --config=p/python \
+            --config=p/owasp-top-ten \
+            --config=p/jwt \
+            --config=p/secrets \
+            --config=p/fastapi \
+            --config=.analysis-tooling/.github/semgrep-rules/ \
+            --json \
+            --output=semgrep-results.json \
+            --severity=ERROR \
+            --severity=WARNING \
+            backend/ webui/src/ || true
+
+      - name: Normalize Semgrep JSON to SARIF
+        run: |
+          mkdir -p semgrep-scan-results
+          cp semgrep-results.json semgrep-scan-results/
+          python .analysis-tooling/scripts/code_analysis/normalizer.py \
+            --input-dir semgrep-scan-results \
+            --output-dir semgrep-normalized
+
+      - name: Upload SARIF to GitHub Security tab
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@42947a340483f03ba47bb1a039b2c519aab3df85 # v4
+        with:
+          sarif_file: semgrep-normalized/normalized.sarif
+          category: "semgrep"
+
+      - name: Upload SARIF artifact (for normalizer)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: semgrep-sarif
+          path: semgrep-normalized/normalized.sarif
+
+      - name: Upload JSON results (for normalizer)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: semgrep-results
+          path: semgrep-results.json

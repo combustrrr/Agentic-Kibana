@@ -1,0 +1,28 @@
+# ============================================================
+# CodeQL Configuration
+# Agentic SOC external code-analysis service
+# ============================================================
+
+# Path to a YAML-format config file that customizes the CodeQL CLI.
+# Reference: https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/customizing-code-scanning-configuration
+
+# Use the default CodeQL query suite plus security-extended queries
+queries:
+  - uses: security-and-quality
+  - uses: security-extended
+
+# Paths to include in the analysis
+paths:
+  - backend/
+  - webui/src/
+
+# Paths to exclude (tests, canary, build artifacts)
+paths-ignore:
+  - tests/security_canary/
+  - backend/.venv/
+  - webui/node_modules/
+  - webui/dist/
+
+# Repository model packs under `.github/codeql/extensions/` are automatically
+# discovered by CodeQL in advanced setup. They extend the standard queries with
+# Agentic SOC request, SQL, path, HTML, and LLM-output trust-boundary models.
