@@ -29,6 +29,7 @@ These files describe behavior that implementations and workflows must continue t
 | [`ADRS.md`](ADRS.md) | Durable architectural decisions and rejected alternatives |
 | [`SERVICE_ARCHITECTURE.md`](SERVICE_ARCHITECTURE.md) | External service, package, and dependency boundaries |
 | [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) | Artifact security and readiness gates |
+| [`DATA_HANDLING_INVENTORY.md`](DATA_HANDLING_INVENTORY.md) | Release-facing scanner, credential, retention, failure, and removal inventory |
 
 ### Operator guides
 

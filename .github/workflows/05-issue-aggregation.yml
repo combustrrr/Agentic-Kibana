@@ -84,7 +84,10 @@ jobs:
                   04-code-health.yml) run_title="Code Health & Technical Debt · $SCAN_BRANCH · $SCAN_SHA" ;;
                   *) echo "Unknown scanner workflow: $workflow" >&2; exit 1 ;;
                 esac
-                runs="$(gh run list --workflow "$workflow" --event workflow_dispatch --status success --limit 30 --json databaseId,displayTitle)"
+                # Manual aggregation may reuse any successful exact-title run whose
+                # retained artifacts still exist; the orchestrator deliberately reuses
+                # native push/PR evidence as well as workflow_dispatch evidence.
+                runs="$(gh run list --workflow "$workflow" --status success --limit 30 --json databaseId,displayTitle)"
                 run_id="$(jq -r --arg title "$run_title" '[.[] | select(.displayTitle == $title)] | first | .databaseId // empty' <<<"$runs")"
               else
                 run_id="$(gh run list --workflow "$workflow" --commit "$SCAN_SHA" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
@@ -225,12 +228,14 @@ jobs:
           if [[ ! -f dashboard/github-summary.md ]]; then
             printf '## Issue Wall — Web of Scanners\n\nA publishable snapshot could not be produced. The previous accepted artifact remains authoritative.\n' > dashboard/github-summary.md
           fi
-          printf '\n[Download the complete offline Issue Wall artifact](%s)\n' "$ARTIFACT_URL" >> dashboard/github-summary.md
-          printf '\nAfter extraction, open `dashboard/index.html`; `dashboard/START_HERE.md` contains the launch guide.\n' >> dashboard/github-summary.md
-          printf '\nArtifact ID for validated manual recovery: \140%s\140\n' "${ARTIFACT_ID:-unavailable}" >> dashboard/github-summary.md
+          {
+            printf '\n[Download the complete offline Issue Wall artifact](%s)\n' "$ARTIFACT_URL"
+            printf '\nAfter extraction, open `dashboard/index.html`; `dashboard/START_HERE.md` contains the launch guide.\n'
+            printf '\nArtifact ID for validated manual recovery: \140%s\140\n' "${ARTIFACT_ID:-unavailable}"
+          } >> dashboard/github-summary.md
           existing="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${MONITORED_SHA}/check-runs?filter=latest&per_page=100")"
           check_id="$(jq -r --arg name "$check_name" --arg external "$external_id" \
-            "[.check_runs[] | select(.name == \$name and .external_id == \$external)] | first | .id // empty" <<<"$existing")"
+            '[.check_runs[] | select(.name == $name and .external_id == $external)] | first | .id // empty' <<<"$existing")"
           conclusion="failure"
           if [[ -f normalized/current-snapshot.json ]] && [[ "$(jq -r .publishable normalized/current-snapshot.json)" == "true" ]]; then
             finding_count="$(jq -r '.finding_count // 0' normalized/current-snapshot.json)"
@@ -244,7 +249,7 @@ jobs:
             --arg url "$details_url" \
             --arg conclusion "$conclusion" \
             --rawfile summary dashboard/github-summary.md \
-            "{name:\$name, head_sha:\$sha, external_id:\$external, status:\"completed\", conclusion:\$conclusion, details_url:\$url, output:{title:\"Current findings snapshot\", summary:\$summary}}" \
+            '{name:$name, head_sha:$sha, external_id:$external, status:"completed", conclusion:$conclusion, details_url:$url, output:{title:"Current findings snapshot", summary:$summary}}' \
             > check-run.json
           if [[ -n "$check_id" ]]; then
             gh api --method PATCH "repos/${GITHUB_REPOSITORY}/check-runs/${check_id}" --input check-run.json >/dev/null

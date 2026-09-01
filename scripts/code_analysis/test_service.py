@@ -625,6 +625,9 @@ class MonitoringTests(unittest.TestCase):
         self.assertIn("Open the Issue Wall build and download the offline artifact",workflow)
         self.assertNotIn("issues: write",workflow)
         self.assertNotIn("contents: write",workflow)
+        aggregation=Path(".github/workflows/05-issue-aggregation.yml").read_text(encoding="utf-8")
+        self.assertIn('--status success --limit 30',aggregation)
+        self.assertNotIn('--event workflow_dispatch --status success',aggregation)
 
     def test_default_branch_supervises_every_latest_fork_branch_head(self):
         workflow=Path(".github/workflows/08-full-code-analysis.yml").read_text(encoding="utf-8")

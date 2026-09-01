@@ -11863,3 +11863,27 @@
 - No upstream ref, default branch, protection setting, or branch history was modified.
 - Status: safe remote synchronization complete; destructive branch cleanup and changing the
   fork default from `claude/main` remain intentionally outside this audit.
+## 2026-09-01 — Code-analysis pending-work closure started
+
+- Owner requested completing all remaining code-analysis work after upstream and fork branch
+  synchronization.
+- The authoritative `docs/code-analysis/PENDING_WORK.md` backlog will be verified against the
+  current branch; locally actionable items will be implemented and external-only blockers will
+  be retained truthfully with evidence.
+
+## 2026-09-01 — Pending-work acceptance blockers corrected
+
+- Restored the fork default/dispatcher `claude/main` to the accepted analysis head and launched
+  exact-head acceptance run `33525103069`.
+- Pinned Linux CI exposed ShellCheck SC2129/SC2016 in the dashboard Check publisher; grouped the
+  summary writes and made both jq programs literal-safe.
+- The acceptance run then proved an orchestrator/aggregator mismatch: orchestration could reuse
+  successful exact-title push/PR scanner evidence, while manual aggregation searched only
+  workflow-dispatch runs. Aggregation now accepts any successful exact-title run and still
+  validates retained artifacts; a regression assertion prevents the event filter returning.
+- Added the release-facing scanner/data-handling inventory covering purpose, shared data,
+  credential scope, retention, failure behavior, and removal for every active service and
+  explicitly listing inactive candidates.
+- Validation: workflow service-policy audit passed; code-analysis suite 49/49 passed;
+  documentation consistency passed for 79 pages; `git diff --check` passed. Superseded bounded
+  wait runs `33526167579` and `33525103069` were cancelled before publishing the fix.
