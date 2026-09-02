@@ -10805,3 +10805,11 @@
 - The retry proved Bandit itself now runs and emits JSON, then exposed the next missing runtime dependency: the trusted normalizer imports Click. Added the repository's already-used exact `click==8.2.1` pin to the same manifest so scan production and normalization are both reproducible.
 - The full live path then exposed that the Code Health workflow also invoked Radon, Xenon, and Vulture without declaring them. Added exact pins (`radon==6.0.1`, `xenon==0.9.3`, `vulture==2.16`) to eliminate command-not-found failures and false-success empty dead-code evidence.
 - After all four scanner workflows succeeded, strict Issue Wall assembly correctly rejected Ruff because its job referenced a nonexistent `backend/ruff-analysis.toml`, masked the operational error with `|| true`, and allowed an empty upload. Pointed all Ruff analysis commands at the real trusted `backend/pyproject.toml`, removed masking from evidence generation, removed Ruff's unsupported format `--exit-zero`, and made a missing JSON artifact fail the producer job immediately.
+
+### 2026-09-02 — codex — fork Testing one-click Issue Wall activation completed
+
+- Published the code-analysis subsystem to fork `Testing` without modifying upstream or stable `main`.
+- Final no-input `Full Code Analysis (Manual)` run `33601893842` resolved `Testing` HEAD `f6b027d7edbb47942d021a2a319686e91e90d29d`, dispatched and awaited Code Quality, Security/SAST, Dependency/Supply Chain, and Code Health; all four completed successfully.
+- The shared strict pipeline accepted every required evidence channel, collected optional exact-head CodeRabbit advisory evidence, built the offline dashboard, published the advisory commit check, uploaded artifact `9835780143` (`current-findings-dashboard-Testing-e806a291cfc3-f6b027d7edbb47942d021a2a319686e91e90d29d-33601893842`, 41,574,722 bytes), and completed the review-ready handoff.
+- Live validation found and fixed undeclared Bandit/Click/Radon/Xenon/Vulture runtimes plus Ruff's stale config path and masked missing artifact. Local service regression: 48 passed; workflow policy audit and diff check passed.
+- Artifact expires 2026-10-02. Run: https://github.com/combustrrr/Agentic-Kibana/actions/runs/33601893842
