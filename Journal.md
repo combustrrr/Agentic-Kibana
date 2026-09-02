@@ -10813,3 +10813,13 @@
 - The shared strict pipeline accepted every required evidence channel, collected optional exact-head CodeRabbit advisory evidence, built the offline dashboard, published the advisory commit check, uploaded artifact `9835780143` (`current-findings-dashboard-Testing-e806a291cfc3-f6b027d7edbb47942d021a2a319686e91e90d29d-33601893842`, 41,574,722 bytes), and completed the review-ready handoff.
 - Live validation found and fixed undeclared Bandit/Click/Radon/Xenon/Vulture runtimes plus Ruff's stale config path and masked missing artifact. Local service regression: 48 passed; workflow policy audit and diff check passed.
 - Artifact expires 2026-10-02. Run: https://github.com/combustrrr/Agentic-Kibana/actions/runs/33601893842
+### 2026-09-02 — codex — CodeRabbit, Snyk, and SonarQube Cloud verification started
+
+- Scope: read-only end-to-end verification of configuration, GitHub execution/output, and Issue Wall evidence for CodeRabbit, Snyk, and SonarQube Cloud on the fork's current code-analysis setup. Secret values will not be read or recorded.
+
+### 2026-09-02 — codex — CodeRabbit, Snyk, and SonarQube Cloud verification completed
+
+- Snyk is healthy on exact `Testing` commit `f6b027d7edbb47942d021a2a319686e91e90d29d`: both Open Source SCA and Snyk Code succeeded in dependency run `33601927656`; retained SARIF/status artifact `9835622287` reports `CONFIGURED_COMPLETE`, and the fresh Issue Wall contains 364 Snyk observations.
+- CodeRabbit's GitHub App is historically proven on fork PR #16 with an original `coderabbitai[bot]` review and exact-head inline comments. The current Issue Wall correctly reports `NOT_APPLICABLE`/zero AI advisories for `Testing` because that branch head has no open same-repository PR. The only open PR (#19, Dependabot) has no CodeRabbit review/check. The current advisory-evidence workflow is active, but its most recent bot-triggered run (`33543144809`, on the now-closed integration PR) failed before job creation due to that historical workflow revision; no fresh current-head CodeRabbit event exists to validate the repaired/current revision.
+- Sonar credentials are configured and both tokens authenticate successfully (HTTP 200 for identity and branch-issue probes), but current analysis is not working. Code Quality run `33601913924` failed Sonar scanner execution because `sonar.projectKey` and `sonar.organization` were absent. Root cause: `sonar-project.properties` is missing from current `Testing`, while the workflow still depends on it. Native issue export was consequently skipped and the Issue Wall truthfully reports `CONFIGURED_PARTIAL` with zero Sonar observations.
+- This was a read-only verification. No vendor settings, PRs, branches, or scanner configuration were changed.
