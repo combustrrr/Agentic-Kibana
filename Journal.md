@@ -10847,3 +10847,14 @@
 
 - The feature branch is clean at journal commit `22ebce3`; local tracking reports alignment with `origin/feature/static-code-analysis`. A final direct remote query was prevented by transient network unavailability.
 - CodeRabbit fresh evidence and Sonar analysis repair are complete. The only unresolved item is SonarQube Cloud native branch-issue export HTTP 403, which requires explicit authorization for the bounded persistent Browse-permission grant before work can continue.
+
+### 2026-09-02 — codex — Sonar Browse permission repair resumed
+
+- The repository owner explicitly approved granting the configured `SONAR_API_TOKEN` user Browse permission on SonarQube Cloud project `combustrrr_Agentic-Kibana` so native branch-issue export can complete.
+- Scope remains bounded to the existing idempotent permission workflow, subsequent exact-branch validation, and fresh Issue Wall evidence; upstream and stable `main` remain untouched.
+
+### 2026-09-02 — codex — Sonar repair and final Issue Wall completed
+
+- Approved Code Quality run `33611191166` granted and verified the configured Sonar API user's project Browse permission, analyzed exact `Testing` commit `56382b6a46b4768805951c3926eeb759e8b0979f`, exported native Sonar issues successfully, recorded configured scan status, and completed successfully.
+- Fresh one-click `Full Code Analysis (Manual)` run `33615383904` reused the four successful exact-commit scanner groups, ran the shared strict findings pipeline, published the advisory commit check, and completed the review-ready handoff.
+- Final offline Issue Wall artifact `9840722702` is named `current-findings-dashboard-Testing-e806a291cfc3-56382b6a46b4768805951c3926eeb759e8b0979f-33615383904`, is 41,600,989 bytes, and expires 2026-10-02. Upstream and stable `main` were not changed.
