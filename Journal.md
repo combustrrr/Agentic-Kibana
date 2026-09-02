@@ -10827,3 +10827,10 @@
 
 - Authorized scope: restore the missing SonarQube Cloud project configuration, validate analysis plus native issue export, and obtain fresh exact-head CodeRabbit review evidence through one controlled fork PR from `feature/static-code-analysis` to `Testing`.
 - Upstream and stable `main` remain read-only. The PR will be merged only into fork `Testing` after the evidence path is validated.
+
+### 2026-09-02 — codex — Sonar repaired; clean CodeRabbit completion gap closed
+
+- Controlled fork PR #20 at exact head `18f2cf96eb404fbf379ccc23b7754a2f11fb1d5a` proved the restored Sonar configuration: Code Quality run `33607342051` reports `CONFIGURED_COMPLETE` with both analysis and native issue export successful; Sonar's PR bot reports Quality Gate passed and zero new issues.
+- CodeRabbit responded to the explicit review request with `Review finished` and an exact-head successful `CodeRabbit` commit status, but emitted no review object or inline comment because the clean change had no findings. The existing collector/workflow could not retain that legitimate zero-finding completion.
+- Extended the read-only collector to accept the exact commit's successful CodeRabbit status as completion proof while keeping inline advisories restricted to original exact-SHA review comments. Added `issue_comment` handling for CodeRabbit's `Review finished` bot response so clean reviews retain an evidence artifact without publishing an Issue Wall or gaining write permissions.
+- Regression suite now passes 49 tests; workflow policy audit and diff check pass.

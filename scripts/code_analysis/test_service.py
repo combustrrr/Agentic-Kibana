@@ -714,6 +714,8 @@ class MonitoringTests(unittest.TestCase):
         self.assertIn("collect_coderabbit.py",aggregate)
         refresh=Path(".github/workflows/09-coderabbit-advisory-refresh.yml").read_text(encoding="utf-8")
         self.assertIn("pull_request_review:",refresh)
+        self.assertIn("issue_comment:",refresh)
+        self.assertIn("Review finished",refresh)
         self.assertNotIn("github.event.review.commit_id == github.event.pull_request.head.sha",refresh)
         self.assertIn("collect_coderabbit.py",refresh)
         self.assertIn("coderabbit-advisory-evidence-",refresh)
@@ -721,5 +723,20 @@ class MonitoringTests(unittest.TestCase):
         self.assertNotIn("actions: write",refresh)
         self.assertNotIn("issues: write",refresh)
         self.assertNotIn("contents: write",refresh)
+
+    def test_coderabbit_exact_head_success_status_proves_clean_review(self):
+        commit="c"*40;repository="combustrrr/Agentic-Kibana";branch="feature/clean"
+        responses=[
+            [{"number":8,"state":"open","head":{"sha":commit,"ref":branch,
+              "repo":{"full_name":repository}}}],
+            [],
+            [],
+            {"statuses":[{"context":"CodeRabbit","state":"success"}]},
+        ]
+        with patch("scripts.code_analysis.collect_coderabbit.request_json",side_effect=responses):
+            evidence,status=collect_coderabbit(repository,branch,commit,"token")
+        self.assertEqual(status["status"],"COMPLETED_OPTIONAL")
+        self.assertEqual(status["finding_count"],0)
+        self.assertEqual(evidence["completion_signals"],["exact-head-success-status"])
 
 if __name__=="__main__": unittest.main()

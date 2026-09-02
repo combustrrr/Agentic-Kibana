@@ -63,6 +63,7 @@ def collect(repository: str, branch: str, commit: str, token: str) -> tuple[dict
                 row.get("head", {}).get("repo", {}).get("full_name") == repository]
     advisories: list[dict[str, Any]] = []
     review_seen = False
+    completion_signals: list[str] = []
     pr_numbers: list[int] = []
     for pull in relevant:
         number = int(pull["number"])
@@ -73,6 +74,8 @@ def collect(repository: str, branch: str, commit: str, token: str) -> tuple[dict
             str(row.get("commit_id") or "").lower() == commit
             for row in reviews
         )
+        if review_seen:
+            completion_signals.append("exact-head-review")
         comments = paged(f"{API}/repos/{repository}/pulls/{number}/comments", token)
         for row in comments:
             login = str(row.get("user", {}).get("login", "")).lower()
@@ -103,12 +106,22 @@ def collect(repository: str, branch: str, commit: str, token: str) -> tuple[dict
                 "analysis_category": f"github-pr-review:{number}",
                 "evidence_source": "AI_ADVISORY",
             })
+    if relevant and not review_seen:
+        combined = request_json(f"{API}/repos/{repository}/commits/{commit}/status", token)
+        statuses = combined.get("statuses", []) if isinstance(combined, dict) else []
+        if any(str(row.get("context") or "").strip().lower() == "coderabbit" and
+               str(row.get("state") or "").strip().lower() == "success"
+               for row in statuses):
+            review_seen = True
+            completion_signals.append("exact-head-success-status")
     status = "COMPLETED_OPTIONAL" if review_seen else "NOT_APPLICABLE"
     reason = ("No open same-repository PR exists for this branch head" if not relevant else
               "CodeRabbit review evidence collected for the exact PR head" if review_seen else
               "An open PR exists, but CodeRabbit has not submitted an exact-head review")
     evidence = {"schema_version": "1", "repository": repository, "branch": branch,
-                "commit_sha": commit, "pull_requests": pr_numbers, "advisories": advisories}
+                "commit_sha": commit, "pull_requests": pr_numbers,
+                "completion_signals": sorted(set(completion_signals)),
+                "advisories": advisories}
     status_doc = {"schema_version": "1", "scanner_family": "CodeRabbit", "status": status,
                   "reason": reason, "finding_count": len(advisories),
                   "observation_count": len(advisories), "commit_sha": commit}
