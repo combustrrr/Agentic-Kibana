@@ -731,12 +731,26 @@ class MonitoringTests(unittest.TestCase):
               "repo":{"full_name":repository}}}],
             [],
             [],
-            {"statuses":[{"context":"CodeRabbit","state":"success"}]},
+            {"statuses":[{"context":"CodeRabbit","state":"success",
+                           "description":"Review completed"}]},
         ]
         with patch("scripts.code_analysis.collect_coderabbit.request_json",side_effect=responses):
             evidence,status=collect_coderabbit(repository,branch,commit,"token")
         self.assertEqual(status["status"],"COMPLETED_OPTIONAL")
         self.assertEqual(status["finding_count"],0)
         self.assertEqual(evidence["completion_signals"],["exact-head-success-status"])
+
+    def test_coderabbit_rate_limit_status_is_not_completion_evidence(self):
+        commit="d"*40;repository="combustrrr/Agentic-Kibana";branch="feature/limited"
+        responses=[
+            [{"number":9,"state":"open","head":{"sha":commit,"ref":branch,
+              "repo":{"full_name":repository}}}], [], [],
+            {"statuses":[{"context":"CodeRabbit","state":"success",
+                           "description":"Review rate limited"}]},
+        ]
+        with patch("scripts.code_analysis.collect_coderabbit.request_json",side_effect=responses):
+            evidence,status=collect_coderabbit(repository,branch,commit,"token")
+        self.assertEqual(status["status"],"NOT_APPLICABLE")
+        self.assertEqual(evidence["completion_signals"],[])
 
 if __name__=="__main__": unittest.main()

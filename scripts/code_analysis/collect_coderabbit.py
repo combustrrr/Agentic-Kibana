@@ -110,7 +110,8 @@ def collect(repository: str, branch: str, commit: str, token: str) -> tuple[dict
         combined = request_json(f"{API}/repos/{repository}/commits/{commit}/status", token)
         statuses = combined.get("statuses", []) if isinstance(combined, dict) else []
         if any(str(row.get("context") or "").strip().lower() == "coderabbit" and
-               str(row.get("state") or "").strip().lower() == "success"
+               str(row.get("state") or "").strip().lower() == "success" and
+               str(row.get("description") or "").strip().lower().startswith("review completed")
                for row in statuses):
             review_seen = True
             completion_signals.append("exact-head-success-status")
