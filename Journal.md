@@ -10774,3 +10774,20 @@
 - Next: review the two places where I deliberately diverged from the proposed fix (the resume
   refusal in place of a durable per-attempt spend carry-forward, and the single `replay` ledger
   surface in place of per-run keys) before merge.
+
+### 2026-09-02 — codex — fork stable/development and PR cleanup completed
+- Context: Owner confirmed `Testing` as the development/integration branch and `main` as the stable
+  promotion branch, and approved removal of legacy fork state.
+- Did: Removed the generated untracked `.code-analysis-venv` (5,361 files, 263,167,288 bytes);
+  created/synchronized fork `main` from upstream stable `main`; fast-forwarded fork `Testing` to
+  upstream `Testing`; set fork default to `Testing`; closed all 12 Dependabot PRs targeting retired
+  `claude/main` (GitHub removed their branches); deleted legacy `claude/main` and
+  `feat/wireframe-ui-overhaul`; updated local `origin/HEAD`; retained only `main`, `Testing`, and
+  `feature/static-code-analysis`. Upstream received no mutation.
+- Did: Rebased `feature/static-code-analysis` onto latest upstream `Testing`; superseded journal-only
+  commits were consolidated here rather than overwriting newer upstream Journal history. The branch
+  is now one scoped code-analysis commit ahead of `Testing`.
+- Tests: Workflow service policy and CI policy passed; all 111 combined tests passed; documentation
+  consistency passed across 90 public pages; diff check passed.
+- Status: Complete. Future Dependabot proposals follow fork default `Testing`; stable `main` remains
+  a mirror/promotion destination rather than a development target.
