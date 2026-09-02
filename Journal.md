@@ -10835,3 +10835,10 @@
 - Extended the read-only collector to accept the exact commit's successful CodeRabbit status as completion proof while keeping inline advisories restricted to original exact-SHA review comments. Added `issue_comment` handling for CodeRabbit's `Review finished` bot response so clean reviews retain an evidence artifact without publishing an Issue Wall or gaining write permissions.
 - Regression suite now passes 49 tests; workflow policy audit and diff check pass.
 - A second immediate review request on the advanced PR head was rate-limited by CodeRabbit while still publishing a successful commit status whose description says `Review rate limited`. Tightened completion acceptance to require the exact `Review completed` description and added a negative regression so rate limiting can never be presented as clean-review evidence.
+
+### 2026-09-02 — codex — merged vendor fixes; Sonar Browse grant requires explicit approval
+
+- PR #20 merged into fork `Testing` as `56382b6a46b4768805951c3926eeb759e8b0979f`; upstream and stable `main` remain untouched.
+- Fresh manual run `33608666273` succeeded and published Issue Wall artifact `9838602321`. Sonar branch analysis now succeeds, but native issue export receives HTTP 403, so the artifact truthfully reports `CONFIGURED_PARTIAL` rather than presenting incomplete vendor evidence.
+- Root cause is now authorization, not code/configuration: both Sonar tokens authenticate, but the API user lacks an observable/usable project Browse grant for branch issue export. The repository contains an idempotent, bounded `ensure_sonar_browse` workflow input, but invoking it persistently changes Sonar project permissions and requires explicit owner approval.
+- CodeRabbit produced fresh completed evidence on PR #20 exact head `18f2cf96eb404fbf379ccc23b7754a2f11fb1d5a` (`Review finished`; exact commit status `Review completed`). Clean-review retention and rate-limit rejection are implemented and covered by 50 passing service tests. Subsequent requests were vendor-rate-limited; CodeRabbit reported the next included review window in 47 minutes, and no rate-limited status was accepted as evidence.
