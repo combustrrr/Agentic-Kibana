@@ -10802,3 +10802,4 @@
 - The first live no-input `Full Code Analysis (Manual)` run on fork `Testing` correctly resolved branch head `3795555a2af1419e4a0bb008dfb4f64f8bc2b7d8` and dispatched all four scanner groups.
 - The Code Quality scanner exposed a genuine packaging defect: the Bandit job invoked `bandit` after installing `.ci/requirements.txt`, but that pinned tool manifest did not contain Bandit. The job consequently produced neither its JSON evidence nor normalized SARIF.
 - Added an exact `bandit==1.8.6` pin to the shared CI scanner-tool manifest. This also makes the existing security-canary Bandit invocation reproducible; scanner behavior and evidence retention are unchanged.
+- The retry proved Bandit itself now runs and emits JSON, then exposed the next missing runtime dependency: the trusted normalizer imports Click. Added the repository's already-used exact `click==8.2.1` pin to the same manifest so scan production and normalization are both reproducible.
