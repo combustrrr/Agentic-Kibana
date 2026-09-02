@@ -10791,3 +10791,8 @@
   consistency passed across 90 public pages; diff check passed.
 - Status: Complete. Future Dependabot proposals follow fork default `Testing`; stable `main` remains
   a mirror/promotion destination rather than a development target.
+
+### 2026-09-02 — codex — fork Testing code-analysis activation started
+- Context: Owner authorized making the validated code-analysis subsystem available on the fork's
+  default development branch so **Full Code Analysis (Manual)** is directly dispatchable.
+- Scope: Fast-forward fork `Testing` only; upstream remains read-only and stable `main` is unchanged.
