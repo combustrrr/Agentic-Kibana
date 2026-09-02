@@ -17,7 +17,7 @@ description: Read-only exact-commit scanner aggregation and the offline Issue Wa
 | Production and GitHub readiness | [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) |
 | Run and use Issue Wall | [`MONITORING_UI.md`](MONITORING_UI.md) |
 | Upstream integration and enterprise acceptance | [`UPSTREAM_INTEGRATION.md`](UPSTREAM_INTEGRATION.md) |
-| Current limitations and decisions | [`PENDING_WORK.md`](PENDING_WORK.md) |
+| Current state and integration decisions | [`CURRENT_STATE.md`](CURRENT_STATE.md) |
 | Latest session handoff | [`SESSION/_HANDOFF_2026-09-02.md`](SESSION/_HANDOFF_2026-09-02.md) |
 
 ## Review walkthrough
@@ -55,7 +55,7 @@ These files describe behavior that implementations and workflows must continue t
 | [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) | Artifact security and readiness gates |
 | [`DATA_HANDLING_INVENTORY.md`](DATA_HANDLING_INVENTORY.md) | Release-facing scanner, credential, retention, failure, and removal inventory |
 | [`UPSTREAM_INTEGRATION.md`](UPSTREAM_INTEGRATION.md) | Scoped upstream application and enterprise gate |
-| [`PENDING_WORK.md`](PENDING_WORK.md) | Current external limitations and open decisions |
+| [`CURRENT_STATE.md`](CURRENT_STATE.md) | Current release state, integration decisions, and non-goals |
 
 ### Operator guides
 
@@ -86,8 +86,8 @@ Analysis-branch pushes and eligible pull requests may run the four scanner workf
 retain evidence. Pull requests analyze the exact PR head rather than GitHub's synthetic
 merge ref. Scanner completion never publishes Issue Wall automatically. The sole
 publication entry point is **Full Code Analysis (Manual)**, which resolves the selected
-branch and either its latest HEAD or an optional reachable exact SHA, reuses valid
-same-commit evidence, runs missing scanners, and calls the reusable dashboard builder.
+branch and either its latest HEAD or an optional reachable exact SHA, dispatches four
+fresh scanner groups, and calls the reusable dashboard builder with those new runs.
 
 The current required web contains 16 structured channels:
 
@@ -172,8 +172,8 @@ dashboard for a newer commit.
   Leave `scan_branch` blank for the repository default branch, or enter any other branch.
   Leave `scan_sha` blank for the branch's latest HEAD, or enter a reachable 40-character
   SHA from that branch for a historical exact-commit report. The workflow-ref selection
-  never substitutes for source identity. It reuses successful exact-SHA evidence only
-  while retained artifacts still exist, dispatches missing groups, streams all four
+  never substitutes for source identity. It dispatches all four scanner groups afresh,
+  binds the dashboard to those newly launched run IDs, streams all four
   scanner runs concurrently, invokes the private reusable dashboard job, and publishes
   the artifact in the same manual workflow run. A failed scanner or incomplete snapshot
   stops the flow without replacing the last valid dashboard. The final

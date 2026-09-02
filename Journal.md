@@ -10862,3 +10862,12 @@
 ### 2026-09-02 — codex — fresh-evidence-only supervisor run started
 
 - The latest manual Issue Wall was exact-commit correct but visibly reused previously successful scanner runs. For clear review optics, the manual orchestrator will be changed to dispatch all four scanner groups on every click and bind the dashboard only to those newly created run IDs.
+
+### 2026-09-02 — codex — code-analysis documentation cleanup started
+
+- Removing obsolete evidence-reuse behavior, retired temporary branch/PR references, and the misleading pending-work document name from current code-analysis documentation.
+
+### 2026-09-02 — codex — code-analysis documentation cleanup completed
+
+- Replaced `docs/code-analysis/PENDING_WORK.md` with `CURRENT_STATE.md`, updated MkDocs and README navigation, removed retired temporary branch/PR references, and aligned all current code-analysis operating and integration documentation with fresh four-scanner dispatch on every manual run.
+- Repository search finds no remaining stale references outside historical Journal entries. All 50 code-analysis service tests, the workflow policy audit, and diff-integrity validation pass.

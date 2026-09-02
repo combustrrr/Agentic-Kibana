@@ -187,7 +187,7 @@ nav:
           - External activation: code-analysis/EXTERNAL_ACTIVATION.md
           - Snyk contribution: code-analysis/SNYK_UNIQUE_CONTRIBUTION.md
           - Integration gate: code-analysis/UPSTREAM_INTEGRATION.md
-          - Current decisions: code-analysis/PENDING_WORK.md
+          - Current state: code-analysis/CURRENT_STATE.md
           - Current handoff: code-analysis/SESSION/_HANDOFF_2026-09-02.md
       - Develop and extend:
           - Overview: development/index.md

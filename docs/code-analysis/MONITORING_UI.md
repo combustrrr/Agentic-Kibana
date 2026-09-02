@@ -83,13 +83,13 @@ Every scanner checkout, run title, artifact, Check, and report carries that exac
 identity.
 
 Pushes and same-repository pull requests may collect exact-source scanner evidence, but
-cannot publish Issue Wall. There is no scheduled or event-driven publication. The manual
-orchestrator reuses retained exact-commit evidence and dispatches only missing groups.
+cannot publish Issue Wall. There is no scheduled or event-driven publication. Every
+manual invocation dispatches all four scanner groups afresh.
 
 The manual run exposes four visible phases in the Actions log and job summary: resolve
-the authoritative branch head, resolve/reuse/dispatch scanner groups, validate all four
-groups concurrently, and build the 16-channel Issue Wall. Artifact existence is checked
-before reuse. Incomplete, expired, corrupt, or mixed-commit evidence fails closed.
+the authoritative branch head, dispatch four fresh scanner groups, validate those four
+groups concurrently, and build the 16-channel Issue Wall from their new run IDs.
+Incomplete, expired, corrupt, or mixed-commit evidence fails closed.
 
 The board has two channel sections:
 

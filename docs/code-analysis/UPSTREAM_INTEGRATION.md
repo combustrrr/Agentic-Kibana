@@ -48,7 +48,7 @@ An enterprise-facing release is accepted only when all of the following are true
 
 - **Full Code Analysis (Manual)** is available from an approved workflow ref and accepts
   an explicit branch or exact reachable commit.
-- One manual run resolves an exact SHA, completes or safely reuses all four scanner
+- One manual run resolves an exact SHA, freshly dispatches and completes all four scanner
   groups, validates all 16 required channels, and publishes one immutable artifact.
 - The final **Review-ready artifact handoff** job provides the authenticated artifact
   link, branch, full SHA, artifact ID and digest, plus offline launch instructions.
