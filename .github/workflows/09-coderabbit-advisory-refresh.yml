@@ -3,6 +3,8 @@ name: CodeRabbit Advisory Evidence
 on:
   pull_request_review:
     types: [submitted]
+  issue_comment:
+    types: [created]
 
 # CodeRabbit remains an automatic, read-only AI advisory source. This workflow retains
 # exact-head evidence only; it cannot publish or refresh Issue Wall. The next operator-
@@ -15,12 +17,15 @@ jobs:
   collect:
     name: Retain exact-head AI advisory evidence
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      (github.actor == 'coderabbitai[bot]' || github.actor == 'coderabbitai')
+      (github.actor == 'coderabbitai[bot]' || github.actor == 'coderabbitai') &&
+      ((github.event_name == 'pull_request_review' &&
+        github.event.pull_request.head.repo.full_name == github.repository) ||
+       (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+        contains(github.event.comment.body, 'Review finished')))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
-      group: coderabbit-evidence-${{ github.event.pull_request.head.sha }}
+      group: coderabbit-evidence-${{ github.event.pull_request.head.sha || github.event.issue.number }}
       cancel-in-progress: false
     steps:
       - name: Checkout trusted evidence collector
@@ -30,11 +35,27 @@ jobs:
           sparse-checkout: scripts/code_analysis/collect_coderabbit.py
           sparse-checkout-cone-mode: false
 
+      - name: Resolve exact pull-request head
+        id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          head_repo="$(jq -r '.head.repo.full_name' <<< "$pr")"
+          [[ "$head_repo" == "$GITHUB_REPOSITORY" ]] || {
+            echo "External-fork PR evidence is not collected" >&2
+            exit 1
+          }
+          jq -r '"branch=\(.head.ref)\ncommit=\(.head.sha)\npr_number=\(.number)"' <<< "$pr" >> "$GITHUB_OUTPUT"
+
       - name: Collect exact-head CodeRabbit evidence
         env:
           GH_TOKEN: ${{ github.token }}
-          SCAN_BRANCH: ${{ github.event.pull_request.head.ref }}
-          SCAN_SHA: ${{ github.event.pull_request.head.sha }}
+          SCAN_BRANCH: ${{ steps.identity.outputs.branch }}
+          SCAN_SHA: ${{ steps.identity.outputs.commit }}
         shell: bash
         run: |
           set -euo pipefail
@@ -47,16 +68,16 @@ jobs:
       - name: Retain advisory evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: coderabbit-advisory-evidence-${{ github.event.pull_request.head.sha }}
+          name: coderabbit-advisory-evidence-${{ steps.identity.outputs.commit }}
           path: coderabbit-evidence/
           if-no-files-found: error
           retention-days: 30
 
       - name: Publish evidence summary
         env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ steps.identity.outputs.pr_number }}
+          PR_HEAD_BRANCH: ${{ steps.identity.outputs.branch }}
+          PR_HEAD_SHA: ${{ steps.identity.outputs.commit }}
         shell: bash
         run: |
           set -euo pipefail

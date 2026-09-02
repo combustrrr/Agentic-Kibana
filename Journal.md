@@ -10805,3 +10805,33 @@
 - The retry proved Bandit itself now runs and emits JSON, then exposed the next missing runtime dependency: the trusted normalizer imports Click. Added the repository's already-used exact `click==8.2.1` pin to the same manifest so scan production and normalization are both reproducible.
 - The full live path then exposed that the Code Health workflow also invoked Radon, Xenon, and Vulture without declaring them. Added exact pins (`radon==6.0.1`, `xenon==0.9.3`, `vulture==2.16`) to eliminate command-not-found failures and false-success empty dead-code evidence.
 - After all four scanner workflows succeeded, strict Issue Wall assembly correctly rejected Ruff because its job referenced a nonexistent `backend/ruff-analysis.toml`, masked the operational error with `|| true`, and allowed an empty upload. Pointed all Ruff analysis commands at the real trusted `backend/pyproject.toml`, removed masking from evidence generation, removed Ruff's unsupported format `--exit-zero`, and made a missing JSON artifact fail the producer job immediately.
+
+### 2026-09-02 — codex — fork Testing one-click Issue Wall activation completed
+
+- Published the code-analysis subsystem to fork `Testing` without modifying upstream or stable `main`.
+- Final no-input `Full Code Analysis (Manual)` run `33601893842` resolved `Testing` HEAD `f6b027d7edbb47942d021a2a319686e91e90d29d`, dispatched and awaited Code Quality, Security/SAST, Dependency/Supply Chain, and Code Health; all four completed successfully.
+- The shared strict pipeline accepted every required evidence channel, collected optional exact-head CodeRabbit advisory evidence, built the offline dashboard, published the advisory commit check, uploaded artifact `9835780143` (`current-findings-dashboard-Testing-e806a291cfc3-f6b027d7edbb47942d021a2a319686e91e90d29d-33601893842`, 41,574,722 bytes), and completed the review-ready handoff.
+- Live validation found and fixed undeclared Bandit/Click/Radon/Xenon/Vulture runtimes plus Ruff's stale config path and masked missing artifact. Local service regression: 48 passed; workflow policy audit and diff check passed.
+- Artifact expires 2026-10-02. Run: https://github.com/combustrrr/Agentic-Kibana/actions/runs/33601893842
+### 2026-09-02 — codex — CodeRabbit, Snyk, and SonarQube Cloud verification started
+
+- Scope: read-only end-to-end verification of configuration, GitHub execution/output, and Issue Wall evidence for CodeRabbit, Snyk, and SonarQube Cloud on the fork's current code-analysis setup. Secret values will not be read or recorded.
+
+### 2026-09-02 — codex — CodeRabbit, Snyk, and SonarQube Cloud verification completed
+
+- Snyk is healthy on exact `Testing` commit `f6b027d7edbb47942d021a2a319686e91e90d29d`: both Open Source SCA and Snyk Code succeeded in dependency run `33601927656`; retained SARIF/status artifact `9835622287` reports `CONFIGURED_COMPLETE`, and the fresh Issue Wall contains 364 Snyk observations.
+- CodeRabbit's GitHub App is historically proven on fork PR #16 with an original `coderabbitai[bot]` review and exact-head inline comments. The current Issue Wall correctly reports `NOT_APPLICABLE`/zero AI advisories for `Testing` because that branch head has no open same-repository PR. The only open PR (#19, Dependabot) has no CodeRabbit review/check. The current advisory-evidence workflow is active, but its most recent bot-triggered run (`33543144809`, on the now-closed integration PR) failed before job creation due to that historical workflow revision; no fresh current-head CodeRabbit event exists to validate the repaired/current revision.
+- Sonar credentials are configured and both tokens authenticate successfully (HTTP 200 for identity and branch-issue probes), but current analysis is not working. Code Quality run `33601913924` failed Sonar scanner execution because `sonar.projectKey` and `sonar.organization` were absent. Root cause: `sonar-project.properties` is missing from current `Testing`, while the workflow still depends on it. Native issue export was consequently skipped and the Issue Wall truthfully reports `CONFIGURED_PARTIAL` with zero Sonar observations.
+- This was a read-only verification. No vendor settings, PRs, branches, or scanner configuration were changed.
+### 2026-09-02 — codex — Sonar repair and fresh CodeRabbit evidence started
+
+- Authorized scope: restore the missing SonarQube Cloud project configuration, validate analysis plus native issue export, and obtain fresh exact-head CodeRabbit review evidence through one controlled fork PR from `feature/static-code-analysis` to `Testing`.
+- Upstream and stable `main` remain read-only. The PR will be merged only into fork `Testing` after the evidence path is validated.
+
+### 2026-09-02 — codex — Sonar repaired; clean CodeRabbit completion gap closed
+
+- Controlled fork PR #20 at exact head `18f2cf96eb404fbf379ccc23b7754a2f11fb1d5a` proved the restored Sonar configuration: Code Quality run `33607342051` reports `CONFIGURED_COMPLETE` with both analysis and native issue export successful; Sonar's PR bot reports Quality Gate passed and zero new issues.
+- CodeRabbit responded to the explicit review request with `Review finished` and an exact-head successful `CodeRabbit` commit status, but emitted no review object or inline comment because the clean change had no findings. The existing collector/workflow could not retain that legitimate zero-finding completion.
+- Extended the read-only collector to accept the exact commit's successful CodeRabbit status as completion proof while keeping inline advisories restricted to original exact-SHA review comments. Added `issue_comment` handling for CodeRabbit's `Review finished` bot response so clean reviews retain an evidence artifact without publishing an Issue Wall or gaining write permissions.
+- Regression suite now passes 49 tests; workflow policy audit and diff check pass.
+- A second immediate review request on the advanced PR head was rate-limited by CodeRabbit while still publishing a successful commit status whose description says `Review rate limited`. Tightened completion acceptance to require the exact `Review completed` description and added a negative regression so rate limiting can never be presented as clean-review evidence.
