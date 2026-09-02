@@ -10842,3 +10842,8 @@
 - Fresh manual run `33608666273` succeeded and published Issue Wall artifact `9838602321`. Sonar branch analysis now succeeds, but native issue export receives HTTP 403, so the artifact truthfully reports `CONFIGURED_PARTIAL` rather than presenting incomplete vendor evidence.
 - Root cause is now authorization, not code/configuration: both Sonar tokens authenticate, but the API user lacks an observable/usable project Browse grant for branch issue export. The repository contains an idempotent, bounded `ensure_sonar_browse` workflow input, but invoking it persistently changes Sonar project permissions and requires explicit owner approval.
 - CodeRabbit produced fresh completed evidence on PR #20 exact head `18f2cf96eb404fbf379ccc23b7754a2f11fb1d5a` (`Review finished`; exact commit status `Review completed`). Clean-review retention and rate-limit rejection are implemented and covered by 50 passing service tests. Subsequent requests were vendor-rate-limited; CodeRabbit reported the next included review window in 47 minutes, and no rate-limited status was accepted as evidence.
+
+### 2026-09-02 — codex — vendor evidence repair session paused at authorization boundary
+
+- The feature branch is clean at journal commit `22ebce3`; local tracking reports alignment with `origin/feature/static-code-analysis`. A final direct remote query was prevented by transient network unavailability.
+- CodeRabbit fresh evidence and Sonar analysis repair are complete. The only unresolved item is SonarQube Cloud native branch-issue export HTTP 403, which requires explicit authorization for the bounded persistent Browse-permission grant before work can continue.
