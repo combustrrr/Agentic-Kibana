@@ -10858,3 +10858,7 @@
 - Approved Code Quality run `33611191166` granted and verified the configured Sonar API user's project Browse permission, analyzed exact `Testing` commit `56382b6a46b4768805951c3926eeb759e8b0979f`, exported native Sonar issues successfully, recorded configured scan status, and completed successfully.
 - Fresh one-click `Full Code Analysis (Manual)` run `33615383904` reused the four successful exact-commit scanner groups, ran the shared strict findings pipeline, published the advisory commit check, and completed the review-ready handoff.
 - Final offline Issue Wall artifact `9840722702` is named `current-findings-dashboard-Testing-e806a291cfc3-56382b6a46b4768805951c3926eeb759e8b0979f-33615383904`, is 41,600,989 bytes, and expires 2026-10-02. Upstream and stable `main` were not changed.
+
+### 2026-09-02 — codex — fresh-evidence-only supervisor run started
+
+- The latest manual Issue Wall was exact-commit correct but visibly reused previously successful scanner runs. For clear review optics, the manual orchestrator will be changed to dispatch all four scanner groups on every click and bind the dashboard only to those newly created run IDs.

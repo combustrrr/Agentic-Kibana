@@ -86,7 +86,7 @@ jobs:
             echo "## Web of Scanners · live pipeline"
             echo
             echo "1. ✅ Branch resolved: \`$branch\` · selected \`$sha\` · current HEAD \`${head_sha,,}\`"
-            echo "2. ⏳ Resolve or dispatch the four scanner groups"
+            echo "2. ⏳ Dispatch four fresh scanner groups"
             echo "3. ⏳ Validate all required scanner evidence"
             echo "4. ⏳ Build and publish Issue Wall"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -119,29 +119,6 @@ jobs:
             03-dependency-security.yml \
             04-code-health.yml
           do
-            case "$workflow" in
-              01-code-quality.yml) run_title="Code Quality · $SCAN_BRANCH · $SCAN_SHA" ;;
-              02-security-sast.yml) run_title="Security / SAST · $SCAN_BRANCH · $SCAN_SHA" ;;
-              03-dependency-security.yml) run_title="Dependency & Supply Chain Security · $SCAN_BRANCH · $SCAN_SHA" ;;
-              04-code-health.yml) run_title="Code Health & Technical Debt · $SCAN_BRANCH · $SCAN_SHA" ;;
-              *) echo "Unknown scanner workflow: $workflow" >&2; exit 1 ;;
-            esac
-            runs="$(gh run list --workflow "$workflow" --status success --limit 100 \
-              --json databaseId,displayTitle,url)"
-            reusable="$(jq -r --arg title "$run_title" \
-              '([.[] | select(.displayTitle == $title)] | first) // empty | [.databaseId,.url] | @tsv' \
-              <<<"$runs")"
-            if [[ -n "$reusable" ]]; then
-              IFS=$'\t' read -r run_id run_url <<<"$reusable"
-              artifact_count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts" --jq '.total_count')"
-              if (( artifact_count > 0 )); then
-                printf '%s\t%s\t%s\n' "$workflow" "$run_id" "$run_url" >> scanner-runs.tsv
-                printf '%s\n' "- ♻️ [$workflow]($run_url) — reused exact-commit evidence" >> manual-analysis-summary.md
-                echo "::notice title=Scanner evidence reused::$workflow already succeeded for $SCAN_SHA"
-                continue
-              fi
-              echo "::warning title=Expired scanner evidence::$workflow succeeded before, but its artifacts are unavailable; dispatching a fresh run"
-            fi
             current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/${encoded}" --jq '.commit.sha')"
             if [[ "${current_sha,,}" != "$BRANCH_HEAD_SHA" ]]; then
               echo "Branch moved from $BRANCH_HEAD_SHA to $current_sha before $workflow dispatch; refusing a mixed-branch-state scan" >&2
@@ -165,9 +142,6 @@ jobs:
             03-dependency-security.yml \
             04-code-health.yml
           do
-            if awk -F '\t' -v workflow="$workflow" '$1 == workflow { found=1 } END { exit !found }' scanner-runs.tsv; then
-              continue
-            fi
             run_id=""
             run_url=""
             case "$workflow" in
@@ -201,7 +175,7 @@ jobs:
           {
             echo
             echo "### Scanner resolution"
-            echo "All four scanner identities are locked to \`$SCAN_SHA\`. Existing retained evidence was reused where valid; missing evidence was dispatched."
+            echo "All four scanner identities are locked to \`$SCAN_SHA\` and every scanner run was freshly dispatched by this manual invocation."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Wait for all scanner groups
