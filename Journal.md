@@ -10835,3 +10835,30 @@
 - Extended the read-only collector to accept the exact commit's successful CodeRabbit status as completion proof while keeping inline advisories restricted to original exact-SHA review comments. Added `issue_comment` handling for CodeRabbit's `Review finished` bot response so clean reviews retain an evidence artifact without publishing an Issue Wall or gaining write permissions.
 - Regression suite now passes 49 tests; workflow policy audit and diff check pass.
 - A second immediate review request on the advanced PR head was rate-limited by CodeRabbit while still publishing a successful commit status whose description says `Review rate limited`. Tightened completion acceptance to require the exact `Review completed` description and added a negative regression so rate limiting can never be presented as clean-review evidence.
+
+### 2026-09-02 — codex — merged vendor fixes; Sonar Browse grant requires explicit approval
+
+- PR #20 merged into fork `Testing` as `56382b6a46b4768805951c3926eeb759e8b0979f`; upstream and stable `main` remain untouched.
+- Fresh manual run `33608666273` succeeded and published Issue Wall artifact `9838602321`. Sonar branch analysis now succeeds, but native issue export receives HTTP 403, so the artifact truthfully reports `CONFIGURED_PARTIAL` rather than presenting incomplete vendor evidence.
+- Root cause is now authorization, not code/configuration: both Sonar tokens authenticate, but the API user lacks an observable/usable project Browse grant for branch issue export. The repository contains an idempotent, bounded `ensure_sonar_browse` workflow input, but invoking it persistently changes Sonar project permissions and requires explicit owner approval.
+- CodeRabbit produced fresh completed evidence on PR #20 exact head `18f2cf96eb404fbf379ccc23b7754a2f11fb1d5a` (`Review finished`; exact commit status `Review completed`). Clean-review retention and rate-limit rejection are implemented and covered by 50 passing service tests. Subsequent requests were vendor-rate-limited; CodeRabbit reported the next included review window in 47 minutes, and no rate-limited status was accepted as evidence.
+
+### 2026-09-02 — codex — vendor evidence repair session paused at authorization boundary
+
+- The feature branch is clean at journal commit `22ebce3`; local tracking reports alignment with `origin/feature/static-code-analysis`. A final direct remote query was prevented by transient network unavailability.
+- CodeRabbit fresh evidence and Sonar analysis repair are complete. The only unresolved item is SonarQube Cloud native branch-issue export HTTP 403, which requires explicit authorization for the bounded persistent Browse-permission grant before work can continue.
+
+### 2026-09-02 — codex — Sonar Browse permission repair resumed
+
+- The repository owner explicitly approved granting the configured `SONAR_API_TOKEN` user Browse permission on SonarQube Cloud project `combustrrr_Agentic-Kibana` so native branch-issue export can complete.
+- Scope remains bounded to the existing idempotent permission workflow, subsequent exact-branch validation, and fresh Issue Wall evidence; upstream and stable `main` remain untouched.
+
+### 2026-09-02 — codex — Sonar repair and final Issue Wall completed
+
+- Approved Code Quality run `33611191166` granted and verified the configured Sonar API user's project Browse permission, analyzed exact `Testing` commit `56382b6a46b4768805951c3926eeb759e8b0979f`, exported native Sonar issues successfully, recorded configured scan status, and completed successfully.
+- Fresh one-click `Full Code Analysis (Manual)` run `33615383904` reused the four successful exact-commit scanner groups, ran the shared strict findings pipeline, published the advisory commit check, and completed the review-ready handoff.
+- Final offline Issue Wall artifact `9840722702` is named `current-findings-dashboard-Testing-e806a291cfc3-56382b6a46b4768805951c3926eeb759e8b0979f-33615383904`, is 41,600,989 bytes, and expires 2026-10-02. Upstream and stable `main` were not changed.
+
+### 2026-09-02 — codex — fresh-evidence-only supervisor run started
+
+- The latest manual Issue Wall was exact-commit correct but visibly reused previously successful scanner runs. For clear review optics, the manual orchestrator will be changed to dispatch all four scanner groups on every click and bind the dashboard only to those newly created run IDs.
