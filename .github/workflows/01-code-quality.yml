@@ -232,7 +232,7 @@ jobs:
             .coderabbit.yaml
             .github/workflows
             .ci
-            backend/ruff-analysis.toml
+            backend/pyproject.toml
             config/code-analysis
             deploy
             scripts/code_analysis
@@ -257,26 +257,24 @@ jobs:
       - name: Ruff lint (extended rules — advisory for baseline phase)
         run: |
           python -m ruff check backend/ \
-            --config .analysis-tooling/backend/ruff-analysis.toml \
+            --config .analysis-tooling/backend/pyproject.toml \
             --output-format=github \
-            --exit-zero \
-            || true
+            --exit-zero
 
       - name: Ruff format check (advisory)
         run: |
           python -m ruff format --check backend/ \
-            --config .analysis-tooling/backend/ruff-analysis.toml \
-            --exit-zero \
+            --config .analysis-tooling/backend/pyproject.toml \
             || true
 
       - name: Ruff lint (JSON for normalizer)
         if: always()
         run: |
           python -m ruff check backend/ \
-            --config .analysis-tooling/backend/ruff-analysis.toml \
+            --config .analysis-tooling/backend/pyproject.toml \
             --output-format=json \
             --exit-zero \
-            --output-file ruff-results.json || true
+            --output-file ruff-results.json
 
       - name: Upload Ruff results
         if: always()
@@ -284,6 +282,7 @@ jobs:
         with:
           name: ruff-results
           path: ruff-results.json
+          if-no-files-found: error
 
   # ─────────────────────────────────────────────
   # Python: Bandit security scanning
