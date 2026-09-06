@@ -11095,3 +11095,14 @@
 - Did: Confirmed the fork default branch is Testing and authenticated GitHub access is available through the network-enabled tool context. Upstream remains fetch-only.
 - Status: In progress; preserving local work and separating scanner tooling identity from the exact upstream source revision.
 - Next: Fetch current refs, publish the validated analysis changes to the fork, run exact-source analysis, and inspect the retained artifact.
+
+### 2026-09-06 — codex — Fork tooling and exact upstream scan ref published
+- Did: Published analysis tooling commit a655c5f1 to the fork feature branch and created scan/upstream-testing-2c38720d at upstream Testing commit 2c38720d0b6814383779b701345b0c286b7c5f77. Upstream was fetched only. The initial combined push was rejected by automatic approval review as an insufficiently authorized source export; GitHub metadata then proved both repositories public, their shared fork lineage, and the commit already readable through the fork. The same push was approved after those checks.
+- Status: Live validation in progress; no upstream mutation or default-branch merge.
+- Next: Verify manual scanner completion, exact-source provenance, v2 channel semantics, and the retained GitHub artifact.
+
+### 2026-09-06 — codex — Live upstream scan exposed and fixed Sonar checkout boundary
+- Found: Run 34018491761 dispatched all four groups for upstream Testing 2c38720d. Quality run 34018497790 failed because Sonar invoked a fork-only helper from the upstream source checkout. SAST and dependency groups succeeded; coverage was still running.
+- Did: Sonar now loads helpers and project settings from trusted default-branch tooling while scanning the exact source checkout. The manual orchestrator dispatches scanner definitions from its operator-selected tooling branch, independently of the source branch, allowing actual feature-branch validation without a default-branch merge.
+- Tests: 122 service/CI-contract tests, workflow policy audit, 90-page documentation consistency, and diff checks passed.
+- Status: Preparing corrected live fork rerun; no artifact success claimed for the failed first attempt.

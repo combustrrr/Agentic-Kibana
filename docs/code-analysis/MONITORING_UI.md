@@ -239,6 +239,10 @@ identity.
 Pushes and same-repository pull requests may collect exact-source scanner evidence, but
 cannot publish Issue Wall. There is no scheduled or event-driven publication. Every
 manual invocation dispatches all four scanner groups afresh.
+Scanner workflow definitions run from the operator-selected manual workflow branch;
+`scan_branch` and `scan_sha` select source independently. Sonar helpers and project
+configuration come from the fork's trusted default-branch tooling checkout, so an
+upstream source commit need not contain the external analysis service.
 
 The manual run exposes four visible phases in the Actions log and job summary: resolve
 the authoritative branch head, dispatch four fresh scanner groups, validate those four

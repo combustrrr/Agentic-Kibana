@@ -798,6 +798,18 @@ class MonitoringTests(unittest.TestCase):
         self.assertLess(page.index('id="observatoryTitle"'),page.index('id="workflowProvenanceTitle"'))
         self.assertLess(page.index('id="workflowProvenanceTitle"'),page.index('<summary>Snapshot Proof</summary>'))
 
+    def test_sonar_uses_trusted_tooling_for_external_source(self):
+        workflow=Path(".github/workflows/01-code-quality.yml").read_text(encoding="utf-8")
+        sonar=workflow.split("  sonarqube-cloud:",1)[1].split("  python-ruff:",1)[0]
+        self.assertIn("Checkout trusted Sonar tooling",sonar)
+        self.assertIn("ref: ${{ github.event.repository.default_branch }}",sonar)
+        self.assertIn("path: .analysis-tooling",sonar)
+        for helper in ("probe_sonar_access", "ensure_sonar_browse", "export_sonar_issues"):
+            self.assertIn(f"python .analysis-tooling/scripts/code_analysis/{helper}.py",sonar)
+            self.assertNotIn(f"python scripts/code_analysis/{helper}.py",sonar)
+        self.assertEqual(sonar.count("-Dproject.settings=.analysis-tooling/sonar-project.properties"),2)
+        self.assertIn("ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}",sonar)
+
     def test_one_click_manual_analysis_dispatches_all_scanners(self):
         workflow=Path(".github/workflows/08-full-code-analysis.yml").read_text(encoding="utf-8")
         self.assertIn("workflow_dispatch:",workflow)
@@ -813,7 +825,7 @@ class MonitoringTests(unittest.TestCase):
         self.assertIn("GH_REPO: ${{ github.repository }}",workflow)
         self.assertNotIn("uses: actions/checkout@",workflow)
         self.assertIn('gh api "repos/${GITHUB_REPOSITORY}/branches/${encoded}"',workflow)
-        self.assertIn("WORKFLOW_REF: ${{ github.event.repository.default_branch }}",workflow)
+        self.assertIn("WORKFLOW_REF: ${{ github.ref_name }}",workflow)
         self.assertIn('gh workflow run "$workflow" --ref "$WORKFLOW_REF"',workflow)
         self.assertNotIn('gh workflow run "$workflow" --ref "$SCAN_BRANCH"',workflow)
         for name in ("01-code-quality.yml","02-security-sast.yml",
