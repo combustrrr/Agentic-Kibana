@@ -23,8 +23,8 @@ write path into source code, pull requests, Issues, deployment, or production.
   09                        CodeRabbit advisory refresh
 
 config/code-analysis/
-  required-channels.json    required scanner/evidence contract
-  proposal-tool-catalog.json researched activation catalog
+  required-channels.json    explicit static publication policy
+  proposal-tool-catalog.json all-channel identities, classes, and workflow definitions
   service-layout.json       executable module-ownership boundary
 
 scripts/code_analysis/
@@ -33,9 +33,9 @@ scripts/code_analysis/
   collect_coderabbit.py     bounded AI-advisory GitHub adapter
   monitoring.py             identity/correlation domain
   evidence_contract.py      immutable artifact contract
-  channel_status.py         required-channel completeness
+  channel_status.py         publication-policy evidence validation
   provenance.py             exact-revision source proof
-  snapshot.py               current-snapshot assembly
+  snapshot.py               uniform snapshot-v2 analysis-channel assembly
   pipeline.py               application orchestration
   dashboard.py              presentation application
   dashboard_template.html   bounded developer UI
@@ -83,3 +83,28 @@ reported; it does not own assignment, acceptance, suppression, closure, or vendo
 names, forbidden application runtime dependencies, unsafe Actions, and unbounded jobs
 fail the Code Quality workflow. Stable script paths remain compatibility entry points;
 internal extraction into packages can occur incrementally without breaking automation.
+
+
+## Published observation contract (snapshot-v2)
+
+`analysis_channels` is the only published channel inventory. Each catalogued channel is
+present with `channel`, `name`, `class`, `status`, `findings` (integer or null),
+`observation_count`, `observation_ids`, `reason`, `workflow`, `artifact_files`,
+`status_artifact`, and `evidence_source`. Counts are canonical finding counts; native
+observations retain independent membership and severity. No source observation is
+silently dropped or assigned to multiple channels. Missing channel finding evidence is
+null; completed scans can report an explicit zero. A status artifact is named separately
+from scanner result artifacts. A configured workflow is not proof of a completed run.
+
+The catalog has five purpose classes and no required/optional state hierarchy. Its
+classification drives both Observatory filtering and role coverage. The catalog does
+not control publication eligibility. The separate `publication_gate` keeps the existing
+static-evidence-v1 manifest policy; all its listed channels must be COMPLETED. The
+intermediate channel-status.json artifact remains that policy validator's output, not
+a second published observation inventory.
+
+The pipeline, renderer, summaries, launch guide, and benchmark use snapshot-v2. The
+renderer rejects legacy or split inventories, missing/duplicate identities, invalid
+classes/counts, broken observation membership, and incomplete gate evidence. Existing
+v1 offline artifacts remain immutable and self-contained; new reports require
+regeneration rather than an implicit metadata backfill.

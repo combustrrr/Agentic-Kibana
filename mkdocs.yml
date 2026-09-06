@@ -97,6 +97,7 @@ extra:
 # The repository contains extensive engineering handoff and research material.
 # It remains versioned in Git, but is intentionally not part of the public site.
 exclude_docs: |
+  code-analysis/SESSION/SESSION_HANDOFF_2026-09-06.md
   AGNOSTIC_ARCHITECTURE.md
   ENVIRONMENT.md
   HANDOFF.md

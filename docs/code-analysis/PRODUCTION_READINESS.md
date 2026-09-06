@@ -84,3 +84,11 @@ manual workflow run; this document intentionally carries no fixed run IDs, artif
 digests, finding counts, or historical output links. Local release revalidation on
 2026-09-01 passed the CI-policy tests, analysis-service tests, workflow service-policy
 audit, documentation consistency check, and bounded dashboard benchmark.
+
+
+Current published reports use snapshot-v2: one 26-channel analysis inventory with
+catalog-owned classes and a separate unchanged static publication gate. Inventory,
+observation membership, canonical counts, and the gate must reconcile before rendering.
+Strict freshly-dispatched-run binding is not yet implemented: workflow 08 waits for its
+new scans, but workflow 05 independently chooses successful exact-title runs. Exact
+commit/artifact validation remains enforced; fresh-run exclusivity is not claimed.

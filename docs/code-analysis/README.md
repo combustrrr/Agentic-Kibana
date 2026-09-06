@@ -1,193 +1,110 @@
 ---
 title: Current Findings Platform
-description: Read-only exact-commit scanner aggregation and the offline Issue Wall operating contract.
+description: All-channel observation health, canonical findings, and immutable scanner evidence.
 ---
 
 # Agentic SOC Current Findings Platform
 
-> **Authority:** the checked-in workflows, scanner catalog, and current contracts listed
-> below describe the supported implementation. Issue Wall is a read-only visualization
-> artifact; it does not assign, suppress, close, or remediate findings.
+**Web of Scanners** is the external analysis system. **Issue Wall** is its offline,
+read-only developer report. All 26 analysis channels are first-class observations:
+class describes purpose, never importance. The system finds, normalizes, deduplicates,
+and explains evidence; it does not remediate, create Issues, or own finding lifecycle.
 
 ## Start here
 
 | Need | Read |
 |---|---|
-| Architecture and safety boundary | [`SERVICE_ARCHITECTURE.md`](SERVICE_ARCHITECTURE.md) |
-| Production and GitHub readiness | [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) |
-| Run and use Issue Wall | [`MONITORING_UI.md`](MONITORING_UI.md) |
-| Upstream integration and enterprise acceptance | [`UPSTREAM_INTEGRATION.md`](UPSTREAM_INTEGRATION.md) |
-| Current state and integration decisions | [`CURRENT_STATE.md`](CURRENT_STATE.md) |
-| Latest session handoff | [`SESSION/_HANDOFF_2026-09-02.md`](SESSION/_HANDOFF_2026-09-02.md) |
+| Architecture and snapshot contract | [SERVICE_ARCHITECTURE.md](SERVICE_ARCHITECTURE.md) |
+| Run and review the report | [MONITORING_UI.md](MONITORING_UI.md) |
+| Production acceptance | [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) |
+| Data handling | [DATA_HANDLING_INVENTORY.md](DATA_HANDLING_INVENTORY.md) |
+| Additional observation channel activation | [EXTERNAL_ACTIVATION.md](EXTERNAL_ACTIVATION.md) |
+| Upstream scope and review gate | [UPSTREAM_INTEGRATION.md](UPSTREAM_INTEGRATION.md) |
+| Current state | [CURRENT_STATE.md](CURRENT_STATE.md) |
 
-## Review walkthrough
+## One observation inventory
 
-Generate a current immutable artifact rather than relying on a recorded example:
+Published `snapshot-v2` JSON has one `analysis_channels` array. It does not emit
+`channel_status` and `additional_channels` as competing inventories. Every channel has
+the same `channel`, `name`, `class`, `status`, `findings`, observation membership,
+workflow definition, and retained-evidence fields. `analysis_channel_count` reconciles
+the inventory. Missing finding evidence is `null`, never an invented clean zero.
 
-1. Open Actions, select **Full Code Analysis (Manual)**, choose the approved workflow
-   ref, and enter the branch plus optional exact SHA to analyze.
-2. When the run succeeds, open **Review-ready artifact handoff**, download the artifact,
-   verify the displayed digest, extract it, read `dashboard/START_HERE.md`, and open
-   `dashboard/index.html`.
-3. Review exact branch/SHA provenance, `16/16` required channels, the security posture,
-   severity and affected-area charts, searchable findings, one Evidence dialog, an
-   immutable source link, filtered CSV export, optional-lane status, workflow run IDs,
-   and artifact hashes. Counts vary by commit and are evidence rather than release claims.
-4. To demonstrate fresh operation, use Actions → **Full Code Analysis (Manual)**,
-   select the trusted default workflow ref, enter the target fork branch, and run it.
-   The job summary provides the resolved source SHA, four scanner runs, dashboard run,
-   and final artifact link. A failed or incomplete refresh cannot replace accepted
-   evidence.
-
-This is a read-only engineering report, not a claim that the application is secure.
-Do not upload or republish the artifact outside its approved audience: raw scanner
-messages can contain repository paths, snippets, dependency metadata, and rule evidence.
-
-## Documentation structure
-
-### Current contracts
-
-These files describe behavior that implementations and workflows must continue to honor.
-
-| Document | Purpose |
+| Class | Channels |
 |---|---|
-| [`SERVICE_ARCHITECTURE.md`](SERVICE_ARCHITECTURE.md) | External service, package, and dependency boundaries |
-| [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) | Artifact security and readiness gates |
-| [`DATA_HANDLING_INVENTORY.md`](DATA_HANDLING_INVENTORY.md) | Release-facing scanner, credential, retention, failure, and removal inventory |
-| [`UPSTREAM_INTEGRATION.md`](UPSTREAM_INTEGRATION.md) | Scoped upstream application and enterprise gate |
-| [`CURRENT_STATE.md`](CURRENT_STATE.md) | Current release state, integration decisions, and non-goals |
+| Code (7) | Ruff, Pyright, ESLint, TypeScript, Radon, Xenon, Vulture |
+| Security (6) | Bandit, CodeQL, Gitleaks, Semgrep, Snyk, CodeRabbit |
+| Dependencies (4) | OSV-Scanner, Trivy, Shipping Image Trivy, SBOM Policy |
+| Infrastructure (5) | Checkov, Hadolint, Repository Security Posture, OpenSSF Scorecard, zizmor |
+| Reliability (4) | Coverage.py, Schemathesis, Atheris, SonarQube Cloud |
 
-### Operator guides
+The catalog owns class assignments. The UI groups by that metadata; it contains no
+second scanner-to-class roster. CodeRabbit observations retain `AI_ADVISORY` authority
+and never corroborate deterministic findings. Equal inventory visibility does not
+turn AI advice into deterministic proof.
 
-| Document | Purpose |
-|---|---|
-| [`MONITORING_UI.md`](MONITORING_UI.md) | How to run, open, and use Issue Wall |
-| [`EXTERNAL_ACTIVATION.md`](EXTERNAL_ACTIVATION.md) | Optional service activation and credential boundaries |
-| [`SNYK_UNIQUE_CONTRIBUTION.md`](SNYK_UNIQUE_CONTRIBUTION.md) | Snyk overlap and retention measurement |
+**Observation Health** distinguishes completed finding evidence, completed zero-finding
+scans, informational-only evidence, incomplete channels, and unclassifiable outcomes.
+All buckets reconcile. **Risk posture** describes reported finding severity separately
+from whether the evidence collection completed. Green means supported health or
+corroboration, amber means attention/incomplete evidence, and red means failure or
+Critical risk. Scanner identity receives no decorative color.
 
-This directory contains current operating contracts and scanner evidence notes rather
-than development-session history.
+## Review path
 
-## Objective
+1. Start with Snapshot health and Risk posture, then Issue discovery.
+2. Use the severity columns or searchable canonical findings. A finding shows severity,
+   independent-source count, immutable location, and its complete Evidence Graph.
+3. Follow cross-scanner evidence to raw observations and retained GitHub artifacts.
+4. Below discovery, inspect Channel Observatory, Workflow Provenance, and Snapshot Proof.
+5. Download complete JSON evidence or a filtered CSV when needed. These are read-only
+   views of the same snapshot, not separate issue lifecycles.
 
-```text
-Find → Normalize → Deduplicate → Show
-```
+## Generate an immutable report
 
-The product is the latest trustworthy full-codebase snapshot. Every normalized canonical
-issue is visible, while all scanner observations remain attached as evidence. A larger
-count may reflect better detection and is not itself a failure.
+Open Actions, select **Full Code Analysis (Manual)**, and choose the source branch and
+optional reachable full SHA. The selected SHA is analyzed, even when it is historical.
+Workflow selection is separate from source identity. Only this manual workflow can
+publish Issue Wall; push/PR scanner runs and CodeRabbit review events retain evidence.
 
-The required-channel manifest spans semantic and pattern SAST, Python and TypeScript
-quality/types, dependencies, secrets, containers, IaC, complexity, dead code, and
-coverage evidence. No single scanner is treated as sufficient.
+The manual workflow dispatches four fresh scanner groups and waits for success. The
+reusable builder currently selects successful exact-branch/SHA-title runs independently;
+those dispatched run IDs are not passed to it. Do not claim strict fresh-run binding
+until that handoff is migrated. All selected artifacts must still satisfy exact-commit,
+hash, normalization, and count-reconciliation checks.
 
-Analysis-branch pushes and eligible pull requests may run the four scanner workflows and
-retain evidence. Pull requests analyze the exact PR head rather than GitHub's synthetic
-merge ref. Scanner completion never publishes Issue Wall automatically. The sole
-publication entry point is **Full Code Analysis (Manual)**, which resolves the selected
-branch and either its latest HEAD or an optional reachable exact SHA, dispatches four
-fresh scanner groups, and calls the reusable dashboard builder with those new runs.
+After success, use **Review-ready artifact handoff**, download and verify the artifact,
+extract it, and open `dashboard/START_HERE.md`, then `dashboard/index.html`. No server,
+VM, token, CDN, installation, or network connection is needed after download. The
+artifact and custom Check identify the source commit and retain GitHub provenance.
 
-The current required web contains 16 structured channels:
+## Observation coverage versus publication policy
 
-| Cloud workflow | Required channels represented in the unified dashboard |
-|---|---|
-| `01-code-quality.yml` | Ruff, Pyright, ESLint, TypeScript, Bandit |
-| `02-security-sast.yml` | CodeQL, Semgrep |
-| `03-dependency-security.yml` | OSV-Scanner, Gitleaks, Trivy, Hadolint, Checkov |
-| `04-code-health.yml` | Vulture, Radon, Xenon, Coverage.py |
+The observation model is 26 channels. Publication eligibility is a separate explicit
+`publication_gate` record with policy `static-evidence-v1`, channel identities, and its
+satisfaction result. The existing manifest still requires structured evidence from 16
+channels across workflows 01 through 04. This gate is unchanged by the unified model.
 
-The dashboard exposes this mapping per channel together with its completion state,
-finding count, retained artifact names, workflow-run references, scanner versions,
-and SHA-256 artifact proof. A green `16/16` therefore means structured evidence from
-all 16 required channels was validated, not merely that four workflow shells ran.
+An accepted artifact may therefore show incomplete Observation Health. Missing Snyk,
+Sonar, CodeRabbit, dynamic, or assurance evidence cannot disappear, become a clean zero,
+or satisfy another channel. Moving publication blocking to all 26 is a separate
+workflow/policy migration; changing class or display labels cannot perform it.
 
-Optional evidence now includes exact-commit shipping-image Trivy scans, CycloneDX and
-SPDX SBOMs with license-policy results and unsigned local provenance, zizmor, OpenSSF
-Scorecard, GitHub secret-scanning/push-protection posture, Snyk, SonarQube Cloud, and
-CodeRabbit. Weekly isolated Schemathesis and Atheris jobs remain dynamic evidence. None
-of these optional lanes can turn a missing required channel green.
+A valid snapshot with findings yields a neutral advisory Check, an empty valid snapshot
+succeeds, and invalid publication evidence fails. Counts are observations, not a claim
+that the application is secure. Failed refreshes do not replace accepted artifacts.
 
-An artifact is not enough by itself: malformed scanner output now fails normalization
-and cannot publish a dashboard. Radon complexity blocks and Coverage.py file-level
-coverage gaps are normalized as visible findings rather than appearing only as a green
-channel-status badge.
+## Safety and integration
 
-## Output contract
+The service is external to the Agentic SOC backend and web UI. It has no source,
+collaboration, deployment, or production mutation path. Native Sonar results are imported
+into the same evidence model; outbound generic projection excludes Sonar-native and AI
+advisory findings to prevent loops. Additional observation channels report vendor,
+credential, entitlement, and availability limitations explicitly.
 
-The dashboard workflow creates:
-
-- `current-snapshot.json` with exact commit, branch, run IDs, scanner versions, channel
-  status, artifact hashes, canonical findings, AI advisories, and raw observations;
-- one searchable HTML view with 50/100/250-row bounded rendering;
-- evidence drill-down for every contributing scanner observation;
-- separate raw-observation and snapshot downloads; and
-- one read-only GitHub Check describing whether publication succeeded.
-
-A snapshot is publishable only when required workflows succeeded, artifacts share the
-exact commit and valid hashes, normalization completes, and counts reconcile. Failed
-refreshes cannot replace the last publishable artifact for that branch and commit.
-
-See [`MONITORING_UI.md`](MONITORING_UI.md) for the authenticated GitHub artifact flow.
-
-## Discovery lanes
-
-- Deterministic findings are the primary canonical table.
-- Optional AI output is labelled `AI_ADVISORY` and never counts as deterministic
-  corroboration.
-- Snyk has a scan-only, token-gated SARIF lane. Successful runs retain both Open Source
-  and Code evidence. It remains optional and reports `NOT_CONFIGURED` or
-  `CONFIGURED_PARTIAL` truthfully when credentials, quota, or analysis surfaces are unavailable.
-- CodeRabbit cloud automatic and per-push incremental PR review is configured as an
-  advisory lane. A manually requested Issue Wall collects exact-head inline bot comments
-  through GitHub's read-only PR APIs into the separate `AI_ADVISORY` view. Exact-head
-  GitHub App execution is verified.
-- SonarQube Cloud exact-commit analysis is verified. Bounded native issue export,
-  canonical parsing, and a loop-safe generic external-issue projection are implemented.
-  Both PATs authenticate and Sonar accepted the explicit Browse grant. Main and eligible
-  PR results are imported when exposed; Free-plan arbitrary-branch issue access remains
-  HTTP 403 and is represented truthfully as `CONFIGURED_PARTIAL` without blocking Issue
-  Wall. Sonar-native and all `AI_ADVISORY` findings are excluded from the outbound
-  projection.
-- `config/code-analysis/proposal-tool-catalog.json` (repository source; intentionally
-  outside the packaged documentation tree) lists the integrated scanner and assurance
-  channels consumed by Issue Wall.
-
-Scanners run only in GitHub Actions, not in the Agentic SOC application startup path.
-The supported Issue Wall is the authenticated, self-contained Actions artifact; there
-is no local server, pull worker, QA host, or continuously hosted copy.
-
-For every analyzed commit, the advisory **Code Analysis Dashboard** Check links to its
-complete searchable artifact. Branches never share artifact identities or Checks. The
-exact branch/SHA identity prevents a slower older run from masquerading as the latest
-dashboard for a newer commit.
-
-### Manual publication and automatic evidence collection
-
-- **Evidence collection:** a branch push may run all four scanners; an eligible
-  same-repository PR update analyzes its exact head. These runs retain evidence only and
-  never generate or replace Issue Wall.
-- **Manual full scan:** Actions → **Full Code Analysis (Manual)** → **Run workflow**.
-  Leave `scan_branch` blank for the repository default branch, or enter any other branch.
-  Leave `scan_sha` blank for the branch's latest HEAD, or enter a reachable 40-character
-  SHA from that branch for a historical exact-commit report. The workflow-ref selection
-  never substitutes for source identity. It dispatches all four scanner groups afresh,
-  binds the dashboard to those newly launched run IDs, streams all four
-  scanner runs concurrently, invokes the private reusable dashboard job, and publishes
-  the artifact in the same manual workflow run. A failed scanner or incomplete snapshot
-  stops the flow without replacing the last valid dashboard. The final
-  **Review-ready artifact handoff** job provides one prominent download link,
-  branch, exact SHA, artifact ID/digest, and three-step offline launch instructions.
-
-The dashboard leads with security posture, critical/high counts, affected areas,
-freshness, and the exact publication path. Hotspots and distribution bars apply filters
-directly, while searchable findings, scanner coverage, optional lanes, source links,
-workflow runs, artifact hashes, and raw downloads remain available for investigation.
-
-## Safety
-
-The platform is external and read-only. It cannot create Issues or PR comments, generate
-or apply patches, push commits or refs, change branch protection, deploy Agentic SOC,
-contact production, or mutate the original repository. It does not claim that the
-application is secure or publish unsupported coverage percentages.
+Retained scanner messages may include code snippets, paths, and dependency metadata.
+Artifact access and retention follow GitHub repository policy. Upstream integration
+requires the scoped review process in [UPSTREAM_INTEGRATION.md](UPSTREAM_INTEGRATION.md).
+Historical `snapshot-v1` artifacts retain their own embedded offline renderer; regenerate
+through the pipeline to obtain the v2 model. The current renderer rejects v1 input
+instead of guessing missing observation metadata.

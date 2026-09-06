@@ -87,7 +87,7 @@ jobs:
             echo
             echo "1. ✅ Branch resolved: \`$branch\` · selected \`$sha\` · current HEAD \`${head_sha,,}\`"
             echo "2. ⏳ Dispatch four fresh scanner groups"
-            echo "3. ⏳ Validate all required scanner evidence"
+            echo "3. ⏳ Validate channel coverage"
             echo "4. ⏳ Build and publish Issue Wall"
           } >> "$GITHUB_STEP_SUMMARY"
 

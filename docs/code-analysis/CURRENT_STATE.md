@@ -14,10 +14,10 @@ integration or automated remediation work remains.
   release branch and is not the development integration target.
 - Apply only the scoped paths defined in [`UPSTREAM_INTEGRATION.md`](UPSTREAM_INTEGRATION.md).
 - Run **Full Code Analysis (Manual)** for the proposed exact commit. Each invocation
-  dispatches four fresh scanner groups and builds the dashboard exclusively from those
-  newly launched runs.
-- Confirm optional vendor availability at review time. CodeRabbit remains advisory;
-  Snyk and SonarQube Cloud remain optional evidence lanes and cannot satisfy required channels.
+  dispatches four fresh scanner groups. The reusable builder independently selects
+  successful exact-title runs, so fresh-run exclusivity is not yet proven.
+- Confirm additional observation channel availability at review time. CodeRabbit remains advisory;
+  Snyk and SonarQube Cloud remain additional observation evidence lanes and cannot satisfy required channels.
 - Obtain repository-owner approval before creating an upstream pull request.
 
 ## Explicit non-goals
@@ -26,3 +26,9 @@ integration or automated remediation work remains.
 - No scanner may patch code, push branches, create issues, or remediate findings.
 - No deferred scanner placeholder is part of the supported dashboard.
 - No upstream branch, pull request, or repository setting is created by the subsystem.
+
+
+The published data contract is now snapshot-v2 with one `analysis_channels` inventory,
+class metadata owned by the catalog, and a separate static publication gate. Historical
+v1 artifacts are not rewritten. The UI leads with Snapshot health and Risk posture,
+then discovery, with Channel Observatory, Workflow Provenance, and Snapshot Proof below.

@@ -10799,3 +10799,299 @@
 - Fixed reproducible scanner runtime declarations and fail-closed evidence generation discovered during live validation. Current verification: 50 code-analysis tests pass; workflow policy audit and diff-integrity checks pass.
 - Current documentation is under `docs/code-analysis/`; `CURRENT_STATE.md` records the review boundary. Obsolete temporary branch/PR references, pending-work language, and superseded evidence-reuse documentation were removed.
 - Fork `main` remains stable, fork `Testing` is the development target, and upstream was not modified. Any future upstream proposal requires owner approval, a clean branch from current upstream `Testing`, upstream-specific vendor configuration, and a fresh successful manual artifact for the proposed exact commit.
+
+### 2026-09-04 — codex — code-analysis dashboard visual-metrics session started
+
+- Context: Add useful view-only graphs, charts, and issue-tracking metrics to the self-contained offline code-analysis dashboard template.
+- Status: In progress; inspecting the existing template, renderer contract, and dashboard tests before implementation.
+
+### 2026-09-04 — codex — code-analysis dashboard visual metrics completed
+
+- Did: Added a responsive category-by-severity risk heatmap, scanner-corroboration meter, and severity-weighted code-area concentration view to the self-contained Issue Wall. Matrix cells and area chips drill into the existing read-only finding filters; no new backend, persistence, or historical-state claim was introduced.
+- Docs/tests: Updated the monitoring UI contract and dashboard rendering assertions. Embedded dashboard JavaScript parsed successfully; all 50 code-analysis tests passed; `git diff --check` passed.
+- Status: Complete.
+
+### 2026-09-04 — codex — provenance-first issue interaction started
+
+- Context: Make “Where did this issue come from?” the primary finding interaction, showing scanner-to-canonical convergence before detailed observation fields.
+- Status: In progress; using progressive disclosure so provenance is legible before raw evidence detail.
+
+### 2026-09-04 — codex — provenance-first issue interaction completed
+
+- Did: Made “Where did this issue come from?” the primary card action. The dialog now leads with the canonical summary/location, renders named scanner-family source nodes converging into one canonical-finding node, and states the exact source-observation-to-canonical-issue ratio. Raw rule, message, result, artifact, version, and reported-severity fields are collapsed behind a separate inspection disclosure.
+- Docs/tests: Updated the monitoring UI contract and renderer assertions for the progressive disclosure. All 50 code-analysis tests passed, embedded JavaScript validated, `git diff --check` passed, and the 10,000-finding preview rebuilt in 10.42 seconds at 147.96 MiB peak.
+- Status: Complete.
+
+### 2026-09-04 — codex — visible deduplication flow started
+
+- Context: Make the many-observations-to-one-canonical-finding transformation explicit on each finding card so developers can distinguish consolidation from arbitrary duplication.
+- Status: In progress.
+
+### 2026-09-04 — codex — visible deduplication flow completed
+
+- Did: Added a compact per-finding flow showing “N raw observations -> canonicalized -> 1 Issue Wall finding,” an explicit “N observations consolidated” statement, and a count-aware “View N source observations” disclosure containing the retained supporting evidence. The display derives entirely from existing canonical-finding and observation records; aggregation semantics are unchanged.
+- Docs/tests: Updated the monitoring UI contract and renderer assertions. All 50 code-analysis tests passed, embedded JavaScript parsed successfully, `git diff --check` passed, and the 10,000-finding/13,000-observation preview rebuilt in 14.77 seconds at 147.97 MiB peak.
+- Status: Complete.
+
+### 2026-09-04 — codex — related-finding filters started
+
+- Context: Expose same-file, same-concept, same-rule, and same-directory relationships directly from canonical finding cards as contextual filters over the existing read-only wall.
+- Status: In progress; counts will represent canonical findings and will not introduce a separate clustering lifecycle.
+
+### 2026-09-04 — codex — related-finding filters completed
+
+- Did: Added a Related findings panel to every canonical card with snapshot-wide canonical counts for the same file, concept, primary retained scanner rule, and top-level directory. Each count is an accessible filter shortcut into the existing workspace; relationship navigation opens the complete deterministic scope so low/informational neighbors are not hidden by the actionable default. No relationship state is persisted and no second clustering model was introduced.
+- Docs/tests: Updated the monitoring UI contract and renderer assertions. All 50 code-analysis tests passed, both embedded scripts parsed successfully, `git diff --check` passed, and the 10,000-finding/13,000-observation preview rebuilt in 7.74 seconds at 148.01 MiB peak.
+- Status: Complete.
+
+### 2026-09-04 — codex — three-layer Issue Wall hierarchy started
+
+- Context: Make issue discovery, canonical understanding, and evidence provenance the explicit UX hierarchy, visually connecting the Issue Wall to scanner proof, GitHub workflow/artifacts, and immutable source.
+- Status: In progress; reinforcing existing evidence contracts without adding remediation functionality.
+
+### 2026-09-04 — codex — three-layer Issue Wall hierarchy completed
+
+- Did: Added a responsive three-layer evidence journey at the Issue Wall entrance: Issue discovery navigates to canonical results, Issue understanding opens the leading canonical finding and its scanner convergence, and Evidence provenance navigates to snapshot proof. A compact visible trail connects Issue Wall -> canonical finding -> scanner evidence -> GitHub workflow/artifact -> source code, reinforcing aggregation and provenance as the product story without adding remediation behavior.
+- Docs/tests: Updated the monitoring UI contract and renderer assertions. All 50 code-analysis tests passed, both embedded scripts parsed successfully, `git diff --check` passed, and the 10,000-finding/13,000-observation preview rebuilt in 12.21 seconds at 148.04 MiB peak.
+- Status: Complete.
+
+### 2026-09-04 — codex — unified 26-channel coverage started
+
+- Context: Replace the primary required-versus-optional channel split with one truthful Analysis Coverage model in which all 26 scanner/control channels are observation sources for the Issue Wall.
+- Status: In progress; auditing snapshot, publication, and UI contracts before changing the denominator or gate semantics.
+
+### 2026-09-04 — codex — unified 26-channel coverage completed
+
+- Did: Unified the primary Issue Wall coverage model across all 26 catalogued observation channels. Snapshot construction now retains every non-static channel even without evidence, using explicit `NOT_AVAILABLE` states; the UI presents one Analysis Coverage ratio/progress bar, warning count, 26-channel evidence flow, unified assurance metrics, and one complete channel inventory. Removed the optional-controls framing from the primary UX and updated GitHub summary/launch copy. The existing 16-static-channel exact-head publication gate remains fail-closed for compatibility, while the monitoring surface truthfully exposes all 26 lanes.
+- Docs/tests: Updated the monitoring UI contract and added production-denominator plus unavailable-channel regression coverage. All 51 code-analysis tests passed, both embedded scripts parsed successfully, `git diff --check` passed, and the 10,000-finding/13,000-observation preview rebuilt in 8.11 seconds at 148.11 MiB peak.
+- Status: Complete.
+
+### 2026-09-04 — codex — channel-role coverage taxonomy started
+
+- Context: Preserve one 26-channel Analysis Coverage model while visually distinguishing code-quality, security, dependency, infrastructure, and reliability roles.
+- Status: In progress; role groups will sum exactly to the same 26-channel denominator and continue feeding one canonical wall.
+
+### 2026-09-06 — codex — channel-role coverage taxonomy resumed
+
+- Context: Resumed the interrupted UI implementation; the role taxonomy had not yet changed product files.
+- Status: In progress.
+
+### 2026-09-06 — codex — channel-role coverage taxonomy completed
+
+- Did: Added a role-aware breakdown beneath unified Analysis Coverage: Code quality 7, Security 6, Dependencies 4, Infrastructure 5, and Reliability 4. Each role shows its covered/total fraction, proportional bar, full membership tooltip, and incomplete channel names; a total row reconciles the five groups to the same 26-channel denominator. All roles continue into the single canonical Issue Wall.
+- Docs/tests: Documented the exact taxonomy and extended renderer assertions. All 51 code-analysis tests passed, both embedded scripts parsed successfully, `git diff --check` passed, and the 10,000-finding/13,000-observation preview rebuilt in 22.85 seconds at 148.13 MiB peak.
+- Status: Complete.
+
+### 2026-09-06 — codex — semantic evidence palette started
+
+- Context: Replace the broad decorative accent palette with a strict monitoring/evidence color language: neutral structure, cyan interaction, green verified state, amber attention state, and severity colors reserved for findings.
+- Status: In progress; preserving contrast, responsive behavior, and severity recognition.
+
+### 2026-09-06 — codex — semantic evidence palette completed
+
+- Did: Reworked the Issue Wall into a restrained monitoring/evidence palette. Neutral navy/slate now carries structure; cyan is reserved for interaction, focus, navigation, and evidence flow; green represents verified completeness; amber represents attention/incomplete states; and severity hues remain confined to findings and severity-driven charts. Purple/pink/lime tokens now resolve to semantic cyan/green fallbacks, purple-led panels and evidence nodes were neutralized, and operation-card accents no longer use decorative multicolor coding.
+- Docs/tests: Updated the monitoring UI color contract and palette assertions. All 51 code-analysis tests passed, both embedded scripts parsed successfully, `git diff --check` passed, and the 10,000-finding/13,000-observation preview rebuilt in 20.47 seconds at 148.15 MiB peak.
+- Status: Complete.
+
+### 2026-09-06 — codex — Signal / Control Room palette started
+
+- Context: Adopt the exact graphite, blue-black, electric-cyan, health, warning, failure, and severity tokens proposed for the Signal / Control Room theme.
+- Status: In progress; correcting remaining selected-control and snapshot-identity semantics alongside the token replacement.
+
+### 2026-09-06 — codex — Signal / Control Room palette completed
+
+- Did: Applied the exact Signal / Control Room token set: graphite `#070B12`, surface `#0D131D`, elevated `#121B28`, border `#253244`, text `#F1F5F9`, muted `#8B9AAF`, cyan `#38D9FF`, green `#35D399`, amber `#F5B942`, critical red `#FF4D67`, high orange `#FF8A3D`, medium yellow `#F4C95D`, and low blue `#69A7FF`. Selected navigation/filters and snapshot identity now use cyan; completion/corroboration remains green; degraded/incomplete state uses its own amber token; failures use critical red; decorative surfaces remain neutral.
+- Docs/tests: Updated the monitoring UI contract with the exact palette and expanded token/selected-control assertions. All 51 code-analysis tests passed, both embedded scripts parsed successfully, `git diff --check` passed, and the 10,000-finding/13,000-observation preview rebuilt in 26.04 seconds at 148.15 MiB peak.
+- Status: Complete.
+
+### 2026-09-06 — codex — Issue Wall next-chat handoff started
+
+- Context: Produce a durable, copy-ready handoff so a fresh chat can continue the current Issue Wall UI work without rediscovery or loss of architectural constraints.
+- Status: In progress.
+
+### 2026-09-06 — codex — Issue Wall next-chat handoff completed
+
+- Did: Added `docs/code-analysis/SESSION_HANDOFF_2026-09-06.md` with a copy-ready next-chat prompt, implemented UX inventory, changed-file map, last verified test/benchmark state, view-only and provenance constraints, the 16-gate/26-coverage caveat, exact Signal / Control Room tokens, and scoped next steps. Explicitly recorded that the worktree is intentionally dirty and that no commit, push, workflow dispatch, or publication occurred.
+- Verification: Read back the generated handoff and ran `git diff --check`; it passed with only existing line-ending conversion warnings.
+- Status: Complete.
+
+### 2026-09-04 — codex — canonical-finding hero redesign started
+
+- Context: Redesign the Issue Wall’s primary results surface so one canonical finding is unmistakably the hero object and its scanner observations read as supporting evidence.
+- Status: In progress; preserving the bounded offline renderer, existing filters, source links, and evidence dialog.
+
+### 2026-09-04 — codex — canonical-finding hero redesign completed
+
+- Did: Replaced the primary findings table with responsive canonical-finding cards. Each card leads with severity, canonical concept, message, and immutable source location, then explicitly separates scanner-family agreement and observation count as supporting proof with named scanner badges. Added direct evidence and GitHub actions while preserving whole-card keyboard access, filtering, sorting, CSV export, and bounded pagination.
+- Docs/tests: Updated the Issue Wall UI contract and renderer assertions. All 50 code-analysis tests passed, embedded JavaScript parsed successfully, `git diff --check` passed, and the 10,000-finding preview rebuilt within the existing 30-second/512-MiB scale gate (16.85 seconds, 147.81 MiB peak).
+- Status: Complete.
+
+### 2026-09-04 — codex — Evidence Graph detail redesign started
+
+- Context: Replace the finding detail’s generic remediation framing with an evidence-provenance graph that answers why one canonical issue was created from multiple scanner observations.
+- Status: In progress; retaining exact native evidence, immutable source links, offline behavior, and accessibility.
+
+### 2026-09-04 — codex — Evidence Graph detail redesign completed
+
+- Did: Reframed the canonical-finding dialog as an Evidence Graph. A severity-marked canonical root explains the deduplicated issue and connects through an explicit “deduplicated from” relationship to one node per retained scanner observation. Observation nodes show scanner/channel, rule, original message, native result ID/link, observed location, artifact, tool version, and reported severity; no fix-generation or remediation authority was added.
+- Docs/tests: Updated the monitoring UI contract and dashboard assertions. All 50 code-analysis tests passed, embedded JavaScript parsed successfully, `git diff --check` passed, and the 10,000-finding preview rebuilt in 9.55 seconds at 147.85 MiB peak.
+- Status: Complete.
+
+### 2026-09-04 — codex — inline scanner-agreement expansion started
+
+- Context: Make aggregation visible on every canonical-finding card with prominent independent-family agreement and an in-place expandable view of each contributing scanner observation.
+- Status: In progress; preserving bounded pagination, complete evidence access, and valid interactive semantics.
+
+### 2026-09-04 — codex — inline scanner-agreement expansion completed
+
+- Did: Promoted independent scanner-family agreement into every canonical-finding card, showing the exact family count and all named family badges. Added an in-card native disclosure that expands every referenced observation with scanner/channel, rule, result ID/link, original message, and retained artifact; the full Evidence Graph remains the deep provenance view. Removed whole-card button semantics so the nested disclosure and links remain valid interactive controls.
+- Docs/tests: Updated the monitoring UI contract and renderer assertions. All 50 code-analysis tests passed, embedded/generated JavaScript parsed successfully, `git diff --check` passed, and the 10,000-finding preview remained within the scale gate (18.90 seconds, 147.87 MiB peak).
+- Status: Complete.
+
+### 2026-09-04 — codex — corroboration terminology refinement started
+
+- Context: Replace the ambiguous “Evidence strength” framing with developer-readable cross-scanner agreement language that cannot be mistaken for severity or exploitability.
+- Status: In progress.
+
+### 2026-09-04 — codex — corroboration terminology refinement completed
+
+- Did: Renamed the aggregate “Evidence strength” panel to “Cross-scanner agreement,” reframed its headline as the percentage of canonical findings reported by 2+ independent scanner families, and labeled its segmented visualization as scanner corroboration distribution. The UI now states directly that corroboration is independent of severity and does not prove exploitability.
+- Docs/tests: Updated the monitoring UI contract and renderer assertions. All 50 code-analysis tests passed, embedded JavaScript parsed successfully, `git diff --check` passed, and the 10,000-finding preview rebuilt in 9.89 seconds at 147.87 MiB peak.
+- Status: Complete.
+
+### 2026-09-04 — codex — finding-local artifact provenance started
+
+- Context: Bring existing snapshot, workflow, artifact, and integrity provenance within one click of each canonical finding while preserving the GitHub artifact source-of-truth boundary.
+- Status: In progress; no new provenance claims or data contracts will be introduced.
+
+### 2026-09-04 — codex — finding-local artifact provenance completed
+
+- Did: Added a one-click Evidence provenance disclosure to every canonical-finding card. It derives relevant workflow filenames and artifact references from the finding’s retained observations, shows snapshot identity and matching SHA-256 record coverage, links to captured GitHub workflow runs, and exposes the retained normalized observation download. The UI explicitly avoids fabricated per-artifact links because those URLs are not in the snapshot contract.
+- Docs/tests: Updated the monitoring UI contract and renderer assertions. All 50 code-analysis tests passed, embedded JavaScript and provenance markers validated, `git diff --check` passed, and the 10,000-finding preview rebuilt in 14.42 seconds at 147.87 MiB peak.
+- Status: Complete.
+
+### 2026-09-04 — codex — Issue Wall and operations separation started
+
+- Context: Separate the “what was found” review experience from the “where this snapshot came from” workflow controls, keeping operations lower in the page hierarchy.
+- Status: In progress; preserving all existing GitHub-controlled actions and snapshot proof.
+
+### 2026-09-04 — codex — Issue Wall and operations separation completed
+
+- Did: Introduced an explicit review-first “Issue Wall — What was found?” zone with a compact branch/short-SHA/channel-completion chip. Moved the unchanged GitHub-controlled Web of Scanners actions below findings, analytics, and scanner evidence under “Analysis operations — Where did this snapshot come from?”, visually separating results from pipeline controls and keeping the layout responsive.
+- Docs/tests: Updated the monitoring UI contract and added a section-order regression assertion. All 50 code-analysis tests passed, embedded JavaScript and section hierarchy validated, `git diff --check` passed, and the 10,000-finding preview rebuilt in 11.68 seconds at 147.89 MiB peak.
+- Status: Complete.
+
+### 2026-09-04 — codex — Analysis Health strip started
+
+- Context: Visually separate developer-fixable code findings from scanner, artifact, channel, and publication health so the wall communicates whether its aggregation is trustworthy.
+- Status: In progress; preserving the fail-closed last-known-good publication contract.
+
+### 2026-09-04 — codex — Analysis Health strip completed
+
+- Did: Added a prominent top-level Snapshot health strip that keeps evidence-pipeline trust separate from developer-fixable findings. Accepted walls show required-channel completion, exact-commit binding, artifact-integrity record count, and publication acceptance. The incomplete state reports its completion fraction, lists each non-complete scanner channel with the retained reason/status, and links to workflow activity, evidence status, and snapshot proof. The underlying fail-closed last-known-good publication gate is unchanged.
+- Docs/tests: Updated the monitoring UI contract and dashboard assertions for both health states. All 50 code-analysis tests passed, embedded JavaScript and health-state markers validated, `git diff --check` passed, and the 10,000-finding preview rebuilt in 9.45 seconds at 147.93 MiB peak.
+- Status: Complete.
+
+### 2026-09-06 — codex — Code-analysis context review started
+- Context: Read the Issue Wall session handoff, project instructions, code-analysis documentation, and GitHub analysis configuration before the user provides the next task.
+- Did: Located the current handoff and confirmed the intentional uncommitted Issue Wall changes; preserving existing work.
+- Tests: Not run; context review only.
+- Status: In progress.
+- Next: Finish reviewing the analysis contracts and workflows, then await the task.
+
+### 2026-09-06 — codex — Code-analysis context review completed
+- Did: Reviewed the current and prior Issue Wall handoffs, project architecture and process rules, code-analysis operating documentation, analysis workflow structure, CodeQL models, custom scanner rules, channel catalogs, and existing snapshot/presentation diffs.
+- Findings: The current UI accounts for 26 channels while publication retains the 16-channel manifest gate. Documentation claims aggregation binds to freshly dispatched run IDs, but workflow 08 passes only branch/SHA to workflow 05, which independently selects successful exact-title runs; recorded for the next task without changing behavior.
+- Tests: Not run; documentation and source inspection only. Handoff test and benchmark results remain historical claims, not new validation.
+- Status: Complete; existing implementation changes preserved. Only mandatory Journal entries added during this review.
+- Next: Await the user's task.
+
+### 2026-09-06 — codex — Semantic scanner-card colors started
+- Context: Make scanner cards neutral when complete, amber when evidence is incomplete/unavailable, and red for explicit failures.
+- Status: In progress; preserving the existing snapshot and publication contracts.
+- Next: Update presentation, verify embedded JavaScript and service checks, and regenerate the preview.
+
+### 2026-09-06 — codex — Semantic scanner-card colors completed
+- Did: Scanner inventory cards now use neutral complete states, amber incomplete/unavailable states, and red explicit failure/invalid-evidence states, with check/warning/cross symbols and readable labels. Cards show the channel role and findings or retained reason, plus native status and available workflow provenance. Updated the monitoring UI contract.
+- Tests: All 51 service tests passed; embedded JavaScript parsed and direct rendering checks passed for complete, partial/unavailable, failed, retained native status, and escaped reasons. Diff check passed. Regenerated the 10,000-finding / 13,000-observation preview in 17.22 seconds at 148.17 MiB peak.
+- Status: Complete; existing uncommitted work preserved, no publication performed.
+- Next: User review of the regenerated Issue Wall preview.
+
+### 2026-09-06 — codex — Evidence-first Issue Wall header started
+- Context: Redesign the header to lead with channel evidence health, followed by canonical findings and corroboration, with repository/branch/commit identity.
+- Status: In progress; all headline values must derive from retained snapshot evidence.
+- Next: Update the header and documentation, validate rendering, and regenerate the preview.
+
+### 2026-09-06 — codex — Evidence-first Issue Wall header completed
+- Did: Rebuilt the header with a neutral uppercase title, unified engineering/risk subtitle, all-channel evidence-health badge, repository/branch/short-commit identity, and three metric columns for channels, deterministic findings, and corroborated findings, with completion/Critical/High subcounts. Secondary controls, full SHA, totals, and publication proof remain in a collapsed snapshot disclosure. Updated the monitoring UI contract.
+- Tests: All 51 service tests passed; embedded JavaScript and direct header-state/count/identity checks passed, including complete, incomplete, failed, and empty evidence. Diff check passed. The 10,000-finding / 13,000-observation preview rebuilt in 23.50 seconds at 148.23 MiB peak. Browser visual verification was attempted but headless Chrome failed during GPU-process startup; no visual acceptance is claimed.
+- Status: Complete; existing uncommitted work preserved.
+- Next: Review the regenerated preview; visual browser acceptance remains unverified in this environment.
+
+### 2026-09-06 — codex — Issue Wall risk and corroboration emphasis started
+- Context: Rename Fix queue to Issue Wall, center the severity columns, and expose independent-source counts alongside risk.
+- Status: In progress; retaining one canonical finding set and complete evidence access.
+- Next: Update presentation, verify counts and navigation, and regenerate the preview.
+
+### 2026-09-06 — codex — Issue Wall risk and corroboration emphasis completed
+- Did: Renamed Fix queue to Issue Wall and moved it with the searchable workspace ahead of supporting coverage/analytics. Added an ALL ISSUES severity summary with explicit additional informational counts, retained the labeled five-item column previews, and paired each finding with its severity dot and independent-source count. Multiple sources receive a restrained corroboration label; single-source evidence stays neutral. Severity/all-issues shortcuts clear stale filters and include Low priorities. Updated monitoring documentation and existing renderer assertions.
+- Tests: All 51 service tests passed; embedded scripts parsed and direct checks passed for source-count pluralization, independent-family fallback, corroboration, escaping, section order, and Low/all-issues navigation. Diff check passed. Preview rebuilt with 10,000 findings / 13,000 observations in 29.59 seconds at 148.27 MiB peak.
+- Status: Complete; existing work preserved and no publication performed.
+- Next: Review the updated preview; visual browser acceptance remains unavailable from the earlier browser startup failure.
+
+### 2026-09-06 — codex — Channel Observatory started
+- Context: Consolidate the scanner inventory into a compact role-filtered Channel Observatory with truthful channel, workflow-group, and revision context.
+- Status: In progress; preserving all channel states and retained evidence.
+- Next: Implement the compact inventory, verify filtering/status presentation, and rebuild the preview.
+
+### 2026-09-06 — codex — Channel Observatory functional checks passed; scale timing under review
+- Tests: All 51 service tests, embedded-script parsing, role filtering and selection, complete/partial/failed counts, escaping, unique IDs, and literal DOM references passed. Diff check passed.
+- Finding: The 10,000-finding benchmark regenerated the preview but exceeded its 30-second gate at 38.78 seconds; peak memory was 148.31 MiB. Repeating the isolated run to assess timing variability.
+- Status: Validation in progress; no threshold change or publication.
+
+### 2026-09-06 — codex — Channel Observatory implementation completed; scale validation unresolved
+- Did: Replaced the split/hidden channel renderers with one compact Channel Observatory, six accessible role filters, complete/incomplete/failed row semantics, honest unavailable/partial finding counts, and expandable native status/reason/workflow/artifact evidence. Summary counts use retained workflow references and exact-commit identity rather than unproven HEAD claims. Updated documentation and the existing renderer assertion.
+- Tests: All 51 service tests and direct JavaScript/filter/count/escaping/DOM-reference checks passed. Diff check passed. Preview regenerated. Scale gate failed twice: 38.78 seconds and 56.16 seconds against 30 seconds, both at 148.31 MiB peak; cause remains unresolved and no threshold was changed.
+- Status: UI implementation complete; performance acceptance remains unresolved. No publication performed.
+- Next: Review the preview and investigate scale timing before claiming full acceptance; browser visual verification remains unavailable from the prior startup failure.
+
+### 2026-09-06 — codex — No findings versus no evidence started
+- Context: Ensure only completed evidence can show a clean zero; missing artifacts or unavailable coverage must remain visibly distinct.
+- Status: In progress; checking the Observatory and shared coverage presentation.
+- Next: Implement explicit evidence availability labels and verify zero/missing/partial states.
+
+### 2026-09-06 — codex — No findings versus no evidence completed
+- Did: Completed channels show zero findings only for an explicit nonnegative integer count. Missing/invalid/unavailable evidence explicitly shows Coverage unavailable, with No artifact when an empty artifact list proves absence. Positive partial counts remain retained findings with Coverage incomplete. Missing completed counts remain unavailable rather than coerced to zero. Corrected the snapshot fallback that falsely described native completed zero-observation channels as missing evidence, and encoded check/warning/cross symbols safely after detecting literal question-mark corruption. Updated the monitoring contract.
+- Tests: All 52 service tests passed, including completed-zero versus absent-evidence snapshot regression. Embedded scripts and direct zero/missing/partial/invalid-count/artifact/symbol checks passed; diff check passed. Preview regenerated; the current scale run passed at 24.91 seconds and 148.32 MiB for 10,000 findings / 13,000 observations. Earlier timing failures remain recorded; this run does not establish their cause.
+- Status: Complete; publication gate unchanged and no publication performed.
+- Next: Review explicit evidence availability in the regenerated preview.
+
+### 2026-09-06 — codex — Observation Health started
+- Context: Add a reconciled all-channel metric distinguishing reported findings, completed zero findings, informational-only evidence, and unavailable evaluation.
+- Status: In progress; deriving categories from retained channel status and native observations.
+- Next: Implement mutually exclusive health buckets, validate mixed/missing evidence, and regenerate the preview.
+
+### 2026-09-06 — codex — Observation Health completed
+- Did: Upgraded the coverage panel to Observation Health with a reconciled evaluated-channel fraction, progress bar, and separate finding-evidence, completed-zero, and informational-only channel counts. Incomplete evidence and completed-but-unclassifiable outcomes remain explicit. Native observation severity determines informational-only classification; partial findings never imply completed evaluation. All channels evaluated appears only for a nonempty fully evaluated inventory. Preserved role-completion detail and the publication gate; updated the monitoring contract.
+- Tests: All 52 service tests passed. Direct JavaScript checks verified the 26-channel 22/3/1 example, reconciliation with partial/missing/unknown outcomes, scanner-family alias handling, progress accessibility, and truthful full/empty evaluation messages. Embedded scripts, DOM-reference checks, and diff check passed. The 10,000-finding / 13,000-observation preview passed the scale gate at 23.52 seconds and 148.36 MiB peak.
+- Status: Complete; no publication performed.
+- Next: Review the Observation Health breakdown in the regenerated preview.
+
+### 2026-09-06 — codex — Unified channel semantics and visual hierarchy started
+- Context: Make all 26 channels first-class observations in the data model, update operator-facing language, and align the page around health/risk, discovery, evidence, Observatory, workflow provenance, and snapshot proof.
+- Decision: Separate the uniform observation inventory from the existing explicit 16-channel publication gate; first-class observation status does not silently migrate publication-blocking requirements.
+- Status: In progress; preserving intentional uncommitted work and immutable evidence boundaries.
+- Next: Version and validate the unified snapshot, migrate consumers/catalog grouping, revise hierarchy and docs, and run contract/UI/scale checks.
+
+### 2026-09-06 — codex — Unified observation semantics and hierarchy completed
+- Did: Published snapshot-v2 now emits one analysis_channels inventory and analysis_channel_count. All 26 catalog entries share class/status/findings/observation-membership/evidence metadata, with missing findings null. Removed catalog required/optional states, browser scanner-to-class rosters, emitted split inventories, and the unused legacy renderer. Catalog class drives filters and role coverage; canonical channel counts and exact native observation membership reconcile. A separate validated static-evidence-v1 publication_gate retains the existing policy without granting AI advisories deterministic authority.
+- UI/docs: Snapshot health and Risk posture lead together before Issue discovery. Channel Observatory, Workflow Provenance, and Snapshot Proof follow findings, with neutral dark observability surfaces and semantic accents. Updated public terminology, current contracts, artifact launch guide, workflow summary copy, benchmark, and session handoff. Explicitly documented the existing fresh-run-binding discrepancy without changing workflow selection. Kept the internal session handoff excluded from both MkDocs publication and public-doc checks.
+- Tests: 121 combined service/CI-contract tests passed; workflow service policy, 90-page documentation consistency, and diff checks passed. Added all-26 native membership, class/count/inventory/gate-policy drift, canonical-count, and hierarchy regressions. Both embedded scripts executed against the generated v2 preview in a minimal DOM harness, including header/health/Observatory/class filtering/Low navigation/evidence dialog. Scale preview passed at 12.12 seconds and 157.71 MiB for 10,000 findings / 13,000 observations. Browser screenshot verification remained unavailable because headless Chrome could not load a page; the task-launched browser was stopped.
+- Status: Complete; intentional prior work preserved, no commit/push/dispatch/publication. Historical v1 offline artifacts stay immutable; the current renderer requires v2 regeneration.
+- Next: Review the regenerated preview. Moving all 26 channels into the publication-blocking policy or implementing strict freshly-dispatched-run binding remains separately scoped work.
+
+### 2026-09-06 — codex — Fork artifact publication and upstream-current validation started
+- Context: User authorized publishing the Issue Wall changes to the fork, running the actual GitHub artifact pipeline, and analyzing current upstream branch commits.
+- Did: Confirmed the fork default branch is Testing and authenticated GitHub access is available through the network-enabled tool context. Upstream remains fetch-only.
+- Status: In progress; preserving local work and separating scanner tooling identity from the exact upstream source revision.
+- Next: Fetch current refs, publish the validated analysis changes to the fork, run exact-source analysis, and inspect the retained artifact.

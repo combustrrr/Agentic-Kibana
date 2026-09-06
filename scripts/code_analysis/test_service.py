@@ -16,7 +16,7 @@ from scripts.code_analysis.normalizer import CodeRabbitParser, CoverageParser, F
 from scripts.code_analysis.pipeline import build as build_pipeline
 from scripts.code_analysis.provenance import build as build_provenance
 from scripts.code_analysis.validate_sbom import _denied_license, evaluate as evaluate_sbom
-from scripts.code_analysis.snapshot import build_additional_channels
+from scripts.code_analysis.snapshot import build_analysis_channels, build_analysis_snapshot
 
 MANIFEST={"schema_version":"1","required_static_channels":[
     {"channel":"codeql","scanner_family":"CodeQL","surface":"semantic","artifact_patterns":["*codeql*.sarif"]},
@@ -30,7 +30,8 @@ def status(codeql="COMPLETED",semgrep="COMPLETED"):
 def snapshot(items=None, channel_state=None):
     current=evidence(items or [raw()]);channels=channel_state or status()
     provenance={"commit_sha":"abc","workflow_run_ids":["1","2"],"artifact_hashes":[{"path":"codeql.sarif","sha256":"a"*64}]}
-    return build_snapshot(current,channels,provenance)
+    catalog=json.loads(Path("config/code-analysis/proposal-tool-catalog.json").read_text(encoding="utf-8"))
+    return build_analysis_snapshot(build_snapshot(current,channels,provenance),catalog)
 
 class MonitoringTests(unittest.TestCase):
     def test_sonar_export_queries_projection_branch_but_retains_git_identity(self):
@@ -227,23 +228,64 @@ class MonitoringTests(unittest.TestCase):
             output=Path(d)/"index.html";generate(result,output);page=output.read_text()
             self.assertIn("Actionable canonical findings",page);self.assertIn("Show all priorities",page)
             self.assertIn("slice((page-1)*size,page*size)",page)
+            self.assertIn('class="finding-card"',page)
+            self.assertIn("ONE CANONICAL FINDING",page)
+            self.assertIn("independent scanner families",page)
+            self.assertIn("dedup-flow",page)
+            self.assertIn("raw observations canonicalized into one Issue Wall finding",page)
+            self.assertIn('class="consolidated"',page)
+            self.assertIn("View ${observationCount} source observation",page)
+            self.assertIn("Supporting evidence",page)
+            self.assertIn("Related findings",page)
+            self.assertIn("Same file",page)
+            self.assertIn("Same concept",page)
+            self.assertIn("Same scanner rule",page)
+            self.assertIn("Same directory",page)
+            self.assertIn("applyRelated",page)
+            self.assertIn("relationIndex",page)
+            self.assertIn("inline-observation",page)
+            self.assertIn("Where did this issue come from?",page)
+            self.assertIn("Evidence provenance",page)
+            self.assertIn("View retained evidence",page)
+            self.assertIn("matching SHA-256",page)
+            self.assertIn("raw-observations.json",page)
+            self.assertIn("convergence-result",page)
+            self.assertIn("source observations",page)
+            self.assertIn("github-button",page)
             self.assertIn("searchIndex.get(x.stable_id)",page)
             self.assertIn("Raw evidence records",page);self.assertIn("Issue Wall",github_summary(result))
             self.assertIn("dashboard/index.html",github_summary(result))
             self.assertIn("Start here — Issue Wall",artifact_readme(result))
             self.assertIn("Two-minute review walkthrough",artifact_readme(result))
             self.assertIn("Snapshot ID",artifact_readme(result))
-            self.assertIn("Snapshot integrity and source proof",page)
+            self.assertIn("Snapshot Proof",page)
             self.assertIn("artifactHashes",page)
             self.assertIn("Security focus",page)
             self.assertIn("Security findings",page)
             self.assertIn("securityFinding",page)
             self.assertIn("mode==='ai'?'AI advisory'",page)
             self.assertIn("Analysis overview",page)
+            self.assertIn("Snapshot health",page)
+            self.assertIn("Analysis incomplete",page)
+            self.assertIn("Snapshot accepted for publication",page)
+            self.assertIn("Snapshot not publishable",page)
+            self.assertIn("healthFailures",page)
+            self.assertIn("View evidence status",page)
             self.assertIn("Highest-risk areas",page)
             self.assertIn("Publication path",page)
             self.assertIn("Issue Wall",page)
             self.assertIn("Web of Scanners",page)
+            self.assertIn("What was found?",page)
+            self.assertIn("Issue Wall evidence journey",page)
+            self.assertIn("LAYER 1",page)
+            self.assertIn("Issue discovery",page)
+            self.assertIn("Issue understanding",page)
+            self.assertIn("GitHub workflow / artifact",page)
+            self.assertIn("data-journey",page)
+            self.assertIn("Analysis operations",page)
+            self.assertIn("Where did this snapshot come from?",page)
+            self.assertIn("wallSnapshot",page)
+            self.assertLess(page.index("What was found?"), page.index("Analysis operations"))
             self.assertIn("Run Web of Scanners",page)
             self.assertIn("08-full-code-analysis.yml",page)
             self.assertIn("Build Issue Wall",page)
@@ -253,19 +295,48 @@ class MonitoringTests(unittest.TestCase):
             self.assertIn("GitHub-controlled", page)
             self.assertIn("read-only analysis", page)
             self.assertIn("Run another analysis", page)
-            self.assertIn("--pink:#f472b6", page)
+            self.assertIn("--bg:#070b12", page)
+            self.assertIn("--surface:#0d131d", page)
+            self.assertIn("--surface2:#121b28", page)
+            self.assertIn("--border:#253244", page)
+            self.assertIn("--text:#f1f5f9", page)
+            self.assertIn("--muted:#8b9aaf", page)
+            self.assertIn("--blue:#38d9ff", page)
+            self.assertIn("--green:#35d399", page)
+            self.assertIn("--warning:#f5b942", page)
+            self.assertIn("--critical:#ff4d67", page)
+            self.assertIn("--high:#ff8a3d", page)
+            self.assertIn("--medium:#f4c95d", page)
+            self.assertIn("--low:#69a7ff", page)
+            self.assertIn("--purple:#38d9ff", page)
+            self.assertIn(".actionable-toggle.active{border-color:var(--blue)", page)
+            self.assertIn(".fill{background:var(--blue)}", page)
             self.assertIn("radial-gradient", page)
-            self.assertIn("Fix queue",page)
+            self.assertIn("ALL ISSUES",page)
+            self.assertIn("SOURCE CORROBORATION",page)
+            self.assertLess(page.index('id="issueWall"'), page.index('class="developer-report"'))
             self.assertIn("data-wall-severity",page)
             self.assertIn("data-filter",page)
             self.assertIn("copyLink",page)
             self.assertIn("Developer findings report",page)
             self.assertIn("Risk distribution",page)
+            self.assertIn("Visual issue metrics",page)
+            self.assertIn("Risk matrix",page)
+            self.assertIn("Cross-scanner agreement",page)
+            self.assertIn("Scanner corroboration distribution",page)
+            self.assertIn("independent of severity",page)
+            self.assertIn("Risk concentration",page)
+            self.assertIn("data-matrix-category",page)
+            self.assertIn("data-risk-area",page)
             self.assertIn("Top affected files",page)
             self.assertIn("Where to start",page)
             self.assertIn("Export filtered CSV",page)
             self.assertIn("Copy location",page)
-            self.assertIn("Why this needs attention",page)
+            self.assertIn("Detected independently by",page)
+            self.assertIn("independent scanner observations converged",page)
+            self.assertIn("converged into one deduplicated canonical issue",page)
+            self.assertIn("Supporting scanner observations",page)
+            self.assertIn("Retained artifact",page)
     def test_dashboard_artifact_includes_offline_launch_guide(self):
         result=snapshot([raw("CodeQL"),raw("Semgrep")])
         with tempfile.TemporaryDirectory() as d:
@@ -464,8 +535,11 @@ class MonitoringTests(unittest.TestCase):
         self.assertTrue(selected.issubset(tools))
         required=json.loads(Path("config/code-analysis/required-channels.json").read_text(encoding="utf-8"))
         channels={row["channel"] for row in required["required_static_channels"]}
+        self.assertTrue(channels.issubset({row["channel"] for row in tools.values()}))
+        self.assertEqual(len(tools),26)
         for row in tools.values():
-            if row["state"] == "ACTIVE_REQUIRED": self.assertIn(row["channel"],channels)
+            self.assertIn(row["class"],catalog["classes"])
+            self.assertNotIn("state",row)
 
     def test_shared_pipeline_builds_artifact_bundle(self):
         with tempfile.TemporaryDirectory() as d:
@@ -487,14 +561,27 @@ class MonitoringTests(unittest.TestCase):
             self.assertTrue((output/"normalized"/"current-snapshot.json").is_file())
             self.assertTrue((output/"dashboard"/"index.html").is_file())
             current=json.loads((output/"normalized"/"current-snapshot.json").read_text(encoding="utf-8"))
-            additional={row["tool"]:row for row in current["additional_channels"]}
+            additional={row["name"]:row for row in current["analysis_channels"]}
             self.assertEqual(additional["Snyk"]["status"],"CONFIGURED_COMPLETE")
             self.assertEqual(additional["CodeRabbit"]["status"],"NOT_APPLICABLE")
             self.assertEqual(additional["CodeRabbit"]["evidence_source"],"AI_ADVISORY")
             dashboard=(output/"dashboard"/"index.html").read_text(encoding="utf-8")
-            self.assertIn("Security controls &amp; optional assurance",dashboard)
+            self.assertIn("OBSERVATION HEALTH",dashboard)
+            self.assertIn("Channel Observatory",dashboard)
+            self.assertIn("Every channel is an observation source",dashboard)
+            self.assertIn("coveredStatuses",dashboard)
+            self.assertIn("Coverage by channel role",dashboard)
+            self.assertIn("channelClasses",dashboard)
+            self.assertIn("Code quality",dashboard)
+            self.assertIn("Dependencies",dashboard)
+            self.assertIn("Infrastructure",dashboard)
+            self.assertIn("Reliability",dashboard)
+            self.assertIn("Total coverage",dashboard)
             self.assertIn("Operational assurance",dashboard)
-            self.assertIn("Required scanner evidence",dashboard)
+            self.assertIn("Channel coverage",dashboard)
+            self.assertEqual(len(current["analysis_channels"]),26)
+            self.assertNotIn("additional_channels",current)
+            self.assertNotIn("channel_status",current)
             self.assertIn("Critical and high review queue",dashboard)
             self.assertIn("Scanner distribution",dashboard)
             self.assertIn("Actionable Issues",dashboard)
@@ -545,6 +632,8 @@ class MonitoringTests(unittest.TestCase):
             channel_status=json.loads((output/"channel-status.json").read_text(encoding="utf-8"))
             snapshot=json.loads((output/"normalized/current-snapshot.json").read_text(encoding="utf-8"))
             self.assertEqual(len(channel_status["channels"]),16)
+            self.assertEqual(len(snapshot["analysis_channels"]),26)
+            self.assertEqual(len(snapshot["publication_gate"]["channel_ids"]),16)
             self.assertTrue(all(row["status"] == "COMPLETED"
                                 for row in channel_status["channels"]))
             self.assertTrue(snapshot["publishable"])
@@ -599,14 +688,115 @@ class MonitoringTests(unittest.TestCase):
         self.assertTrue(model.is_file())
 
     def test_optional_catalog_can_map_native_scanner_family_aliases(self):
-        rows=build_additional_channels(
-            {"tools":[{"tool":"OpenSSF Scorecard","state":"OPTIONAL_CONFIGURED",
+        rows=build_analysis_channels(
+            {"tools":[{"tool":"OpenSSF Scorecard","channel":"scorecard","class":"infrastructure",
                         "evidence_families":["Scorecard"]}]},None,
-            {"observations":[{"scanner_family":"Scorecard"}],"canonical_findings":[],
+            {"observations":[{"scanner_family":"Scorecard","observation_id":"obs-scorecard"}],"canonical_findings":[],
              "ai_advisories":[]},
         )
         self.assertEqual(rows[0]["status"],"COMPLETED_OPTIONAL")
         self.assertEqual(rows[0]["observation_count"],1)
+
+    def test_catalog_channels_without_evidence_remain_visible(self):
+        rows=build_analysis_channels(
+            {"tools":[{"tool":"Atheris","class":"reliability",
+                        "channel":"atheris","surface":"python-fuzzing"}]},None,
+            {"observations":[],"canonical_findings":[],"ai_advisories":[]},
+        )
+        self.assertEqual(rows[0]["status"],"NOT_AVAILABLE")
+        self.assertIn("No retained evidence",rows[0]["reason"])
+
+    def test_completed_zero_and_missing_evidence_have_distinct_status_and_reason(self):
+        catalog={"tools":[{"tool":"Snyk","channel":"snyk","class":"security"}]}
+        empty={"observations":[],"canonical_findings":[],"ai_advisories":[]}
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            missing=build_analysis_channels(catalog,root,empty)[0]
+            (root/"snyk-status.json").write_text(json.dumps({
+                "scanner_family":"Snyk","status":"CONFIGURED_COMPLETE"
+            }),encoding="utf-8")
+            completed=build_analysis_channels(catalog,root,empty)[0]
+        self.assertIsNone(missing["findings"])
+        self.assertEqual(completed["findings"],0)
+        self.assertEqual(missing["status"],"NOT_AVAILABLE")
+        self.assertIn("No retained evidence",missing["reason"])
+        self.assertEqual(completed["status"],"CONFIGURED_COMPLETE")
+        self.assertEqual(completed["reason"],"")
+
+    def test_unified_snapshot_has_one_catalog_inventory_and_separate_gate(self):
+        result=snapshot([raw("CodeQL"),raw("Semgrep")])
+        validate_snapshot(result)
+        self.assertEqual(result["schema_version"],"snapshot-v2")
+        self.assertEqual(result["analysis_channel_count"],26)
+        self.assertNotIn("channel_status",result)
+        self.assertNotIn("additional_channels",result)
+        classes={}
+        for row in result["analysis_channels"]:
+            classes[row["class"]]=classes.get(row["class"],0)+1
+            self.assertNotIn("state",row)
+        self.assertEqual(classes,{"code":7,"security":6,"dependencies":4,"infrastructure":5,"reliability":4})
+        by_name={row["name"]:row for row in result["analysis_channels"]}
+        self.assertEqual(by_name["CodeQL"]["findings"],1)
+        self.assertIsNone(by_name["Snyk"]["findings"])
+        self.assertEqual(by_name["Snyk"]["status"],"NOT_AVAILABLE")
+        self.assertTrue(result["publication_gate"]["satisfied"])
+        self.assertEqual(result["publication_gate"]["channel_ids"],["codeql","semgrep"])
+
+    def test_every_catalog_channel_retains_its_own_native_observations(self):
+        catalog=json.loads(Path("config/code-analysis/proposal-tool-catalog.json").read_text(encoding="utf-8"))
+        findings=[]
+        for index, row in enumerate(catalog["tools"]):
+            family=(row.get("evidence_families") or [row["tool"]])[0]
+            findings.append({**raw(family,line=index+1),"evidence_source":row["evidence_source"]})
+        result=snapshot(findings)
+        validate_snapshot(result)
+        self.assertEqual(len(result["analysis_channels"]),26)
+        self.assertTrue(all(row["findings"]==1 and row["observation_count"]==1
+                            for row in result["analysis_channels"]))
+        self.assertEqual(result["ai_advisory_count"],1)
+        self.assertEqual(result["deterministic_finding_count"],25)
+
+    def test_unified_snapshot_rejects_inventory_or_membership_drift(self):
+        for mutation in ("missing", "duplicate", "class", "observation", "gate", "policy", "legacy"):
+            with self.subTest(mutation=mutation):
+                result=snapshot()
+                if mutation=="missing": result["analysis_channels"].pop()
+                elif mutation=="duplicate": result["analysis_channels"][-1]["channel"]="codeql"
+                elif mutation=="class": result["analysis_channels"][0]["class"]="optional"
+                elif mutation=="observation": result["analysis_channels"][0]["observation_ids"]=["foreign"]
+                elif mutation=="gate": result["analysis_channels"][0]["status"]="NOT_AVAILABLE"
+                elif mutation=="policy": result["publication_gate"]["policy"]="unknown"
+                else: result["additional_channels"]=[]
+                with self.assertRaises(ValueError): validate_snapshot(result)
+
+    def test_channel_findings_are_canonical_counts_with_all_native_observations(self):
+        first=raw("CodeQL")
+        second={**first,"id":"second-native-id","message":"second native observation"}
+        result=snapshot([first,second,raw("Semgrep")])
+        validate_snapshot(result)
+        channel=next(row for row in result["analysis_channels"] if row["name"]=="CodeQL")
+        self.assertEqual(channel["findings"],1)
+        self.assertEqual(channel["observation_count"],2)
+
+    def test_analysis_catalog_rejects_missing_publication_channels_and_unknown_class(self):
+        for catalog in ({"tools":[]}, {"tools":[{"tool":"CodeQL","channel":"codeql","class":"unknown"}]}):
+            with self.assertRaises(ValueError): build_analysis_channels(catalog,None,{"channel_status":status()["channels"]})
+
+    def test_dashboard_hierarchy_and_class_filters_use_unified_semantics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target=Path(directory)/"index.html"
+            generate(snapshot(),target)
+            page=target.read_text(encoding="utf-8")
+        for retired in ("Security posture","Fix queue","Required scanner channels","Optional controls",
+                        "data.channel_status","data.additional_channels","const channelRoles="):
+            self.assertNotIn(retired,page)
+        self.assertIn("analysisChannels=data.analysis_channels",page)
+        self.assertIn("channel.class===role",page)
+        self.assertIn("All analysis channels",page)
+        self.assertIn("Observation coverage",page)
+        self.assertLess(page.index('aria-label="Snapshot health and Risk posture"'),page.index('<h2>Issue discovery</h2>'))
+        self.assertLess(page.index('id="observatoryTitle"'),page.index('id="workflowProvenanceTitle"'))
+        self.assertLess(page.index('id="workflowProvenanceTitle"'),page.index('<summary>Snapshot Proof</summary>'))
 
     def test_one_click_manual_analysis_dispatches_all_scanners(self):
         workflow=Path(".github/workflows/08-full-code-analysis.yml").read_text(encoding="utf-8")

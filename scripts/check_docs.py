@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
 
 EXCLUDED_FILES = {
+    "code-analysis/SESSION/SESSION_HANDOFF_2026-09-06.md",  # Internal agent handoff, not an operator guide.
     "AGNOSTIC_ARCHITECTURE.md",
     "ENVIRONMENT.md",
     "HANDOFF.md",
