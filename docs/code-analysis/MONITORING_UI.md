@@ -243,6 +243,8 @@ Scanner workflow definitions run from the operator-selected manual workflow bran
 `scan_branch` and `scan_sha` select source independently. Sonar helpers and project
 configuration come from the fork's trusted default-branch tooling checkout, so an
 upstream source commit need not contain the external analysis service.
+OpenSSF Scorecard rejects non-default tooling refs for manual runs. Those runs retain
+an explicit unavailable status for that channel rather than reporting zero findings.
 
 The manual run exposes four visible phases in the Actions log and job summary: resolve
 the authoritative branch head, dispatch four fresh scanner groups, validate those four

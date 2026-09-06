@@ -11106,3 +11106,9 @@
 - Did: Sonar now loads helpers and project settings from trusted default-branch tooling while scanning the exact source checkout. The manual orchestrator dispatches scanner definitions from its operator-selected tooling branch, independently of the source branch, allowing actual feature-branch validation without a default-branch merge.
 - Tests: 122 service/CI-contract tests, workflow policy audit, 90-page documentation consistency, and diff checks passed.
 - Status: Preparing corrected live fork rerun; no artifact success claimed for the failed first attempt.
+
+### 2026-09-06 — codex — Scorecard feature-ref limitation made explicit
+- Found: Corrected run 34018911705 reached Sonar analysis; dependency run 34018924123 failed because the pinned Scorecard action rejects workflow_dispatch from a non-default tooling ref.
+- Did: Unsupported manual refs now retain a Scorecard NOT_APPLICABLE status artifact with Coverage unavailable; no findings count is invented. Supported default-ref/PR action behavior remains enabled. Documented the limitation.
+- Tests: 123 service/CI-contract tests, workflow policy, documentation consistency, and diff checks passed.
+- Status: Publishing the bounded correction and rerunning the full pipeline against the same exact upstream source.

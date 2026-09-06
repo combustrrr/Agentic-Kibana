@@ -810,6 +810,14 @@ class MonitoringTests(unittest.TestCase):
         self.assertEqual(sonar.count("-Dproject.settings=.analysis-tooling/sonar-project.properties"),2)
         self.assertIn("ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}",sonar)
 
+    def test_scorecard_records_unsupported_manual_tooling_ref(self):
+        workflow=Path(".github/workflows/03-dependency-security.yml").read_text(encoding="utf-8")
+        scorecard=workflow.split("  openssf-scorecard:",1)[1]
+        self.assertIn("Record unsupported Scorecard tooling ref",scorecard)
+        self.assertIn('"status":"NOT_APPLICABLE"',scorecard)
+        self.assertIn("openssf-scorecard-status.json",scorecard)
+        self.assertEqual(scorecard.count("if: github.event_name == 'pull_request' || github.ref_name == github.event.repository.default_branch"),2)
+
     def test_one_click_manual_analysis_dispatches_all_scanners(self):
         workflow=Path(".github/workflows/08-full-code-analysis.yml").read_text(encoding="utf-8")
         self.assertIn("workflow_dispatch:",workflow)
