@@ -89,12 +89,28 @@ def save_state(repository: str, rel: dict, state: dict) -> None:
     api(f"repos/{repository}/releases/{rel['id']}", {'body': body}, 'PATCH')
 
 
-def scan(config: dict) -> None:
+def request_refresh(state: dict, selected: str) -> None:
+    matches = [row for row in state['targets'] if row['id'] == selected or row['label'] == selected
+               or (row['kind'] == 'pr' and f"PR #{row['pr']}" == selected)]
+    if len(matches) != 1:
+        raise ValueError('Manual refresh requires one active target ID, branch name, or PR #number')
+    row = matches[0]
+    row.update(status='queued', manual_refresh=True)
+    for field in ('request_id', 'scan_run_id'):
+        row.pop(field, None)
+
+
+def scan(config: dict, refresh_target: str | None = None) -> None:
     host = config['analysis_repository']
     rel = release(host, 'current-analysis-state', create=True)
     state = json.loads(rel['body'] or '{}')
     # No mutation until full discovery succeeds.
     state = reconcile(state, discover(config), now())
+    if refresh_target:
+        request_refresh(state, refresh_target)
+    # Explicit operator retries precede automatic backfill without removing any
+    # active targets. The request persists if both analysis slots are occupied.
+    state['targets'].sort(key=lambda row: not row.get('manual_refresh', False))
     info = api(f'repos/{host}')
     branch = info['default_branch']
     tooling = api(f"repos/{host}/commits/{quote(branch, safe='')}")['sha']
@@ -136,7 +152,7 @@ def scan(config: dict) -> None:
                 # Never repeat a dispatch whose outcome is uncertain.
                 continue
         # Reuse only a completed source-only analysis with identical identity/config.
-        reusable = next((x for x in state['targets'] if x['id'] != row['id']
+        reusable = None if row.get('manual_refresh') else next((x for x in state['targets'] if x['id'] != row['id']
                          and x.get('analysis_key') == key and x.get('status') == 'collected'
                          and x.get('scan_run_id') not in expired_runs), None)
         if reusable:
@@ -147,6 +163,7 @@ def scan(config: dict) -> None:
             continue
         request_id = uuid.uuid4().hex
         row.update(request_id=request_id, status='dispatching', tooling_sha=tooling)
+        row.pop('manual_refresh', None)
         save_state(host, rel, state)  # Intent persists before side effects.
         dispatched = api(f'repos/{host}/actions/workflows/11-source-analysis.yml/dispatches',
             {'ref': branch, 'return_run_details': True, 'inputs': {'target': json.dumps(row), 'tooling_sha': tooling,
@@ -346,10 +363,11 @@ def main() -> None:
     p.add_argument('command', choices=['scan', 'publish', 'cleanup'])
     p.add_argument('--config', type=Path, default=Path('config/code-analysis/service.json'))
     p.add_argument('--output', type=Path, default=Path('analysis-ui/dist'))
+    p.add_argument('--refresh-target', help='Explicit current target ID, branch name, or PR #number to rescan')
     a = p.parse_args()
     config = load(a.config)
     if a.command == 'scan':
-        scan(config)
+        scan(config, a.refresh_target)
     elif a.command == 'publish':
         publish(config, a.output)
     else:

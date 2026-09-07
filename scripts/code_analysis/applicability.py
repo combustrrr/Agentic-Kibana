@@ -49,6 +49,8 @@ def selection(config: dict, source: Path) -> tuple[list[str], dict, list[str]]:
         absent['snyk'] = 'Selected source has neither configured language project'
     if not present(profile['python_root'] + '/Dockerfile') or not present(profile['javascript_root'] + '/Dockerfile'):
         absent['shipping-image-security'] = 'Selected source lacks the configured pair of shipping Dockerfiles'
+    if not present(profile['python_root'] + '/Dockerfile') and not present(profile['javascript_root'] + '/Dockerfile'):
+        absent['hadolint'] = 'Selected source has no configured shipping Dockerfiles to lint'
     jobs, excluded = [], {}
     for job, channels in GROUPS.items():
         active = enabled.intersection(channels)

@@ -11320,3 +11320,17 @@
 - Read-only inspection confirmed upstream gh-pages has generated documentation and no configured Python/JavaScript projects. Trusted exact-source identity now selects applicable jobs before execution; missing projects receive explained NOT_APPLICABLE status without changing the strict gate. Repository-wide checks remain enabled.
 - Added enforced enabled-scanner/explicit-deferral configuration, including shared-producer validation. No scanner is deferred in this instance.
 - Validation: 93 service/hosted tests and workflow policy passed, including absent-project handling, conflicting observations, and explicit deferrals.
+
+
+### 2026-09-07 - Live source navigation and upstream change recovery
+- Live Chrome verified source preview highlighting against backend/tests/test_demo_api_integration.py line 124, in addition to immutable source links and deep links.
+- PR 112 native coverage evidence records test exit 1 (test_provider_circuit_breaker.py::test_silence_can_never_shorten_the_open_wait); JavaScript test exit is 0. These are source outcomes, separate from scanner execution success.
+- Superseded tooling runs 34148777865 and 34148906644 were cancelled after retaining their completed native evidence; their remaining vendor work was obsolete.
+- Upstream merged/closed PR 112 and advanced Testing to 1ca36a60daa34db0d8f860453dcc2f5555117baa. Complete discovery removed the closed PR and started exact-source run 34149863388 with tooling 23e2cde1f1a6ee9150b293d74e961f4e74eb7922. No closed-PR report is relabeled current. Live PR publication acceptance remains pending an open target.
+
+
+### 2026-09-07 - Current report and targeted retry validation
+- Current Testing run 34149863388 at source 1ca36a60daa34db0d8f860453dcc2f5555117baa produced a valid 21,439-finding / 22,162-observation report; Python and JavaScript test exits are both 0 for this run.
+- gh-pages run 34150667031 produced 31 findings / 32 observations with explicit absent-project statuses. Hadolint alone attempted absent Dockerfiles; added the missing applicability exclusion.
+- Added Actions refresh_target input for one explicit branch/PR retry after vendor access or review availability changes, preserving the bounded queue and other targets. Exact-head CodeRabbit read for closed PR 112 reports NOT_AVAILABLE, without triggering a review or posting comments.
+- Validation: 94 service/hosted tests and workflow policy passed.

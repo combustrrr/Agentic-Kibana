@@ -187,6 +187,13 @@ exact checkout for configured project roots before dispatching project-dependent
 jobs. Generated documentation branches without those projects show explained
 `NOT_APPLICABLE` channels, while repository-wide scanners remain enabled. This does
 not change the legacy strict evidence gate or turn missing evidence into zero findings.
+Hadolint is also inapplicable when neither configured shipping Dockerfile exists.
+
+To retry after credentials or vendor evidence become available, run **Discover upstream
+analysis targets** in the analysis fork's Actions tab with `refresh_target` set to a
+branch name, `PR #number`, or dashboard target ID. The explicit retry persists while
+the two slots are occupied and keeps every other active target. It does not require
+an upstream commit or browser credentials. Empty input performs normal discovery.
 
 Trusted scanner tooling is moved into the runner's temporary directory before
 scanning; it is never a child of the source scan tree. Atheris receives the source
