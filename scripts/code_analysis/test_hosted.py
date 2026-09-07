@@ -267,12 +267,28 @@ class ReportTests(unittest.TestCase):
         process.return_value.terminate.assert_called_once()
         self.assertEqual(h.load(self.root / 'schemathesis-status.json')['status'], 'OPERATIONAL_FAILURE')
 
+    def test_manual_refresh_preserves_collection_and_queues_only_selected_target(self):
+        first = {**self.identity, 'status': 'collected', 'scan_run_id': 123, 'request_id': 'old'}
+        other = h.target('owner/repo', 'other', 'b' * 40)
+        other.update(status='collected', scan_run_id=456)
+        state = {'targets': [first, other]}
+        service.request_refresh(state, first['label'])
+        self.assertTrue(first['manual_refresh'])
+        self.assertEqual(first['status'], 'queued')
+        self.assertNotIn('scan_run_id', first)
+        self.assertEqual(other['scan_run_id'], 456)
+        self.assertEqual(len(state['targets']), 2)
+        with self.assertRaises(ValueError):
+            service.request_refresh(state, 'deleted-branch')
+
     def test_generated_docs_branch_has_explicit_project_inapplicability(self):
         from scripts.code_analysis.applicability import selection, apply
         config = h.load(Path('config/code-analysis/service.json'))
         jobs, excluded, languages = selection(config, self.root)
         self.assertEqual(languages, [])
         self.assertNotIn('test-coverage', jobs)
+        self.assertNotIn('hadolint', jobs)
+        self.assertEqual(excluded['hadolint']['status'], 'NOT_APPLICABLE')
         self.assertIn('gitleaks', jobs)
         self.assertIn('openssf-scorecard', jobs)
         self.assertEqual(excluded['coverage']['status'], 'NOT_APPLICABLE')

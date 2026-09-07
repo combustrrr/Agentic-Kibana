@@ -1,6 +1,11 @@
 name: Discover upstream analysis targets
 on:
   workflow_dispatch:
+    inputs:
+      refresh_target:
+        description: 'Optional: rescan an active branch, PR #number, or dashboard target ID'
+        required: false
+        type: string
   workflow_run:
     workflows: ['Exact Source Analysis']
     types: [completed]
@@ -28,4 +33,10 @@ jobs:
       - name: Reconcile upstream and queue changed exact revisions
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python -m scripts.code_analysis.github_service scan
+          REFRESH_TARGET: ${{ inputs.refresh_target }}
+        run: |
+          if [[ -n "$REFRESH_TARGET" ]]; then
+            python -m scripts.code_analysis.github_service scan --refresh-target "$REFRESH_TARGET"
+          else
+            python -m scripts.code_analysis.github_service scan
+          fi
