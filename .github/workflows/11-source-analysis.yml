@@ -55,7 +55,7 @@ jobs:
         persist-credentials: false
         repository: ${{ github.repository }}
     - name: Keep trusted tooling outside the source scan tree
-      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
+      run: mv "$GITHUB_WORKSPACE/.analysis-tooling" "$RUNNER_TEMP/analysis-tooling"
     - name: Determine whether Sonar analysis is needed
       id: sonar-scope
       env:
@@ -216,7 +216,7 @@ jobs:
         persist-credentials: false
         repository: ${{ github.repository }}
     - name: Keep trusted tooling outside the source scan tree
-      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
+      run: mv "$GITHUB_WORKSPACE/.analysis-tooling" "$RUNNER_TEMP/analysis-tooling"
     - name: Set up Python 3.11
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
@@ -274,7 +274,7 @@ jobs:
         persist-credentials: false
         repository: ${{ github.repository }}
     - name: Keep trusted tooling outside the source scan tree
-      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
+      run: mv "$GITHUB_WORKSPACE/.analysis-tooling" "$RUNNER_TEMP/analysis-tooling"
     - name: Set up Python 3.11
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
@@ -378,7 +378,7 @@ jobs:
         path: .analysis-tooling
         persist-credentials: false
     - name: Keep trusted tooling outside the source scan tree
-      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
+      run: mv "$GITHUB_WORKSPACE/.analysis-tooling" "$RUNNER_TEMP/analysis-tooling"
     - name: Set up Node.js 22
       uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
       with:
@@ -465,13 +465,17 @@ jobs:
         persist-credentials: false
         repository: ${{ github.repository }}
     - name: Keep trusted tooling outside the source scan tree
-      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
+      run: mv "$GITHUB_WORKSPACE/.analysis-tooling" "$RUNNER_TEMP/analysis-tooling"
+    - name: Stage trusted CodeQL policy in Git metadata
+      run: 'mkdir -p "$GITHUB_WORKSPACE/.git/code-analysis"
+
+        cp "$RUNNER_TEMP/analysis-tooling/.github/codeql/codeql-config.yml" "$GITHUB_WORKSPACE/.git/code-analysis/codeql-config.yml"'
     - name: Initialize CodeQL
       uses: github/codeql-action/init@42947a340483f03ba47bb1a039b2c519aab3df85
       with:
         languages: ${{ matrix.language }}
         queries: +security-extended,security-and-quality
-        config-file: ${{ runner.temp }}/analysis-tooling/.github/codeql/codeql-config.yml
+        config-file: .git/code-analysis/codeql-config.yml
     - name: "Build (Python \u2014 no explicit build needed)"
       if: matrix.language == 'python'
       run: "echo \"Python \u2014 autobuild skipped, using source\""
@@ -524,7 +528,7 @@ jobs:
         persist-credentials: false
         repository: ${{ github.repository }}
     - name: Keep trusted tooling outside the source scan tree
-      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
+      run: mv "$GITHUB_WORKSPACE/.analysis-tooling" "$RUNNER_TEMP/analysis-tooling"
     - name: Set up Python 3.11
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
@@ -580,7 +584,7 @@ jobs:
         path: .analysis-tooling
         persist-credentials: false
     - name: Keep trusted tooling outside the source scan tree
-      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
+      run: mv "$GITHUB_WORKSPACE/.analysis-tooling" "$RUNNER_TEMP/analysis-tooling"
     - name: Record unconfigured status
       if: env.SNYK_CONFIGURED != 'true'
       shell: bash
@@ -879,7 +883,7 @@ jobs:
         persist-credentials: false
         repository: ${{ github.repository }}
     - name: Keep trusted tooling outside the source scan tree
-      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
+      run: mv "$GITHUB_WORKSPACE/.analysis-tooling" "$RUNNER_TEMP/analysis-tooling"
     - name: Build exact-commit shipping images
       env:
         SOURCE_SHA: ${{ fromJSON(inputs.target).head_sha }}
@@ -1125,7 +1129,7 @@ jobs:
         persist-credentials: false
         repository: ${{ github.repository }}
     - name: Keep trusted tooling outside the source scan tree
-      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
+      run: mv "$GITHUB_WORKSPACE/.analysis-tooling" "$RUNNER_TEMP/analysis-tooling"
     - name: Set up Python 3.11
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
@@ -1190,7 +1194,7 @@ jobs:
         persist-credentials: false
         repository: ${{ github.repository }}
     - name: Keep trusted tooling outside the source scan tree
-      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
+      run: mv "$GITHUB_WORKSPACE/.analysis-tooling" "$RUNNER_TEMP/analysis-tooling"
     - name: Set up Python 3.11
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
@@ -1232,7 +1236,7 @@ jobs:
         path: .analysis-tooling
         persist-credentials: false
     - name: Keep trusted tooling outside the source scan tree
-      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
+      run: mv "$GITHUB_WORKSPACE/.analysis-tooling" "$RUNNER_TEMP/analysis-tooling"
     - name: Set up Python 3.11
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
@@ -1302,7 +1306,7 @@ jobs:
         path: .analysis-tooling
         persist-credentials: false
     - name: Keep trusted tooling outside the source scan tree
-      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
+      run: mv "$GITHUB_WORKSPACE/.analysis-tooling" "$RUNNER_TEMP/analysis-tooling"
     - name: Set up Python 3.11
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
@@ -1354,7 +1358,7 @@ jobs:
         path: .analysis-tooling
         persist-credentials: false
     - name: Keep trusted tooling outside the source scan tree
-      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
+      run: mv "$GITHUB_WORKSPACE/.analysis-tooling" "$RUNNER_TEMP/analysis-tooling"
     - name: Set up Python 3.12
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:

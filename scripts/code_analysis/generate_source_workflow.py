@@ -157,8 +157,12 @@ def generate():
                 if step.get('uses', '').startswith('actions/checkout@') and step.get('with', {}).get('path') == '.analysis-tooling':
                     isolated.append(step)
                     isolated.append({'name': 'Keep trusted tooling outside the source scan tree',
-                                     'run': 'mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"'})
+                                     'run': 'mv "$GITHUB_WORKSPACE/.analysis-tooling" "$RUNNER_TEMP/analysis-tooling"'})
                     continue
+                if step.get('uses', '').startswith('github/codeql-action/init@'):
+                    isolated.append({'name': 'Stage trusted CodeQL policy in Git metadata',
+                                     'run': 'mkdir -p "$GITHUB_WORKSPACE/.git/code-analysis"\ncp "$RUNNER_TEMP/analysis-tooling/.github/codeql/codeql-config.yml" "$GITHUB_WORKSPACE/.git/code-analysis/codeql-config.yml"'})
+                    step['with']['config-file'] = '.git/code-analysis/codeql-config.yml'
                 if 'run' in step:
                     step['run'] = step['run'].replace('$GITHUB_WORKSPACE/.analysis-tooling', '$RUNNER_TEMP/analysis-tooling').replace('../.analysis-tooling', '$RUNNER_TEMP/analysis-tooling').replace('.analysis-tooling', '$RUNNER_TEMP/analysis-tooling')
                 if 'with' in step:

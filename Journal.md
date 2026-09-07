@@ -11298,3 +11298,8 @@
 - Did: Wire API/fuzzing and JavaScript test commands through the repository profile; preserve failure evidence. Capture dispatch run IDs directly, retry expired unpublished handoffs, avoid replacing immutable assets, and verify mutable Sonar revision before/after export.
 - Live: Upstream changed Testing to 8ecba495 and closed the open PRs, reducing active targets from 26 to four branches. Superseded results were rejected. Native Scorecard now proves that upstream head. PR 110 has no exact-head CodeRabbit review; it is unavailable, not silently inapplicable because the PR closed.
 - Validation: Hosted regression checks pass; final source-isolated workflow validation follows. Snyk monthly quota, Sonar issue API HTTP 403 despite a successful Browse grant, and upstream posture permissions remain external blockers.
+
+### 2026-09-07 - codex - Source-isolated workflow compatibility follow-up
+- Found: CodeQL requires its policy inside the workspace, and the JavaScript job uses a webui working directory.
+- Did: Stage only CodeQL policy under ignored Git metadata and make tooling relocation use an absolute workspace path. Both preserve isolation from source scanning.
+- Validation: Workflow policy passes; live rerun follows.
