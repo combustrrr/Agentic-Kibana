@@ -171,6 +171,14 @@ scanner's evidence, publication recovery, and browser checks. Missing vendor ent
 or upstream posture permissions remain explicit blockers; they must not be renamed
 as deferrals. Operational status must reflect actual rollout and verification results.
 
+Every configured channel is a delivery requirement. Installation, dispatch, an advisory
+green job, or a published partial report does not establish that a channel works. Each
+channel needs a real exact-source run, usable native evidence (including verified zero
+findings), successful ingestion, and visible issue/status provenance. `NOT_APPLICABLE`
+requires an actual missing source input or unsupported target context; it cannot hide
+credentials, quota, licensing, execution, or ingestion failures. Additional requested
+channels must satisfy this same acceptance contract before being called operational.
+
 The dedicated public site is deployed at
 `https://combustrrr.github.io/code-analysis-dashboard/`. Verified Testing producer
 34147753825 analyzed upstream `8ecba4956d1b05c143b52f372e2e6a585bc00134`, publishing

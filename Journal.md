@@ -11348,3 +11348,15 @@
 - Verification: 94 service/hosted tests, workflow policy, 90 public documentation pages, three browser tests on the retained 21,189-finding fixture, and live filtering/source-line highlighting/deep-link/mobile/current-head checks passed. Publication reused its matching UI cache without rebuilding or rescanning. Product backend, product web UI, and existing product documentation workflow are unchanged.
 - Hourly discovery, periodic serialized publication, bounded two-analysis refresh, explicit Actions target retry, seven-day handoff retention, and managed current Release assets are active. Current-head reports remain visible while the final tooling refresh completes automatically.
 - Full operational acceptance remains blocked by Snyk monthly quota, Sonar native export access, protected upstream posture permissions, and absent exact-head CodeRabbit review evidence. Upstream PRs closed during validation; current live PR publication acceptance requires an open target. Native Scorecard unavailable checks on the documentation-only branch remain explicit. None of these are silently deferred or labeled clean.
+
+
+### 2026-09-08 - All-channel readiness requirement: session start
+- User reaffirmed that every configured scanner must work; partial publication is visibility only, not operational acceptance. Future channel additions will be specified separately. Rechecking current native blockers and credential availability without adding scanners or deferring failures.
+
+
+### 2026-09-08 - All-channel readiness requirement: session end
+- Persisted the user requirement that every configured channel must prove native execution, exact-source provenance, successful ingestion, and dashboard visibility; partial reports or advisory green jobs are not acceptance. Future channels require the same proof before operational status.
+- Rechecked current reports and available secret names: SNYK_TOKEN, SONAR_TOKEN, and SONAR_API_TOKEN exist; SECURITY_POSTURE_TOKEN is absent. Native Snyk quota and Sonar export blockers remain; retained main Sonar evidence was inspected again. CodeRabbit still requires an actual exact-head upstream PR review. No scanner was removed, deferred, or replaced, and no subscription was purchased.
+- Official Sonar documentation states Free-plan branch analysis is main-branch only; the account entitlement must be verified before claiming all-branch readiness. This does not establish the cause of the observed HTTP export errors by itself.
+
+- Follow-up native log inspection: main Sonar issue-search probe returned HTTP 200, but export failed at api/project_analyses/search with HTTP 403. Exact revision verification remains mandatory; the blocked analysis-history endpoint must be accessible before native results can be accepted. Requested account plan/entitlement details, not secret values.
