@@ -176,6 +176,22 @@ Snyk uses an explicit manifest profile and wheel metadata only: it never install
 source package code in the vendor-token job. Native Sonar export and upstream
 secret-protection permissions remain operational checks, not assumed capabilities.
 
+Trusted scanner tooling is moved into the runner's temporary directory before
+scanning; it is never a child of the source scan tree. Atheris receives the source
+backend path explicitly and verifies its checked-out Git SHA before importing it.
+Hosted reports attest `source_boundary: isolated-tooling-v1`; the publisher rejects
+earlier reports and any finding that points into the tooling checkout. Finding
+indexes, detail pages, and observation references must also reconcile after download.
+The API startup/fuzzing and JavaScript test commands execute through the repository
+profile, retaining test exits and operational failures separately from findings.
+
+Dispatch records the run ID returned by GitHub. A unique persisted request nonce
+supports recovery only when acknowledgement was lost. Expired handoff artifacts are
+requeued when no durable published report exists; already-published reports survive
+artifact expiry. Immutable release assets are reused without delete-and-replace.
+Sonar export verifies the vendor analysis ID and source revision before and after
+pagination so concurrent analyses cannot be mislabeled as the requested commit.
+
 Useful commands:
 
 ```shell

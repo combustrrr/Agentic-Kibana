@@ -54,6 +54,8 @@ jobs:
         path: .analysis-tooling
         persist-credentials: false
         repository: ${{ github.repository }}
+    - name: Keep trusted tooling outside the source scan tree
+      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
     - name: Determine whether Sonar analysis is needed
       id: sonar-scope
       env:
@@ -68,25 +70,28 @@ jobs:
         \  should_scan=true\n  elif git diff --name-only \"$base\" \"$SCAN_SHA\" | grep -Eq \\\n    '^(backend/app/|webui/src/|scripts/code_analysis/export_sonar_issues\\\
         .py$|sonar-project\\.properties$|\\.github/workflows/01-code-quality\\.yml$)'; then\n    should_scan=true\n\
         \  fi\nfi\nprintf 'should_scan=%s\\n' \"$should_scan\" >> \"$GITHUB_OUTPUT\"\n"
-    - name: Probe Sonar credentials without exposing secrets
-      if: env.SONAR_TOKEN != '' || env.SONAR_API_TOKEN != ''
-      env:
-        SCAN_BRANCH: ${{ fromJSON(inputs.target).branch || github.head_ref || github.ref_name }}
-      run: 'python .analysis-tooling/scripts/code_analysis/probe_sonar_access.py
-
-        cat sonar-access-probe.json
-
-        '
     - name: Ensure Browse for the verified Sonar API user
       if: env.SONAR_API_TOKEN != ''
       env:
         SCAN_BRANCH: ${{ fromJSON(inputs.target).branch || github.head_ref || github.ref_name }}
-      run: 'python .analysis-tooling/scripts/code_analysis/ensure_sonar_browse.py
+      run: 'python $RUNNER_TEMP/analysis-tooling/scripts/code_analysis/ensure_sonar_browse.py
 
         cat sonar-browse-grant.json
 
         '
       continue-on-error: true
+    - name: Probe Sonar credentials without exposing secrets
+      if: env.SONAR_TOKEN != '' || env.SONAR_API_TOKEN != ''
+      env:
+        SCAN_BRANCH: ${{ fromJSON(inputs.target).branch || github.head_ref || github.ref_name }}
+      run: 'python $RUNNER_TEMP/analysis-tooling/scripts/code_analysis/probe_sonar_access.py
+
+        cat sonar-access-probe.json
+
+
+        python -c ''import json; p=json.load(open("sonar-access-probe.json")); print("native_export_ready="+str(p["credentials"].get("issue_api",{}).get("project_issues_http_status")==200).lower())''
+        >> "$GITHUB_OUTPUT"'
+      id: sonar-access
     - name: Derive stable Sonar analysis branch
       id: sonar-identity
       env:
@@ -114,21 +119,25 @@ jobs:
     - name: Analyze native push or pull-request event
       id: sonar-native
       if: steps.sonar-scope.outputs.should_scan == 'true' && env.SONAR_TOKEN != '' && github.event_name != 'workflow_dispatch'
+        && steps.sonar-access.outputs.native_export_ready == 'true'
       continue-on-error: true
       uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f
       with:
-        args: -Dproject.settings=.analysis-tooling/sonar-project.properties ${{ github.event_name == 'push' && format('-Dsonar.branch.name={0}
-          -Dsonar.scm.revision={1}', steps.sonar-identity.outputs.sonar_branch, github.sha) || '' }}
+        args: -Dproject.settings=${{ runner.temp }}/analysis-tooling/sonar-project.properties ${{ github.event_name
+          == 'push' && format('-Dsonar.branch.name={0} -Dsonar.scm.revision={1}', steps.sonar-identity.outputs.sonar_branch,
+          github.sha) || '' }}
       env:
         SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
     - name: Analyze manually selected branch head
       id: sonar-manual
       if: steps.sonar-scope.outputs.should_scan == 'true' && env.SONAR_TOKEN != '' && github.event_name == 'workflow_dispatch'
+        && steps.sonar-access.outputs.native_export_ready == 'true'
       continue-on-error: true
       uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f
       with:
-        args: -Dproject.settings=.analysis-tooling/sonar-project.properties -Dsonar.branch.name=${{ steps.sonar-identity.outputs.sonar_branch
-          }} -Dsonar.scm.revision=${{ fromJSON(inputs.target).head_sha }}
+        args: -Dproject.settings=${{ runner.temp }}/analysis-tooling/sonar-project.properties -Dsonar.branch.name=${{
+          steps.sonar-identity.outputs.sonar_branch }} -Dsonar.scm.revision=${{ fromJSON(inputs.target).head_sha
+          }}
       env:
         SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
     - name: Export native Sonar issues for Issue Wall
@@ -142,10 +151,10 @@ jobs:
         PULL_REQUEST: ${{ github.event.pull_request.number }}
         SONAR_BRANCH: ${{ steps.sonar-identity.outputs.sonar_branch }}
       shell: bash
-      run: "python .analysis-tooling/scripts/code_analysis/export_sonar_issues.py \\\n  --report-task .scannerwork/report-task.txt\
-        \ \\\n  --output sonar-native-issues.json \\\n  --project combustrrr_Agentic-Kibana \\\n  --branch \"$SCAN_BRANCH\"\
-        \ \\\n  --sonar-branch \"$SONAR_BRANCH\" \\\n  --commit \"$SCAN_SHA\" \\\n  --pull-request \"$PULL_REQUEST\"\
-        \n"
+      run: "python $RUNNER_TEMP/analysis-tooling/scripts/code_analysis/export_sonar_issues.py \\\n  --report-task\
+        \ .scannerwork/report-task.txt \\\n  --output sonar-native-issues.json \\\n  --project combustrrr_Agentic-Kibana\
+        \ \\\n  --branch \"$SCAN_BRANCH\" \\\n  --sonar-branch \"$SONAR_BRANCH\" \\\n  --commit \"$SCAN_SHA\" \\\
+        \n  --pull-request \"$PULL_REQUEST\"\n"
     - name: Record configured scan status
       if: always() && steps.sonar-scope.outputs.should_scan == 'true' && env.SONAR_TOKEN != ''
       env:
@@ -153,15 +162,17 @@ jobs:
         NATIVE_OUTCOME: ${{ steps.sonar-native.outcome }}
         MANUAL_OUTCOME: ${{ steps.sonar-manual.outcome }}
         EXPORT_OUTCOME: ${{ steps.sonar-export.outcome }}
+        EXPORT_READY: ${{ steps.sonar-access.outputs.native_export_ready }}
       shell: bash
       run: "outcome=\"$NATIVE_OUTCOME\"\nif [[ \"$EVENT_NAME\" == workflow_dispatch ]]; then\n  outcome=\"$MANUAL_OUTCOME\"\
         \nfi\nstatus=CONFIGURED_COMPLETE\nreason=\"\"\nif [[ \"$outcome\" != success ]]; then\n  status=CONFIGURED_PARTIAL\n\
         \  reason=\"SonarQube Cloud analysis failed; inspect the scanner log\"\nelif [[ -z \"$SONAR_API_TOKEN\"\
         \ ]]; then\n  status=CONFIGURED_PARTIAL\n  reason=\"SONAR_API_TOKEN with project Browse permission is not\
         \ configured\"\nelif [[ \"$EXPORT_OUTCOME\" != success ]]; then\n  status=CONFIGURED_PARTIAL\n  reason=\"\
-        SonarQube Cloud analysis completed but native issue export failed\"\nfi\njq -n --arg status \"$status\"\
-        \ --arg reason \"$reason\" --arg outcome \"$outcome\" --arg export \"$EXPORT_OUTCOME\" \\\n  '{schema_version:\"\
-        1\",scanner_family:\"SonarQube Cloud\",status:$status,reason:$reason,surfaces:{analysis:$outcome,native_issue_export:$export}}'\
+        SonarQube Cloud analysis completed but native issue export failed\"\nfi\nif [[ \"$EXPORT_READY\" != true\
+        \ ]]; then\n  reason=\"Sonar native issue API is unavailable to the configured credential; analysis awaits\
+        \ export access\"\nfi\njq -n --arg status \"$status\" --arg reason \"$reason\" --arg outcome \"$outcome\"\
+        \ --arg export \"$EXPORT_OUTCOME\" \\\n  '{schema_version:\"1\",scanner_family:\"SonarQube Cloud\",status:$status,reason:$reason,surfaces:{analysis:$outcome,native_issue_export:$export}}'\
         \ \\\n  > sonar-status.json\n"
     - name: Upload SonarQube Cloud status
       if: always()
@@ -204,28 +215,30 @@ jobs:
         path: .analysis-tooling
         persist-credentials: false
         repository: ${{ github.repository }}
+    - name: Keep trusted tooling outside the source scan tree
+      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
     - name: Set up Python 3.11
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
         python-version: '3.11'
         cache: pip
-        cache-dependency-path: .analysis-tooling/.ci/requirements.txt
+        cache-dependency-path: ${{ runner.temp }}/analysis-tooling/.ci/requirements.txt
     - name: Install pinned tools
-      run: python -m pip install --requirement .analysis-tooling/.ci/requirements.txt
+      run: python -m pip install --requirement $RUNNER_TEMP/analysis-tooling/.ci/requirements.txt
     - name: Enforce code-analysis workflow policy
-      run: python .analysis-tooling/scripts/code_analysis/audit_workflows.py
+      run: python $RUNNER_TEMP/analysis-tooling/scripts/code_analysis/audit_workflows.py
     - name: "Ruff lint (default rules \u2014 matches existing python-static CI gate)"
       run: python -m ruff check backend/app backend/tests --exit-zero
     - name: "Ruff lint (extended rules \u2014 advisory for baseline phase)"
-      run: "python -m ruff check backend/ \\\n  --config .analysis-tooling/backend/pyproject.toml \\\n  --output-format=github\
-        \ \\\n  --exit-zero\n"
+      run: "python -m ruff check backend/ \\\n  --config $RUNNER_TEMP/analysis-tooling/backend/pyproject.toml \\\
+        \n  --output-format=github \\\n  --exit-zero\n"
     - name: Ruff format check (advisory)
-      run: "python -m ruff format --check backend/ \\\n  --config .analysis-tooling/backend/pyproject.toml \\\n\
-        \  || true\n"
+      run: "python -m ruff format --check backend/ \\\n  --config $RUNNER_TEMP/analysis-tooling/backend/pyproject.toml\
+        \ \\\n  || true\n"
     - name: Ruff lint (JSON for normalizer)
       if: always()
-      run: "python -m ruff check backend/ \\\n  --config .analysis-tooling/backend/pyproject.toml \\\n  --output-format=json\
-        \ \\\n  --exit-zero \\\n  --output-file ruff-results.json\n"
+      run: "python -m ruff check backend/ \\\n  --config $RUNNER_TEMP/analysis-tooling/backend/pyproject.toml \\\
+        \n  --output-format=json \\\n  --exit-zero \\\n  --output-file ruff-results.json\n"
     - name: Upload Ruff results
       if: always()
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -260,19 +273,21 @@ jobs:
         path: .analysis-tooling
         persist-credentials: false
         repository: ${{ github.repository }}
+    - name: Keep trusted tooling outside the source scan tree
+      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
     - name: Set up Python 3.11
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
         python-version: '3.11'
         cache: pip
-        cache-dependency-path: .analysis-tooling/.ci/requirements.txt
+        cache-dependency-path: ${{ runner.temp }}/analysis-tooling/.ci/requirements.txt
     - name: Install tools
-      run: python -m pip install --requirement .analysis-tooling/.ci/requirements.txt
+      run: python -m pip install --requirement $RUNNER_TEMP/analysis-tooling/.ci/requirements.txt
     - name: Run Bandit (JSON, advisory for baseline)
       run: "bandit \\\n  -r backend/ \\\n  -c backend/pyproject.toml \\\n  --format json \\\n  --output bandit-results.json\
         \ \\\n  --exit-zero\n"
     - name: Normalize Bandit JSON to SARIF
-      run: "mkdir -p bandit-scan-results\ncp bandit-results.json bandit-scan-results/\npython .analysis-tooling/scripts/code_analysis/normalizer.py\
+      run: "mkdir -p bandit-scan-results\ncp bandit-results.json bandit-scan-results/\npython $RUNNER_TEMP/analysis-tooling/scripts/code_analysis/normalizer.py\
         \ \\\n  --input-dir bandit-scan-results \\\n  --output-dir bandit-normalized\n"
     - name: Report HIGH severity findings (informational)
       if: always()
@@ -283,7 +298,7 @@ jobs:
         , \"HIGH\"}:\n        print(f\"  {finding.get('test_id', '')} | {finding.get('filename', '')}:\"\n     \
         \         f\"{finding.get('line_number', '')} | {finding.get('issue_text', '')[:100]}\")\nPY\n"
     - name: Build bounded GitHub Security SARIF view
-      run: "python .analysis-tooling/scripts/code_analysis/bound_sarif.py \\\n  --input bandit-normalized/normalized.sarif\
+      run: "python $RUNNER_TEMP/analysis-tooling/scripts/code_analysis/bound_sarif.py \\\n  --input bandit-normalized/normalized.sarif\
         \ \\\n  --output bandit-normalized/github-security.sarif \\\n  --maximum 5000\n"
     - name: Upload Bandit results artifact
       if: always()
@@ -362,6 +377,8 @@ jobs:
         ref: ${{ inputs.tooling_sha }}
         path: .analysis-tooling
         persist-credentials: false
+    - name: Keep trusted tooling outside the source scan tree
+      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
     - name: Set up Node.js 22
       uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
       with:
@@ -369,7 +386,7 @@ jobs:
         cache: npm
         cache-dependency-path: webui/package-lock.json
     - name: Install locked dependencies
-      run: PYTHONPATH="$GITHUB_WORKSPACE/.analysis-tooling" python -m scripts.code_analysis.run_profile javascript-install
+      run: PYTHONPATH="$RUNNER_TEMP/analysis-tooling" python -m scripts.code_analysis.run_profile javascript-install
         --source "$GITHUB_WORKSPACE"
     - name: TypeScript type check
       shell: bash
@@ -404,6 +421,16 @@ jobs:
         name: tsc-results
         path: webui/tsc-results.txt
         retention-days: 7
+    - name: Run repository JavaScript test profile
+      if: always()
+      run: PYTHONPATH="$RUNNER_TEMP/analysis-tooling" python -m scripts.code_analysis.run_profile javascript-test
+        --source "$GITHUB_WORKSPACE"
+    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      if: always()
+      with:
+        name: typescript-tests
+        path: typescript-test-status.json
+        retention-days: 7
     needs:
     - identity
     permissions:
@@ -437,12 +464,14 @@ jobs:
         path: .analysis-tooling
         persist-credentials: false
         repository: ${{ github.repository }}
+    - name: Keep trusted tooling outside the source scan tree
+      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
     - name: Initialize CodeQL
       uses: github/codeql-action/init@42947a340483f03ba47bb1a039b2c519aab3df85
       with:
         languages: ${{ matrix.language }}
         queries: +security-extended,security-and-quality
-        config-file: .analysis-tooling/.github/codeql/codeql-config.yml
+        config-file: ${{ runner.temp }}/analysis-tooling/.github/codeql/codeql-config.yml
     - name: "Build (Python \u2014 no explicit build needed)"
       if: matrix.language == 'python'
       run: "echo \"Python \u2014 autobuild skipped, using source\""
@@ -494,6 +523,8 @@ jobs:
         path: .analysis-tooling
         persist-credentials: false
         repository: ${{ github.repository }}
+    - name: Keep trusted tooling outside the source scan tree
+      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
     - name: Set up Python 3.11
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
@@ -501,13 +532,14 @@ jobs:
     - name: Install Semgrep
       run: pip install semgrep==1.80.0 click==8.1.7 python-dateutil==2.9.0.post0
     - name: Validate custom Semgrep rules
-      run: semgrep --validate --config=.analysis-tooling/.github/semgrep-rules/
+      run: semgrep --validate --config=$RUNNER_TEMP/analysis-tooling/.github/semgrep-rules/
     - name: Run Semgrep (JSON output)
       run: "semgrep \\\n  --config=p/python \\\n  --config=p/owasp-top-ten \\\n  --config=p/jwt \\\n  --config=p/secrets\
-        \ \\\n  --config=p/fastapi \\\n  --config=.analysis-tooling/.github/semgrep-rules/ \\\n  --json \\\n  --output=semgrep-results.json\
-        \ \\\n  --severity=ERROR \\\n  --severity=WARNING \\\n  backend/ webui/src/ || true\n"
+        \ \\\n  --config=p/fastapi \\\n  --config=$RUNNER_TEMP/analysis-tooling/.github/semgrep-rules/ \\\n  --json\
+        \ \\\n  --output=semgrep-results.json \\\n  --severity=ERROR \\\n  --severity=WARNING \\\n  backend/ webui/src/\
+        \ || true\n"
     - name: Normalize Semgrep JSON to SARIF
-      run: "mkdir -p semgrep-scan-results\ncp semgrep-results.json semgrep-scan-results/\npython .analysis-tooling/scripts/code_analysis/normalizer.py\
+      run: "mkdir -p semgrep-scan-results\ncp semgrep-results.json semgrep-scan-results/\npython $RUNNER_TEMP/analysis-tooling/scripts/code_analysis/normalizer.py\
         \ \\\n  --input-dir semgrep-scan-results \\\n  --output-dir semgrep-normalized\n"
     - name: Upload SARIF artifact (for normalizer)
       if: always()
@@ -547,6 +579,8 @@ jobs:
         ref: ${{ inputs.tooling_sha }}
         path: .analysis-tooling
         persist-credentials: false
+    - name: Keep trusted tooling outside the source scan tree
+      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
     - name: Record unconfigured status
       if: env.SNYK_CONFIGURED != 'true'
       shell: bash
@@ -573,8 +607,8 @@ jobs:
     - name: Resolve Python dependency manifests for Snyk SCA
       if: env.SNYK_CONFIGURED == 'true'
       shell: bash
-      run: python -I .analysis-tooling/scripts/code_analysis/snyk_metadata.py --source "$GITHUB_WORKSPACE" --destination
-        "$RUNNER_TEMP/snyk-metadata"
+      run: python -I $RUNNER_TEMP/analysis-tooling/scripts/code_analysis/snyk_metadata.py --source "$GITHUB_WORKSPACE"
+        --destination "$RUNNER_TEMP/snyk-metadata"
     - name: Scan open-source dependencies
       id: snyk-sca
       if: env.SNYK_CONFIGURED == 'true'
@@ -582,7 +616,7 @@ jobs:
       shell: bash
       run: 'set -o pipefail
 
-        python -I .analysis-tooling/scripts/code_analysis/snyk_scan.py 2>&1 | tee snyk-open-source.log'
+        python -I $RUNNER_TEMP/analysis-tooling/scripts/code_analysis/snyk_scan.py 2>&1 | tee snyk-open-source.log'
       env:
         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
     - name: Scan source code
@@ -844,6 +878,8 @@ jobs:
         path: .analysis-tooling
         persist-credentials: false
         repository: ${{ github.repository }}
+    - name: Keep trusted tooling outside the source scan tree
+      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
     - name: Build exact-commit shipping images
       env:
         SOURCE_SHA: ${{ fromJSON(inputs.target).head_sha }}
@@ -902,16 +938,16 @@ jobs:
       env:
         SOURCE_SHA: ${{ fromJSON(inputs.target).head_sha }}
       shell: bash
-      run: "set -euo pipefail\npython .analysis-tooling/scripts/code_analysis/validate_sbom.py \\\n  backend.cdx.json\
-        \ webui.cdx.json backend.spdx.json webui.spdx.json \\\n  --status sbom-policy-status.json --sarif sbom-license-policy.sarif\n\
-        jq -n \\\n  --arg repository \"$GITHUB_REPOSITORY\" --arg commit \"${SOURCE_SHA,,}\" \\\n  --arg run_id\
-        \ \"$GITHUB_RUN_ID\" \\\n  --slurpfile images shipping-image-inspect.json \\\n  '{_type:\"https://in-toto.io/Statement/v1\"\
-        ,subject:($images[0]|map({name:(.RepoTags[0]//\"local-image\"),digest:{sha256:(.Id|sub(\"^sha256:\";\"\"\
-        ))}})),predicateType:\"https://slsa.dev/provenance/v1\",predicate:{buildDefinition:{buildType:\"agentic-soc/github-actions-shipping-images/v1\"\
-        ,externalParameters:{repository:$repository,commit:$commit}},runDetails:{builder:{id:\"github-actions\"\
-        },metadata:{invocationId:$run_id}}}}' \\\n  > shipping-image-provenance.intoto.json\nimage_findings=\"$(jq\
-        \ -s '[.[].runs[]?.results[]?] | length' \\\n  trivy-backend-image.sarif trivy-webui-image.sarif)\"\njq\
-        \ -n --argjson findings \"$image_findings\" \\\n  '{schema_version:\"1\",scanner_family:\"Shipping Image\
+      run: "set -euo pipefail\npython $RUNNER_TEMP/analysis-tooling/scripts/code_analysis/validate_sbom.py \\\n\
+        \  backend.cdx.json webui.cdx.json backend.spdx.json webui.spdx.json \\\n  --status sbom-policy-status.json\
+        \ --sarif sbom-license-policy.sarif\njq -n \\\n  --arg repository \"$GITHUB_REPOSITORY\" --arg commit \"\
+        ${SOURCE_SHA,,}\" \\\n  --arg run_id \"$GITHUB_RUN_ID\" \\\n  --slurpfile images shipping-image-inspect.json\
+        \ \\\n  '{_type:\"https://in-toto.io/Statement/v1\",subject:($images[0]|map({name:(.RepoTags[0]//\"local-image\"\
+        ),digest:{sha256:(.Id|sub(\"^sha256:\";\"\"))}})),predicateType:\"https://slsa.dev/provenance/v1\",predicate:{buildDefinition:{buildType:\"\
+        agentic-soc/github-actions-shipping-images/v1\",externalParameters:{repository:$repository,commit:$commit}},runDetails:{builder:{id:\"\
+        github-actions\"},metadata:{invocationId:$run_id}}}}' \\\n  > shipping-image-provenance.intoto.json\nimage_findings=\"\
+        $(jq -s '[.[].runs[]?.results[]?] | length' \\\n  trivy-backend-image.sarif trivy-webui-image.sarif)\"\n\
+        jq -n --argjson findings \"$image_findings\" \\\n  '{schema_version:\"1\",scanner_family:\"Shipping Image\
         \ Trivy\",status:\"COMPLETED_OPTIONAL\",reason:\"Both exact-commit shipping images were built and scanned\"\
         ,finding_count:$findings,observation_count:$findings}' \\\n  > shipping-image-trivy-status.json\n"
     - name: Retain image security evidence
@@ -1088,14 +1124,16 @@ jobs:
         path: .analysis-tooling
         persist-credentials: false
         repository: ${{ github.repository }}
+    - name: Keep trusted tooling outside the source scan tree
+      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
     - name: Set up Python 3.11
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
         python-version: '3.11'
         cache: pip
-        cache-dependency-path: .analysis-tooling/.ci/requirements.txt
+        cache-dependency-path: ${{ runner.temp }}/analysis-tooling/.ci/requirements.txt
     - name: Install tools
-      run: python -m pip install --requirement .analysis-tooling/.ci/requirements.txt
+      run: python -m pip install --requirement $RUNNER_TEMP/analysis-tooling/.ci/requirements.txt
     - name: "Radon \u2014 cyclomatic complexity report"
       run: 'echo "=== Cyclomatic Complexity (all functions) ==="
 
@@ -1151,14 +1189,16 @@ jobs:
         path: .analysis-tooling
         persist-credentials: false
         repository: ${{ github.repository }}
+    - name: Keep trusted tooling outside the source scan tree
+      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
     - name: Set up Python 3.11
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
         python-version: '3.11'
         cache: pip
-        cache-dependency-path: .analysis-tooling/.ci/requirements.txt
+        cache-dependency-path: ${{ runner.temp }}/analysis-tooling/.ci/requirements.txt
     - name: Install tools
-      run: python -m pip install --requirement .analysis-tooling/.ci/requirements.txt
+      run: python -m pip install --requirement $RUNNER_TEMP/analysis-tooling/.ci/requirements.txt
     - name: Run Vulture
       run: "vulture backend/ \\\n  --min-confidence 80 \\\n  > vulture-results.txt || true\n# Print human-readable\
         \ summary\nvulture backend/ --min-confidence 80 || true\n"
@@ -1191,6 +1231,8 @@ jobs:
         ref: ${{ inputs.tooling_sha }}
         path: .analysis-tooling
         persist-credentials: false
+    - name: Keep trusted tooling outside the source scan tree
+      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
     - name: Set up Python 3.11
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
@@ -1198,13 +1240,13 @@ jobs:
         cache: pip
         cache-dependency-path: backend/requirements-dev.txt
     - name: Install dependencies
-      run: PYTHONPATH="$GITHUB_WORKSPACE/.analysis-tooling" python -m scripts.code_analysis.run_profile python-install
+      run: PYTHONPATH="$RUNNER_TEMP/analysis-tooling" python -m scripts.code_analysis.run_profile python-install
         --source "$GITHUB_WORKSPACE"
     - name: Run pytest with coverage
       env:
         PYTHONPATH: ${{ github.workspace }}/backend
-      run: PYTHONPATH="$GITHUB_WORKSPACE/.analysis-tooling" python -m scripts.code_analysis.run_profile python-test
-        --source "$GITHUB_WORKSPACE"
+      run: PYTHONPATH="$RUNNER_TEMP/analysis-tooling" python -m scripts.code_analysis.run_profile python-test --source
+        "$GITHUB_WORKSPACE"
     - name: Materialize coverage reports after failed or successful tests
       if: always()
       working-directory: backend
@@ -1259,6 +1301,8 @@ jobs:
         ref: ${{ inputs.tooling_sha }}
         path: .analysis-tooling
         persist-credentials: false
+    - name: Keep trusted tooling outside the source scan tree
+      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
     - name: Set up Python 3.11
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
@@ -1266,35 +1310,14 @@ jobs:
         cache: pip
         cache-dependency-path: backend/requirements-dev.txt
     - name: Install dependencies & Schemathesis
-      run: 'python -m pip install --upgrade pip
+      run: 'PYTHONPATH="$RUNNER_TEMP/analysis-tooling" python -m scripts.code_analysis.run_profile python-install
+        --source "$GITHUB_WORKSPACE"
 
-        pip install -r backend/requirements.txt
-
-        pip install -r backend/requirements-dev.txt
-
-        pip install "schemathesis==3.39.16" "httpx==0.27.2"
-
-        '
-    - name: Start FastAPI Backend in Background
-      run: 'cd backend
-
-        TLSOC_AUTH_ENABLED=false uvicorn app.main:app --host 0.0.0.0 --port 8000 &
-
-        sleep 15
-
-        curl -f http://localhost:8000/openapi.json > schema.json || exit 1
-
-        '
+        python -m pip install schemathesis==3.39.16 httpx==0.27.2'
     - name: Run API Fuzzing (Schemathesis)
       id: schemathesis
-      run: "cd backend\n# Keep this optional breadth pass bounded; deterministic state fuzzing is\n# handled separately\
-        \ below and full replay archives are prohibitively large.\nset +e\ntimeout 300 schemathesis run schema.json\
-        \ \\\n  --experimental=openapi-3.1 \\\n  --base-url http://localhost:8000 \\\n  --checks all \\\n  --max-response-time\
-        \ 5000 \\\n  --hypothesis-max-examples 50 \\\n  --junit-xml=../fuzzing-results.xml\nscan_exit=$?\nset -e\n\
-        # Exit 1 represents reproducible API findings. Timeout or execution/config\n# failures are operational failures\
-        \ and must not be presented as findings.\n# A real scan always finalizes a non-empty JUnit document.\nif\
-        \ [[ ! -s ../fuzzing-results.xml ]]; then\n  echo \"Schemathesis did not produce a valid JUnit report (exit\
-        \ $scan_exit).\" >&2\n  exit 2\nfi\n[[ \"$scan_exit\" -le 1 ]] || exit \"$scan_exit\"\n"
+      run: PYTHONPATH="$RUNNER_TEMP/analysis-tooling" python -m scripts.code_analysis.run_profile api-fuzz --source
+        "$GITHUB_WORKSPACE"
     - name: Upload Fuzzing Report
       if: always()
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -1302,9 +1325,9 @@ jobs:
         name: schemathesis-report
         path: 'fuzzing-results.xml
 
-          backend/schema.json
+          schema.json
 
-          '
+          schemathesis-status.json'
         if-no-files-found: error
         retention-days: 7
     needs:
@@ -1330,6 +1353,8 @@ jobs:
         ref: ${{ inputs.tooling_sha }}
         path: .analysis-tooling
         persist-credentials: false
+    - name: Keep trusted tooling outside the source scan tree
+      run: mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"
     - name: Set up Python 3.12
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
@@ -1347,7 +1372,7 @@ jobs:
       id: atheris
       shell: bash
       run: "set -euo pipefail\nmkdir -p fuzz-corpus fuzz-crashes\nprintf '\\x00\\xff\\x32\\x01' > fuzz-corpus/seed-false-positive\n\
-        printf '\\x01\\xff\\x64\\x02' > fuzz-corpus/seed-true-positive\ncd backend\npython ../.analysis-tooling/tests/security_canary/fuzzing/atheris_state_fuzzer.py\
+        printf '\\x01\\xff\\x64\\x02' > fuzz-corpus/seed-true-positive\ncd backend\npython $RUNNER_TEMP/analysis-tooling/tests/security_canary/fuzzing/atheris_state_fuzzer.py\
         \ \\\n  -runs=25000 -max_len=4096 -timeout=5 \\\n  -artifact_prefix=../fuzz-crashes/ ../fuzz-corpus\ncd\
         \ ..\njq -n '{schema_version:\"1\",scanner_family:\"Atheris\",status:\"COMPLETED_OPTIONAL\",reason:\"25,000\
         \ bounded inputs executed against deterministic case decision logic\",finding_count:0,observation_count:0}'\
@@ -1376,6 +1401,8 @@ jobs:
       contents: read
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
+      ANALYSIS_BACKEND_ROOT: ${{ github.workspace }}/backend
+      ANALYSIS_SOURCE_SHA: ${{ fromJSON(inputs.target).head_sha }}
   report:
     needs:
     - identity

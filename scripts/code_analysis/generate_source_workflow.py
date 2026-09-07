@@ -5,6 +5,7 @@ publication privileges, persisted checkout credentials, or source-inherited tool
 """
 from pathlib import Path
 import copy
+import json
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,6 +15,7 @@ PYTHON = 'actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1'
 
 
 def generate():
+    profile = json.loads((ROOT / 'config/code-analysis/service.json').read_text())['profile']
     inputs = {k: {'required': True, 'type': 'string'} for k in ('target', 'tooling_sha', 'request_id')}
     document = {'name': 'Exact Source Analysis', 'run-name': 'Source analysis ${{ inputs.request_id }}',
                 'on': {'workflow_dispatch': {'inputs': inputs}}, 'permissions': {'contents': 'read'},
@@ -36,6 +38,9 @@ def generate():
             job['permissions'] = {'contents': 'read'}
             job.pop('if', None)
             job.setdefault('env', {})['SOURCE_REPOSITORY'] = '${{ fromJSON(inputs.target).source_repository }}'
+            if name == 'atheris-state-machine':
+                job['env'].update(ANALYSIS_BACKEND_ROOT='${{ github.workspace }}/' + profile['python_root'],
+                                  ANALYSIS_SOURCE_SHA='${{ fromJSON(inputs.target).head_sha }}')
             steps = []
             for step in job['steps']:
                 uses = step.get('uses', '')
@@ -107,6 +112,33 @@ def generate():
             if number == 7:
                 steps.insert(1, {'uses': CHECKOUT, 'with': {'repository': '${{ github.repository }}',
                              'ref': '${{ inputs.tooling_sha }}', 'path': '.analysis-tooling', 'persist-credentials': False}})
+            if name == 'schemathesis-fuzz':
+                steps = [s for s in steps if s.get('name') != 'Start FastAPI Backend in Background']
+                for s in steps:
+                    if s.get('name') == 'Install dependencies & Schemathesis':
+                        s['run'] = 'PYTHONPATH="$GITHUB_WORKSPACE/.analysis-tooling" python -m scripts.code_analysis.run_profile python-install --source "$GITHUB_WORKSPACE"\npython -m pip install schemathesis==3.39.16 httpx==0.27.2'
+                    elif s.get('name') == 'Run API Fuzzing (Schemathesis)':
+                        s['run'] = 'PYTHONPATH="$GITHUB_WORKSPACE/.analysis-tooling" python -m scripts.code_analysis.run_profile api-fuzz --source "$GITHUB_WORKSPACE"'
+                    elif s.get('name') == 'Upload Fuzzing Report':
+                        s['with']['path'] = 'fuzzing-results.xml\nschema.json\nschemathesis-status.json'
+            if name == 'typescript-quality':
+                steps.extend([
+                    {'name': 'Run repository JavaScript test profile', 'if': 'always()',
+                     'run': 'PYTHONPATH="$GITHUB_WORKSPACE/.analysis-tooling" python -m scripts.code_analysis.run_profile javascript-test --source "$GITHUB_WORKSPACE"'},
+                    {'uses': UPLOAD, 'if': 'always()', 'with': {'name': 'typescript-tests', 'path': 'typescript-test-status.json', 'retention-days': 7}}])
+            if name == 'sonarqube-cloud':
+                probe = next(s for s in steps if s.get('name') == 'Probe Sonar credentials without exposing secrets')
+                steps.remove(probe)
+                position = next(i for i, s in enumerate(steps) if s.get('name') == 'Ensure Browse for the verified Sonar API user')
+                probe['id'] = 'sonar-access'
+                probe['run'] += '\npython -c \'import json; p=json.load(open("sonar-access-probe.json")); print("native_export_ready="+str(p["credentials"].get("issue_api",{}).get("project_issues_http_status")==200).lower())\' >> "$GITHUB_OUTPUT"'
+                steps.insert(position + 1, probe)
+                for s in steps:
+                    if s.get('id') in {'sonar-native', 'sonar-manual'}:
+                        s['if'] += " && steps.sonar-access.outputs.native_export_ready == 'true'"
+                    if s.get('name') == 'Record configured scan status':
+                        s.setdefault('env', {})['EXPORT_READY'] = '${{ steps.sonar-access.outputs.native_export_ready }}'
+                        s['run'] = s['run'].replace('jq -n', 'if [[ "$EXPORT_READY" != true ]]; then\n  reason="Sonar native issue API is unavailable to the configured credential; analysis awaits export access"\nfi\njq -n')
             if name == 'openssf-scorecard':
                 steps = [{'uses': CHECKOUT, 'with': {'ref': '${{ inputs.tooling_sha }}', 'persist-credentials': False}},
                     {'name': 'Install verified Scorecard 5.5.0', 'run':
@@ -120,7 +152,19 @@ def generate():
                      'env': {'OUTCOME': '${{ steps.scorecard.outcome }}'},
                      'run': 'if [[ "$OUTCOME" != success ]]; then\n  jq -n \'{scanner_family:"OpenSSF Scorecard",status:"OPERATIONAL_FAILURE",reason:"Native Scorecard execution or source identity validation failed"}\' > scorecard-status.json\nfi'},
                     {'uses': UPLOAD, 'if': 'always()', 'with': {'name': 'openssf-scorecard', 'path': 'openssf-scorecard.sarif\nscorecard-status.json\nscorecard-native.json', 'retention-days': 7}}]
-            job['steps'] = steps
+            isolated = []
+            for step in steps:
+                if step.get('uses', '').startswith('actions/checkout@') and step.get('with', {}).get('path') == '.analysis-tooling':
+                    isolated.append(step)
+                    isolated.append({'name': 'Keep trusted tooling outside the source scan tree',
+                                     'run': 'mv .analysis-tooling "$RUNNER_TEMP/analysis-tooling"'})
+                    continue
+                if 'run' in step:
+                    step['run'] = step['run'].replace('$GITHUB_WORKSPACE/.analysis-tooling', '$RUNNER_TEMP/analysis-tooling').replace('../.analysis-tooling', '$RUNNER_TEMP/analysis-tooling').replace('.analysis-tooling', '$RUNNER_TEMP/analysis-tooling')
+                if 'with' in step:
+                    step['with'] = {k: v.replace('.analysis-tooling', '${{ runner.temp }}/analysis-tooling') if isinstance(v, str) else v for k, v in step['with'].items()}
+                isolated.append(step)
+            job['steps'] = isolated
             jobs[f'scanner-{number}-{name}'] = job
     jobs['report'] = {'needs': list(jobs), 'if': "${{ always() && needs.identity.result == 'success' }}",
         'runs-on': 'ubuntu-latest', 'timeout-minutes': 30, 'permissions': {'contents': 'read', 'actions': 'read'},

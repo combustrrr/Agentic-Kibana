@@ -6,6 +6,7 @@ import json
 import tempfile
 import unittest
 import zipfile
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -72,6 +73,28 @@ class IdentityTests(unittest.TestCase):
             self.assertEqual(len(service.pages('repos/o/r/branches')), 101)
             self.assertIn('page=2', api.call_args.args[0])
 
+    def test_expired_handoff_requeues_only_when_no_durable_report_exists(self):
+        config = {'analysis_repository': 'service/host', 'publishing_repository': 'service/site',
+                  'preferred_branch': 'main', 'max_parallel_analyses': 2}
+        item = h.target('owner/repo', 'main', 'a' * 40)
+        row = {**item, 'analysis_key': h.analysis_key(item, 'd' * 40, config), 'request_id': 'old',
+               'scan_run_id': 77, 'tooling_sha': 'd' * 40, 'run_attempt': 1}
+        run = {'id': 77, 'run_attempt': 1, 'status': 'completed', 'conclusion': 'success', 'display_title': 'Source analysis old'}
+        for durable in (False, True):
+            with self.subTest(durable=durable), \
+                    patch.object(service, 'release', side_effect=[{'id': 1, 'body': json.dumps({'targets': [row]})},
+                        {'body': json.dumps({'targets': [{'collected_run': '77-1'}]})} if durable else None]), \
+                    patch.object(service, 'discover', return_value=[item]), \
+                    patch.object(service, 'pages', side_effect=[[run], [{'name': 'hosted-report-77-1', 'expired': True}]]), \
+                    patch.object(service, 'api', side_effect=[{'default_branch': 'main'}, {'sha': 'd' * 40}, {'workflow_run_id': 78}]) as api, \
+                    patch.object(service, 'save_state') as save:
+                service.scan(config)
+                saved = save.call_args.args[2]['targets'][0]
+                self.assertEqual(saved['scan_run_id'], 77 if durable else 78)
+                if not durable:
+                    self.assertTrue(api.call_args.args[1]['return_run_details'])
+                    self.assertEqual(saved['run_attempt'], 1)
+
 
 class ReportTests(unittest.TestCase):
     def setUp(self):
@@ -90,6 +113,13 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(r['status'], 'partial')
         self.assertFalse(r['publication_gate']['satisfied'])
         self.assertIsNone(r['channels'][1]['findings'])
+        service.validate_bundle(self.root / 'report', r)
+
+    def test_missing_hosted_detail_page_cannot_publish(self):
+        report = self.build()
+        (self.root / 'report/details/0.json').unlink()
+        with self.assertRaisesRegex(ValueError, 'detail pages'):
+            service.validate_bundle(self.root / 'report', report)
 
     def test_complete_policy_findings_are_not_execution_failure(self):
         s = snapshot()
@@ -171,7 +201,7 @@ class ReportTests(unittest.TestCase):
         scan = {**self.identity, 'status': 'collected', 'scan_run_id': 123, 'run_attempt': 1}
         config = {'source_repository': 'owner/repo', 'analysis_repository': 'service/host',
                   'publishing_repository': 'service/site', 'preferred_branch': 'main', 'site_limit_bytes': 1000000}
-        old_content = {'report.json': {'analyzed_sha': 'a' * 40}}
+        old_content = {'report.json': {'analyzed_sha': 'a' * 40, 'source_boundary': 'isolated-tooling-v1'}}
         releases = [{'body': json.dumps({'targets': [scan]})},
                     {'id': 1, 'body': json.dumps({'targets': [current]})}]
         with patch.object(service, 'release', side_effect=releases), patch.object(service, 'discover', side_effect=[
@@ -213,6 +243,38 @@ class ReportTests(unittest.TestCase):
         self.assertIn('Branch-Protection', status['reason'])
         with self.assertRaises(ValueError):
             convert(native, 'owner/repo', 'b' * 40)
+
+    def test_javascript_profile_retains_failed_tests_without_credentials(self):
+        from scripts.code_analysis import run_profile
+        (self.root / 'webui').mkdir()
+        with patch('sys.argv', ['profile', 'javascript-test', '--source', str(self.root)]), \
+                patch.dict('os.environ', {'GH_TOKEN': 'must-not-inherit', 'VENDOR_SECRET': 'must-not-inherit'}), \
+                patch.object(run_profile.subprocess, 'run', return_value=SimpleNamespace(returncode=3)) as run:
+            run_profile.main()
+        self.assertEqual(h.load(self.root / 'typescript-test-status.json')['test_exit_code'], 3)
+        self.assertNotIn('GH_TOKEN', run.call_args.kwargs['env'])
+        self.assertNotIn('VENDOR_SECRET', run.call_args.kwargs['env'])
+
+    def test_api_profile_timeout_stops_source_process_and_records_failure(self):
+        from scripts.code_analysis import run_profile
+        (self.root / 'backend').mkdir()
+        with patch('sys.argv', ['profile', 'api-fuzz', '--source', str(self.root)]), \
+                patch.object(run_profile.subprocess, 'Popen') as process, \
+                patch.object(run_profile.urllib.request, 'urlopen', return_value=io.BytesIO(b'{}')), \
+                patch.object(run_profile.subprocess, 'run', side_effect=run_profile.subprocess.TimeoutExpired('fuzzer', 300)):
+            with self.assertRaises(run_profile.subprocess.TimeoutExpired):
+                run_profile.main()
+        process.return_value.terminate.assert_called_once()
+        self.assertEqual(h.load(self.root / 'schemathesis-status.json')['status'], 'OPERATIONAL_FAILURE')
+
+    def test_closed_pr_retains_exact_head_review_evidence(self):
+        from scripts.code_analysis import collect_coderabbit as rabbit
+        pr = {'state': 'closed', 'number': 110, 'head': {'sha': 'a' * 40, 'ref': 'feature', 'repo': {'full_name': 'fork/repo'}}}
+        review = {'user': {'login': 'coderabbitai[bot]'}, 'commit_id': 'a' * 40}
+        with patch.object(rabbit, 'request_json', return_value=pr), patch.object(rabbit, 'paged', side_effect=[[review], []]):
+            evidence, status = rabbit.collect('owner/repo', 'feature', 'a' * 40, 'token', pr_number=110)
+        self.assertEqual(status['status'], 'COMPLETED_OPTIONAL')
+        self.assertEqual(evidence['pull_requests'], [110])
 
 
 if __name__ == '__main__':

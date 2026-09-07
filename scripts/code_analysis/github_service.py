@@ -39,7 +39,7 @@ def gh(*args: str, payload: object | None = None, binary: bool = False):
 
 
 def api(path: str, payload: object | None = None, method: str | None = None):
-    args = ['api', path]
+    args = ['api', path, '-H', 'X-GitHub-Api-Version: 2022-11-28']
     if method:
         args += ['--method', method]
     return gh(*args, payload=payload)
@@ -100,7 +100,11 @@ def scan(config: dict) -> None:
     tooling = api(f"repos/{host}/commits/{quote(branch, safe='')}")['sha']
     runs = pages(f'repos/{host}/actions/workflows/11-source-analysis.yml/runs', 'workflow_runs')
     by_title = {r['display_title']: r for r in reversed(runs)}
+    by_id = {r['id']: r for r in runs}
     running = sum(r['status'] != 'completed' for r in runs)
+    publication = release(config['publishing_repository'], 'current-reports')
+    retained = {r.get('collected_run') for r in json.loads(publication['body'] or '{}').get('targets', [])} if publication else set()
+    artifact_cache, expired_runs = {}, set()
     for row in state['targets']:
         key = analysis_key(row, tooling, config)
         if row.get('analysis_key') != key:
@@ -108,17 +112,33 @@ def scan(config: dict) -> None:
             row.pop('request_id', None)
             row.pop('scan_run_id', None)
         if row.get('request_id'):
-            run = by_title.get('Source analysis ' + row['request_id'])
+            run = by_id.get(row.get('scan_run_id')) or by_title.get('Source analysis ' + row['request_id'])
             if run:
                 row['scan_run_id'] = run['id']
                 row['run_attempt'] = run['run_attempt']
                 row['status'] = 'scanning' if run['status'] != 'completed' else 'collected'
                 row['run_conclusion'] = run['conclusion']
-            # Never repeat a dispatch whose outcome is uncertain.
-            continue
+            # A durable published report survives artifact expiry. If handoff
+            # expired before publication, make the target discoverable for retry.
+            if run and run['status'] == 'completed' and f"{run['id']}-{run['run_attempt']}" not in retained:
+                if run['id'] not in artifact_cache:
+                    artifact_cache[run['id']] = pages(f"repos/{host}/actions/runs/{run['id']}/artifacts", 'artifacts')
+                expired = any(a['name'] == f"hosted-report-{run['id']}-{run['run_attempt']}" and a['expired']
+                              for a in artifact_cache[run['id']])
+                if expired:
+                    expired_runs.add(run['id'])
+                    row.pop('request_id', None)
+                    row.pop('scan_run_id', None)
+                    row.update(status='queued', retry_reason='Report handoff expired before durable publication')
+                else:
+                    continue
+            else:
+                # Never repeat a dispatch whose outcome is uncertain.
+                continue
         # Reuse only a completed source-only analysis with identical identity/config.
         reusable = next((x for x in state['targets'] if x['id'] != row['id']
-                         and x.get('analysis_key') == key and x.get('status') == 'collected'), None)
+                         and x.get('analysis_key') == key and x.get('status') == 'collected'
+                         and x.get('scan_run_id') not in expired_runs), None)
         if reusable:
             row.update(scan_run_id=reusable['scan_run_id'], run_attempt=reusable['run_attempt'],
                        tooling_sha=reusable['tooling_sha'], status='collected')
@@ -128,9 +148,11 @@ def scan(config: dict) -> None:
         request_id = uuid.uuid4().hex
         row.update(request_id=request_id, status='dispatching', tooling_sha=tooling)
         save_state(host, rel, state)  # Intent persists before side effects.
-        api(f'repos/{host}/actions/workflows/11-source-analysis.yml/dispatches',
-            {'ref': branch, 'inputs': {'target': json.dumps(row), 'tooling_sha': tooling,
+        dispatched = api(f'repos/{host}/actions/workflows/11-source-analysis.yml/dispatches',
+            {'ref': branch, 'return_run_details': True, 'inputs': {'target': json.dumps(row), 'tooling_sha': tooling,
                                       'request_id': request_id}})
+        if dispatched and dispatched.get('workflow_run_id'):
+            row.update(scan_run_id=dispatched['workflow_run_id'], run_attempt=1)
         row['status'] = 'scanning'
         running += 1
     state.update(preferred_branch=config['preferred_branch'], analysis_repository=host)
@@ -152,6 +174,23 @@ def extract_zip(data: bytes, destination: Path) -> None:
         archive.extractall(destination)
 
 
+def validate_bundle(destination: Path, report: dict) -> None:
+    findings = load(destination / 'findings.json')
+    if not isinstance(findings, list) or len(findings) != report.get('finding_count'):
+        raise ValueError('hosted finding count does not reconcile')
+    identifiers = [f['id'] for f in findings]
+    if len(set(identifiers)) != len(identifiers):
+        raise ValueError('duplicate hosted finding identity')
+    details = [row for path in (destination / 'details').glob('*.json') for row in load(path)]
+    if len(details) != len(findings) or {r['id'] for r in details} != set(identifiers):
+        raise ValueError('hosted detail pages do not reconcile')
+    origins = {o['observation_id'] for row in details for o in row['origins']}
+    channel_origins = [oid for c in report['channels'] for oid in c['observation_ids']]
+    if (len(channel_origins) != report['observation_count'] or len(set(channel_origins)) != len(channel_origins)
+            or set(channel_origins) != origins):
+        raise ValueError('hosted observation provenance does not reconcile')
+
+
 def collect(config: dict, row: dict, destination: Path) -> dict:
     host, run_id = config['analysis_repository'], row['scan_run_id']
     run = api(f'repos/{host}/actions/runs/{run_id}')
@@ -164,6 +203,12 @@ def collect(config: dict, row: dict, destination: Path) -> dict:
     archive = gh('api', f"repos/{host}/actions/artifacts/{candidates[0]['id']}/zip", binary=True)
     extract_zip(archive, destination)
     report = load(destination / 'report.json')
+    if report.get('source_boundary') != 'isolated-tooling-v1':
+        raise ValueError('producer predates the isolated source/tooling boundary; rescan required')
+    if any('.analysis-tooling' in str(f.get('file', '')).replace('\\', '/').split('/')
+           for f in load(destination / 'findings.json')):
+        raise ValueError('mixed source evidence: scanner traversed the trusted tooling checkout')
+    validate_bundle(destination, report)
     if (report.get('schema_version') == 'hosted-report-v1' and report.get('target', {}).get('kind') == 'branch'
             and row['kind'] == 'branch' and report.get('tooling_sha') == row['tooling_sha']
             and analysis_key(report['target'], row['tooling_sha'], config) == row['analysis_key']):
@@ -195,17 +240,23 @@ def publish(config: dict, output: Path) -> None:
     # unique persisted dispatch nonce, then collect that exact run and attempt.
     producers = pages(f'repos/{host}/actions/workflows/11-source-analysis.yml/runs', 'workflow_runs')
     by_title = {r['display_title']: r for r in reversed(producers)}
+    by_id = {r['id']: r for r in producers}
     for row in runs.values():
-        producer = by_title.get('Source analysis ' + row.get('request_id', ''))
+        producer = by_id.get(row.get('scan_run_id')) or by_title.get('Source analysis ' + row.get('request_id', ''))
         if producer and producer['head_sha'] == row.get('tooling_sha'):
             row.update(scan_run_id=producer['id'], run_attempt=producer['run_attempt'],
                        status='collected' if producer['status'] == 'completed' else 'scanning')
     existing = {a['name']: a for a in pages(f"repos/{repo}/releases/{rel['id']}/assets")}
+    uploaded = set(existing)
     with tempfile.TemporaryDirectory(prefix='dashboard-publish-') as temporary:
         work = Path(temporary)
         for row in state['targets']:
             scan_row = runs.get(row['id'], {})
             same = scan_row.get('head_sha') == row['head_sha'] and scan_row.get('base_sha') == row.get('base_sha')
+            if same:
+                for field in ('scan_run_id', 'run_attempt', 'tooling_sha'):
+                    if field in scan_row:
+                        row[field] = scan_row[field]
             if same and scan_row.get('scan_run_id') and scan_row.get('status') == 'collected':
                 key = str(scan_row['scan_run_id']) + '-' + str(scan_row['run_attempt'])
                 if row.get('collected_run') != key:
@@ -225,7 +276,9 @@ def publish(config: dict, output: Path) -> None:
                         name = 'report-' + digest(content) + '.json.gz'
                         bundle = work / name
                         bundle.write_bytes(packed)
-                        gh('release', 'upload', 'current-reports', str(bundle), '--repo', repo, '--clobber', binary=True)
+                        if name not in uploaded:
+                            gh('release', 'upload', 'current-reports', str(bundle), '--repo', repo, binary=True)
+                            uploaded.add(name)
                         row.update(report='reports/' + name[7:-8], asset=name, collected_run=key,
                                    analyzed_sha=report['analyzed_sha'], status=report['status'])
                         row.pop('error', None)
@@ -248,7 +301,13 @@ def publish(config: dict, output: Path) -> None:
                 unpacked = gzip.decompress(bundle.read_bytes())
                 if len(unpacked) > config['site_limit_bytes']:
                     raise ValueError('retained report exceeds site limit')
-                for name, value in json.loads(unpacked).items():
+                documents = json.loads(unpacked)
+                if documents.get('report.json', {}).get('source_boundary') != 'isolated-tooling-v1':
+                    row.update(status='failed', error='Retained report predates the isolated source/tooling boundary; rescan required')
+                    for field in ('report', 'asset', 'collected_run'):
+                        row.pop(field, None)
+                    continue
+                for name, value in documents.items():
                     path = output / 'data' / row['report'] / name
                     if not path.resolve().is_relative_to(output.resolve()):
                         raise ValueError('unsafe retained report path')
@@ -259,6 +318,11 @@ def publish(config: dict, output: Path) -> None:
         for path in (output / 'data').rglob('*.json'):
             path.with_suffix('.json.gz').write_bytes(gzip.compress(path.read_bytes(), mtime=0))
             path.unlink()
+        size = sum(p.stat().st_size for p in output.rglob('*') if p.is_file())
+        state['metrics'] = {'site_bytes': size, 'site_limit_bytes': config['site_limit_bytes'],
+                            'queued': sum(r['status'] == 'queued' for r in state['targets']),
+                            'scanning': sum(r['status'] == 'scanning' for r in state['targets'])}
+        (output / 'data/index.json.gz').write_bytes(gzip.compress(json.dumps(state, separators=(',', ':')).encode(), mtime=0))
         size = sum(p.stat().st_size for p in output.rglob('*') if p.is_file())
         if size >= config['site_limit_bytes']:
             raise ValueError(f'site capacity exceeded: {size} bytes; previous deployment retained')

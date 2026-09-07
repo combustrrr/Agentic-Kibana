@@ -49,6 +49,14 @@ def export(path: Path, output: Path, project: str, branch: str, commit: str,
         raise RuntimeError(f"Sonar compute task did not succeed: {status}")
 
     server = task_info["serverUrl"].rstrip("/")
+    def verify_revision():
+        parameters = {'project': project, 'ps': 1}
+        parameters['pullRequest' if pull_request else 'branch'] = pull_request or sonar_branch or branch
+        document = _request(f"{server}/api/project_analyses/search?{urllib.parse.urlencode(parameters)}", token)
+        analyses = document.get('analyses', [])
+        if not analyses or analyses[0].get('key') != task.get('analysisId') or analyses[0].get('revision') != commit:
+            raise ValueError('Sonar branch analysis changed or its revision cannot be verified')
+    verify_revision()
     issues: list[dict[str, Any]] = []
     page = 1
     while True:
@@ -73,6 +81,8 @@ def export(path: Path, output: Path, project: str, branch: str, commit: str,
         if page * 500 >= total:
             break
         page += 1
+
+    verify_revision()  # Mutable vendor branches must not mix two analysis revisions.
 
     result = {"schema_version": "1", "scanner_family": "SonarQube Cloud",
               "project_key": project, "branch": branch, "commit": commit,

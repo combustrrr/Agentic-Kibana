@@ -11291,3 +11291,10 @@
 - Found: Snyk dependency resolution now executes without source package installation, but the vendor rejects tests at the organization's monthly quota. Scorecard's CLI SARIF formatter can return empty output with exit zero; replaced it with validated native JSON and explicit per-check availability.
 - Validation: 85 hosted/service tests pass; workflow policy passes. Native Scorecard adapter tests reject wrong source revisions and preserve unavailable checks. Sonar export/posture permissions and Snyk entitlement remain named external blockers.
 - Next: Verify corrected producer reports reach the public site and complete rollout checks.
+
+### 2026-09-07 - codex - Source isolation audit and rollout correction
+- Found: The first live Snyk reports included 251 findings from the nested trusted-tooling checkout. Atheris also imported that checkout's backend. Earlier successful job outcomes therefore did not prove exact upstream execution for these channels; those reports are not accepted.
+- Did: Move trusted tooling outside the scan tree; bind Atheris to the source backend and verify Git SHA before import. Require the isolated-tooling report attestation and reject tooling paths, inconsistent counts, missing detail pages, and incomplete observation provenance at publication.
+- Did: Wire API/fuzzing and JavaScript test commands through the repository profile; preserve failure evidence. Capture dispatch run IDs directly, retry expired unpublished handoffs, avoid replacing immutable assets, and verify mutable Sonar revision before/after export.
+- Live: Upstream changed Testing to 8ecba495 and closed the open PRs, reducing active targets from 26 to four branches. Superseded results were rejected. Native Scorecard now proves that upstream head. PR 110 has no exact-head CodeRabbit review; it is unavailable, not silently inapplicable because the PR closed.
+- Validation: Hosted regression checks pass; final source-isolated workflow validation follows. Snyk monthly quota, Sonar issue API HTTP 403 despite a successful Browse grant, and upstream posture permissions remain external blockers.
