@@ -519,6 +519,17 @@ class MonitoringTests(unittest.TestCase):
             self.assertNotEqual(result.exit_code,0)
             self.assertIn("rejected malformed scanner artifacts",result.output)
 
+    def test_hosted_partial_normalization_records_rejected_artifacts(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); artifacts=root/"artifacts"; artifacts.mkdir()
+            (artifacts/"radon-cc.json").write_text("{broken",encoding="utf-8")
+            result=CliRunner().invoke(normalize_cli,["--input-dir",str(artifacts),
+                "--output-dir",str(root/"out"),"--allow-partial"])
+            self.assertEqual(result.exit_code,0,result.output)
+            state=json.loads((root/"out/normalization-status.json").read_text())
+            self.assertEqual(state['malformed_artifacts'],['radon-cc.json'])
+            self.assertEqual(state['status'],'PARTIAL')
+
     def test_scanners_collect_automatically_but_dashboard_is_manual_only(self):
         monitored='branches: ["**"]'
         for name in ("01-code-quality.yml","02-security-sast.yml",

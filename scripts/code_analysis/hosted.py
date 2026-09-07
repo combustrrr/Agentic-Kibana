@@ -111,7 +111,9 @@ def build(snapshot: dict, identity: dict, output: Path, *, producer_repository: 
               "finding_count": snapshot["finding_count"], "observation_count": snapshot["observation_count"]}
     index, details = [], []
     findings = [*snapshot["canonical_findings"], *snapshot.get("ai_advisories", [])]
-    secret_files = {o.get("file") for o in observations.values() if o.get("channel") == "gitleaks"}
+    def secret_observation(o):
+        return o.get('scanner_family') == 'Gitleaks' or o.get('channel') == 'gitleaks' or o.get('rule_concept') == 'hardcoded-secret'
+    secret_files = {o.get("file") for o in observations.values() if secret_observation(o)}
     seen = set()
     source_cache = {}
     for finding in findings:
@@ -125,7 +127,7 @@ def build(snapshot: dict, identity: dict, output: Path, *, producer_repository: 
                 raise ValueError("finding references missing observation")
             o = observations[oid]
             origins.append({k: o.get(k) for k in ("scanner_family", "rule", "file", "start_line", "raw_artifact", "observation_id")})
-        secret = any(o["scanner_family"] == "Gitleaks" for o in origins)
+        secret = any(secret_observation(observations[oid]) for oid in finding['observation_ids'])
         name = finding.get("file", "")
         line = finding.get("start_line", 0)
         row = {"id": fid, "severity": finding["severity"], "file": name, "line": line,

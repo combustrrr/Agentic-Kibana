@@ -613,9 +613,11 @@ jobs:
       shell: bash
       run: "status=CONFIGURED_COMPLETE\nreason=\"\"\nif [[ \"$SCA_OUTCOME\" != success || \"$CODE_OUTCOME\" != success\
         \ ]]; then\n  status=CONFIGURED_PARTIAL\n  reason=\"One or more Snyk analysis surfaces were unavailable\
-        \ or incomplete; inspect the retained logs\"\nfi\njq -n \\\n  --arg status \"$status\" \\\n  --arg reason\
-        \ \"$reason\" \\\n  --arg sca \"$SCA_OUTCOME\" \\\n  --arg code \"$CODE_OUTCOME\" \\\n  '{schema_version:\"\
-        1\",scanner_family:\"Snyk\",status:$status,reason:$reason,surfaces:{sca:$sca,code:$code}}' \\\n  > snyk-status.json\n"
+        \ or incomplete; inspect the retained logs\"\nfi\nif grep -q \"monthly limit\" snyk-*.log; then\n  reason=\"\
+        Snyk organization monthly test quota exhausted; eligible OSS entitlement or quota renewal is required\"\n\
+        fi\njq -n \\\n  --arg status \"$status\" \\\n  --arg reason \"$reason\" \\\n  --arg sca \"$SCA_OUTCOME\"\
+        \ \\\n  --arg code \"$CODE_OUTCOME\" \\\n  '{schema_version:\"1\",scanner_family:\"Snyk\",status:$status,reason:$reason,surfaces:{sca:$sca,code:$code}}'\
+        \ \\\n  > snyk-status.json\n"
     - name: Upload structured Snyk evidence
       if: always()
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -1023,6 +1025,10 @@ jobs:
     permissions:
       contents: read
     steps:
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      with:
+        ref: ${{ inputs.tooling_sha }}
+        persist-credentials: false
     - name: Install verified Scorecard 5.5.0
       run: 'curl --fail --location --retry 3 https://github.com/ossf/scorecard/releases/download/v5.5.0/scorecard_5.5.0_linux_amd64.tar.gz
         -o scorecard.tar.gz
@@ -1039,25 +1045,26 @@ jobs:
         GITHUB_AUTH_TOKEN: ${{ github.token }}
         ENABLE_SARIF: 'true'
         SOURCE_SHA: ${{ fromJSON(inputs.target).head_sha }}
-      run: ./scorecard --repo="github.com/$SOURCE_REPOSITORY" --commit="$SOURCE_SHA" --format=sarif --show-details
-        > openssf-scorecard.sarif
+      run: './scorecard --repo="github.com/$SOURCE_REPOSITORY" --commit="$SOURCE_SHA" --format=json --show-details
+        > scorecard-native.json
+
+        python -I scripts/code_analysis/scorecard_report.py'
     - name: Retain Scorecard execution status
       if: always()
       env:
         OUTCOME: ${{ steps.scorecard.outcome }}
-      run: 'status=OPERATIONAL_FAILURE
-
-        if [[ "$OUTCOME" == success ]]; then status=COMPLETED; fi
-
-        jq -n --arg status "$status" ''{scanner_family:"OpenSSF Scorecard",status:$status,reason:"Repository checks
-        against the selected source commit; unavailable individual checks remain in scanner evidence"}'' > scorecard-status.json'
+      run: "if [[ \"$OUTCOME\" != success ]]; then\n  jq -n '{scanner_family:\"OpenSSF Scorecard\",status:\"OPERATIONAL_FAILURE\"\
+        ,reason:\"Native Scorecard execution or source identity validation failed\"}' > scorecard-status.json\n\
+        fi"
     - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
       if: always()
       with:
         name: openssf-scorecard
         path: 'openssf-scorecard.sarif
 
-          scorecard-status.json'
+          scorecard-status.json
+
+          scorecard-native.json'
         retention-days: 7
     needs:
     - identity

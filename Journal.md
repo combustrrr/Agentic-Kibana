@@ -10874,3 +10874,8 @@
 - Validation: 83 service tests pass; retained live evidence produces 21,435 findings with explicit partial status.
 - Blockers: Native Sonar export and upstream security-posture permissions remain unavailable.
 
+
+### 2026-09-07 - codex - Native scanner evidence and reconciliation hardening
+- Did: Use validated Scorecard native JSON with unavailable check status, expose Snyk quota failures, refresh target data, and reconcile exact completed runs without notifications.
+- Validation: 85 service tests, workflow policy, and three browser checks pass; UI dependency audit reports zero advisories.
+

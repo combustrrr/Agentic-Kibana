@@ -176,13 +176,15 @@ class ReportTests(unittest.TestCase):
                     {'id': 1, 'body': json.dumps({'targets': [current]})}]
         with patch.object(service, 'release', side_effect=releases), patch.object(service, 'discover', side_effect=[
                 [self.identity], [{**self.identity, 'head_sha': 'b' * 40}]]), \
-                patch.object(service, 'pages', return_value=[{'name': current['asset'], 'id': 99}]), \
+                patch.object(service, 'pages', side_effect=[[], [{'name': current['asset'], 'id': 99}]]), \
                 patch.object(service, 'collect', return_value={'target': self.identity, 'analyzed_sha': 'a' * 40}), \
                 patch.object(service, 'gh', return_value=gzip.compress(json.dumps(old_content).encode())), \
                 patch.object(service, 'save_state') as save:
             service.publish(config, self.root)
         self.assertTrue((self.root / 'data/reports/old/report.json.gz').exists())
         self.assertEqual(save.call_args.args[2]['targets'][0]['collected_run'], '122-1')
+        self.assertEqual(save.call_args.args[2]['targets'][0]['head_sha'], 'b' * 40)
+        self.assertEqual(save.call_args.args[2]['targets'][0]['status'], 'stale')
 
     def test_snyk_metadata_rejects_executable_requirements(self):
         from scripts.code_analysis.snyk_metadata import requirements, metadata
@@ -198,6 +200,19 @@ class ReportTests(unittest.TestCase):
         self.assertIn('Requires-Dist: other>=1', text)
         with self.assertRaises(ValueError):
             metadata({'name': '../bad', 'version': '1.0'})
+
+    def test_scorecard_checks_preserve_unavailable_and_exact_source(self):
+        from scripts.code_analysis.scorecard_report import convert
+        native = {'repo': {'name': 'github.com/owner/repo', 'commit': 'a' * 40}, 'checks': [
+            {'name': 'Branch-Protection', 'score': -1, 'reason': 'Permission unavailable'},
+            {'name': 'Pinned-Dependencies', 'score': 4, 'reason': 'Unpinned references'},
+            {'name': 'Security-Policy', 'score': 10}]}
+        sarif, status = convert(native, 'owner/repo', 'a' * 40)
+        self.assertEqual(status['status'], 'CONFIGURED_PARTIAL')
+        self.assertEqual(len(sarif['runs'][0]['results']), 1)
+        self.assertIn('Branch-Protection', status['reason'])
+        with self.assertRaises(ValueError):
+            convert(native, 'owner/repo', 'b' * 40)
 
 
 if __name__ == '__main__':
