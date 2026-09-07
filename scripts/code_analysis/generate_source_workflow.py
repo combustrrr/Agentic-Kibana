@@ -22,8 +22,11 @@ def generate():
                 'concurrency': {'group': 'source-${{ fromJSON(inputs.target).id }}', 'cancel-in-progress': True}, 'jobs': {}}
     jobs = document['jobs']
     jobs['identity'] = {'runs-on': 'ubuntu-latest', 'timeout-minutes': 5,
+        'outputs': {'jobs': '${{ steps.identity.outputs.jobs }}', 'languages': '${{ steps.identity.outputs.languages }}'},
         'steps': [{'uses': CHECKOUT, 'with': {'persist-credentials': False}},
-                  {'name': 'Validate trusted tooling and selected target',
+                  {'uses': CHECKOUT, 'with': {'repository': '${{ fromJSON(inputs.target).source_repository }}',
+                    'ref': '${{ fromJSON(inputs.target).head_sha }}', 'path': '.source', 'persist-credentials': False}},
+                  {'name': 'Validate trusted tooling and selected target', 'id': 'identity',
                    'env': {'TARGET_JSON': '${{ inputs.target }}', 'TOOLING_SHA': '${{ inputs.tooling_sha }}'},
                    'run': 'python -m scripts.code_analysis.source_identity'}]}
     for number in (1, 2, 3, 4, 7):
@@ -37,6 +40,9 @@ def generate():
             job['needs'] = ['identity']
             job['permissions'] = {'contents': 'read'}
             job.pop('if', None)
+            job['if'] = "${{ contains(fromJSON(needs.identity.outputs.jobs), '" + name + "') }}"
+            if name == 'codeql':
+                job['strategy']['matrix']['language'] = '${{ fromJSON(needs.identity.outputs.languages) }}'
             job.setdefault('env', {})['SOURCE_REPOSITORY'] = '${{ fromJSON(inputs.target).source_repository }}'
             if name == 'atheris-state-machine':
                 job['env'].update(ANALYSIS_BACKEND_ROOT='${{ github.workspace }}/' + profile['python_root'],

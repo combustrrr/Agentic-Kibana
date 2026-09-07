@@ -167,14 +167,26 @@ or upstream posture permissions remain explicit blockers; they must not be renam
 as deferrals. Operational status must reflect actual rollout and verification results.
 
 The dedicated public site is deployed at
-`https://combustrrr.github.io/code-analysis-dashboard/`. Initial live discovery found
-25 targets. Testing and PR 110 exercised exact-source scans, including both dynamic
-channels. Live validation exposed and repaired the Scorecard SARIF feature flag and
-partial normalization of malformed producer outputs. Such outputs remain invalid
-evidence and preserve a failed strict gate while usable observations can publish.
+`https://combustrrr.github.io/code-analysis-dashboard/`. Verified Testing producer
+34147753825 analyzed upstream `8ecba4956d1b05c143b52f372e2e6a585bc00134`, publishing
+21,439 findings from 22,162 observations. Live Chrome checks passed for filtering,
+immutable source navigation, supporting observations, direct links, and mobile layout.
+Earlier runs exposed source/tooling contamination; those reports are rejected, and
+their successful dynamic jobs are not treated as proof of upstream execution.
+Native Scorecard JSON now validates the selected repository and commit. Malformed
+outputs remain invalid evidence and preserve a failed strict gate while usable
+observations can publish.
 Snyk uses an explicit manifest profile and wheel metadata only: it never installs
 source package code in the vendor-token job. Native Sonar export and upstream
 secret-protection permissions remain operational checks, not assumed capabilities.
+
+Scanner selection is explicit in `enabled_scanners` and `deferred_channels`; every
+known channel must appear in exactly one, and a deferral requires a reason. Channels
+sharing one producer are configured together. The trusted identity job inspects the
+exact checkout for configured project roots before dispatching project-dependent
+jobs. Generated documentation branches without those projects show explained
+`NOT_APPLICABLE` channels, while repository-wide scanners remain enabled. This does
+not change the legacy strict evidence gate or turn missing evidence into zero findings.
 
 Trusted scanner tooling is moved into the runner's temporary directory before
 scanning; it is never a child of the source scan tree. Atheris receives the source

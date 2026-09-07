@@ -19,6 +19,11 @@ def main():
     if validated['id'] != row['id'] or os.environ['TOOLING_SHA'] != os.environ['GITHUB_SHA']:
         raise ValueError('dispatch identity or tooling revision mismatch')
     if not a.assemble:
+        from scripts.code_analysis.applicability import selection
+        jobs, _, languages = selection(json.loads(Path('config/code-analysis/service.json').read_text()), Path('.source'))
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+            output.write('jobs=' + json.dumps(jobs) + '\n')
+            output.write('languages=' + json.dumps(languages or ['python']) + '\n')
         return
     host, run, attempt = os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_RUN_ID'], int(os.environ['GITHUB_RUN_ATTEMPT'])
     root = Path('.hosted/artifacts')
@@ -34,7 +39,11 @@ def main():
         extract_zip(gh('api', f"repos/{host}/actions/artifacts/{artifact['id']}/zip", binary=True), destination)
     write(root / 'producer-status.json', {'scanner_family': 'Producer', 'run_id': run, 'run_attempt': attempt,
                                         'source_repository': row['source_repository'], 'source_sha': row['head_sha']})
-    if row.get('pr'):
+    from scripts.code_analysis.applicability import selection
+    _, excluded, _ = selection(json.loads(Path('config/code-analysis/service.json').read_text()), Path('.source'))
+    if 'coderabbit-ai-advisory' in excluded:
+        write(root / 'coderabbit/coderabbit-status.json', {'scanner_family': 'CodeRabbit', **excluded['coderabbit-ai-advisory']})
+    elif row.get('pr'):
         from scripts.code_analysis.collect_coderabbit import collect
         try:
             evidence, status = collect(row['repository'], row['branch'], row['head_sha'], os.environ['GH_TOKEN'], pr_number=row['pr'])

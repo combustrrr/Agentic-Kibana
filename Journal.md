@@ -10894,3 +10894,8 @@
 ### 2026-09-07 - codex - Sonar export readiness guard
 - Did: Report unauthorized branch export explicitly and skip repeated unusable vendor analysis. No deferral or purchase.
 
+
+
+### 2026-09-07 - Exact-source applicability rollout
+- Added explicit enabled-scanner/deferral validation and source-tree applicability before scanner dispatch. Generated documentation branches skip absent project-specific checks with explained status; repository-wide checks remain active. Strict gate unchanged.
+- Testing run 34147753825 published 21,439 findings with verified live source navigation. Validation: 93 tests, workflow policy, and 90-page documentation checks passed.
