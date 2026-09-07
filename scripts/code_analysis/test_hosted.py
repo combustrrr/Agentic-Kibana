@@ -267,6 +267,39 @@ class ReportTests(unittest.TestCase):
         process.return_value.terminate.assert_called_once()
         self.assertEqual(h.load(self.root / 'schemathesis-status.json')['status'], 'OPERATIONAL_FAILURE')
 
+    def test_generated_docs_branch_has_explicit_project_inapplicability(self):
+        from scripts.code_analysis.applicability import selection, apply
+        config = h.load(Path('config/code-analysis/service.json'))
+        jobs, excluded, languages = selection(config, self.root)
+        self.assertEqual(languages, [])
+        self.assertNotIn('test-coverage', jobs)
+        self.assertIn('gitleaks', jobs)
+        self.assertIn('openssf-scorecard', jobs)
+        self.assertEqual(excluded['coverage']['status'], 'NOT_APPLICABLE')
+        snapshot = {'publication_gate': {'satisfied': False}, 'analysis_channels': [
+            {'channel': 'coverage', 'observation_count': 0, 'status': 'INVALID_EVIDENCE'}]}
+        apply(snapshot, excluded)
+        self.assertIsNone(snapshot['analysis_channels'][0]['findings'])
+        self.assertFalse(snapshot['publication_gate']['satisfied'])
+        snapshot['analysis_channels'][0]['observation_count'] = 1
+        with self.assertRaises(ValueError):
+            apply(snapshot, excluded)
+
+    def test_scanner_deferrals_are_explicit_and_shared_producers_cannot_split(self):
+        from scripts.code_analysis.applicability import selection
+        config = h.load(Path('config/code-analysis/service.json'))
+        config['enabled_scanners'].remove('snyk')
+        with self.assertRaises(ValueError):
+            selection(config, self.root)
+        config['deferred_channels']['snyk'] = 'Explicit instance decision'
+        jobs, excluded, _ = selection(config, self.root)
+        self.assertNotIn('snyk', jobs)
+        self.assertEqual(excluded['snyk']['status'], 'DEFERRED')
+        config['enabled_scanners'].remove('eslint')
+        config['deferred_channels']['eslint'] = 'Cannot split a shared producer'
+        with self.assertRaises(ValueError):
+            selection(config, self.root)
+
     def test_closed_pr_retains_exact_head_review_evidence(self):
         from scripts.code_analysis import collect_coderabbit as rabbit
         pr = {'state': 'closed', 'number': 110, 'head': {'sha': 'a' * 40, 'ref': 'feature', 'repo': {'full_name': 'fork/repo'}}}

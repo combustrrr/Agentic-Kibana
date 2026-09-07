@@ -44,6 +44,11 @@ def assemble(artifacts: Path, output: Path, identity: dict, producer_repository:
                 if not channel['observation_count']:
                     channel['findings'] = None
     # Persist the strict gate result unchanged; hosted validity permits missing evidence.
+    from scripts.code_analysis.applicability import selection, apply
+    service = config_root / 'service.json'
+    if service.exists():
+        _, excluded, _ = selection(load(service), source)
+        apply(snapshot, excluded)
     write(output / 'snapshot.json', snapshot)
     return build(snapshot, identity, output / 'report', producer_repository=producer_repository,
                  source=source)

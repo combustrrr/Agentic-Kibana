@@ -11307,3 +11307,16 @@
 ### 2026-09-07 - codex - Vendor readiness cost guard
 - Did: Keep Sonar explicitly unavailable when its selected branch issue endpoint returns 401/403 after the Browse repair attempt, instead of repeating analysis whose issues cannot be retrieved. No channel was deferred and no subscription was purchased.
 - Validation: Generated workflow policy passes.
+
+
+### 2026-09-07 - Current dashboard live verification milestone
+- Exact-source run 34147753825 at trusted tooling 4c372606 published 21,439 findings / 22,162 observations for upstream Testing 8ecba4956d1b05c143b52f372e2e6a585bc00134. Hosted bundle identities, detail counts, and observation provenance validated.
+- Pages deployment 34148752229 succeeded. Live Chrome verified issue filtering, immutable upstream source links, supporting observations, direct-link reload, mobile rendering, and no page errors. Site approximately 9 MB against 900 MB guard.
+- 22 of 26 channels completed; branch CodeRabbit is not applicable. Snyk quota, Sonar native-export access, and protected GitHub posture permissions remain explicit incomplete channels.
+- Discovery observed new upstream PR 112 and queued it automatically; active inventory is mutable. Remaining backfill and PR report acceptance are in progress.
+
+
+### 2026-09-07 - Explicit scanner applicability
+- Read-only inspection confirmed upstream gh-pages has generated documentation and no configured Python/JavaScript projects. Trusted exact-source identity now selects applicable jobs before execution; missing projects receive explained NOT_APPLICABLE status without changing the strict gate. Repository-wide checks remain enabled.
+- Added enforced enabled-scanner/explicit-deferral configuration, including shared-producer validation. No scanner is deferred in this instance.
+- Validation: 93 service/hosted tests and workflow policy passed, including absent-project handling, conflicting observations, and explicit deferrals.

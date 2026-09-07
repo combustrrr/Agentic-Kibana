@@ -22,11 +22,21 @@ jobs:
   identity:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      jobs: ${{ steps.identity.outputs.jobs }}
+      languages: ${{ steps.identity.outputs.languages }}
     steps:
     - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
       with:
         persist-credentials: false
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      with:
+        repository: ${{ fromJSON(inputs.target).source_repository }}
+        ref: ${{ fromJSON(inputs.target).head_sha }}
+        path: .source
+        persist-credentials: false
     - name: Validate trusted tooling and selected target
+      id: identity
       env:
         TARGET_JSON: ${{ inputs.target }}
         TOOLING_SHA: ${{ inputs.tooling_sha }}
@@ -197,6 +207,7 @@ jobs:
     - identity
     permissions:
       contents: read
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'sonarqube-cloud') }}
   scanner-1-python-ruff:
     name: Ruff (Python Lint + Format)
     runs-on: ubuntu-latest
@@ -252,6 +263,7 @@ jobs:
     - identity
     permissions:
       contents: read
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'python-ruff') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-1-python-bandit:
@@ -314,6 +326,7 @@ jobs:
         retention-days: 7
     needs:
     - identity
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'python-bandit') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-1-python-types:
@@ -356,6 +369,7 @@ jobs:
     - identity
     permissions:
       contents: read
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'python-types') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-1-typescript-quality:
@@ -436,6 +450,7 @@ jobs:
     - identity
     permissions:
       contents: read
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'typescript-quality') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-2-codeql:
@@ -447,9 +462,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language:
-        - python
-        - javascript-typescript
+        language: ${{ fromJSON(needs.identity.outputs.languages) }}
     steps:
     - name: Checkout
       uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -505,6 +518,7 @@ jobs:
         retention-days: 7
     needs:
     - identity
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'codeql') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-2-semgrep:
@@ -562,6 +576,7 @@ jobs:
         retention-days: 7
     needs:
     - identity
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'semgrep') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-3-snyk:
@@ -679,6 +694,7 @@ jobs:
     - identity
     permissions:
       contents: read
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'snyk') }}
   scanner-3-osv-scanner:
     name: OSV-Scanner (Dependency CVEs)
     runs-on: ubuntu-latest
@@ -715,6 +731,7 @@ jobs:
         retention-days: 7
     needs:
     - identity
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'osv-scanner') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-3-gitleaks:
@@ -745,6 +762,7 @@ jobs:
         retention-days: 7
     needs:
     - identity
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'gitleaks') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-3-trivy:
@@ -790,6 +808,7 @@ jobs:
         retention-days: 7
     needs:
     - identity
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'trivy') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-3-hadolint:
@@ -821,6 +840,7 @@ jobs:
         retention-days: 7
     needs:
     - identity
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'hadolint') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-3-checkov:
@@ -861,6 +881,7 @@ jobs:
         retention-days: 7
     needs:
     - identity
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'checkov') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-3-shipping-image-security:
@@ -987,6 +1008,7 @@ jobs:
         retention-days: 7
     needs:
     - identity
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'shipping-image-security') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-3-workflow-security-posture:
@@ -1057,6 +1079,7 @@ jobs:
         retention-days: 7
     needs:
     - identity
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'workflow-security-posture') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-3-openssf-scorecard:
@@ -1109,6 +1132,7 @@ jobs:
         retention-days: 7
     needs:
     - identity
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'openssf-scorecard') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-4-complexity:
@@ -1174,6 +1198,7 @@ jobs:
     - identity
     permissions:
       contents: read
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'complexity') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-4-dead-code:
@@ -1217,6 +1242,7 @@ jobs:
     - identity
     permissions:
       contents: read
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'dead-code') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-4-test-coverage:
@@ -1277,6 +1303,7 @@ jobs:
     - identity
     permissions:
       contents: read
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'test-coverage') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-7-schemathesis-fuzz:
@@ -1339,6 +1366,7 @@ jobs:
     - identity
     permissions:
       contents: read
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'schemathesis-fuzz') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-7-atheris-state-machine:
@@ -1404,6 +1432,7 @@ jobs:
     - identity
     permissions:
       contents: read
+    if: ${{ contains(fromJSON(needs.identity.outputs.jobs), 'atheris-state-machine') }}
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
       ANALYSIS_BACKEND_ROOT: ${{ github.workspace }}/backend

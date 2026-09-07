@@ -10,17 +10,80 @@
   "site_limit_bytes": 900000000,
   "deferred_channels": {},
   "profile": {
-    "snyk_python_manifests": [".ci/requirements.txt", "backend/requirements.txt", "docs/requirements.txt"],
-    "snyk_npm_manifests": ["webui/package-lock.json", "archive/kibana-plugin/tlsoc_agentic_triage/package.json"],
+    "snyk_python_manifests": [
+      ".ci/requirements.txt",
+      "backend/requirements.txt",
+      "docs/requirements.txt"
+    ],
+    "snyk_npm_manifests": [
+      "webui/package-lock.json",
+      "archive/kibana-plugin/tlsoc_agentic_triage/package.json"
+    ],
     "python_root": "backend",
     "python_requirements": "backend/requirements.txt",
     "python_development_requirements": "backend/requirements-dev.txt",
-    "python_test_command": ["python", "-m", "pytest", "-q", "--cov=app", "--cov-report=json:coverage.json"],
+    "python_test_command": [
+      "python",
+      "-m",
+      "pytest",
+      "-q",
+      "--cov=app",
+      "--cov-report=json:coverage.json"
+    ],
     "javascript_root": "webui",
-    "javascript_install_command": ["npm", "ci", "--ignore-scripts"],
-    "javascript_test_command": ["npm", "run", "test", "--", "--run"],
-    "api_command": ["python", "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8088"],
+    "javascript_install_command": [
+      "npm",
+      "ci",
+      "--ignore-scripts"
+    ],
+    "javascript_test_command": [
+      "npm",
+      "run",
+      "test",
+      "--",
+      "--run"
+    ],
+    "api_command": [
+      "python",
+      "-m",
+      "uvicorn",
+      "app.main:app",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "8088"
+    ],
     "openapi_url": "http://127.0.0.1:8088/openapi.json",
-    "api_environment": {"TLSOC_AUTH_ENABLED": "false"}
-  }
+    "api_environment": {
+      "TLSOC_AUTH_ENABLED": "false"
+    }
+  },
+  "enabled_scanners": [
+    "atheris",
+    "bandit",
+    "checkov",
+    "codeql",
+    "coderabbit-ai-advisory",
+    "coverage",
+    "eslint",
+    "github-actions-security",
+    "github-secret-protection-posture",
+    "gitleaks",
+    "hadolint",
+    "openssf-scorecard",
+    "osv",
+    "pyright",
+    "radon",
+    "ruff",
+    "sbom-license-provenance",
+    "schemathesis",
+    "semgrep",
+    "shipping-image-cves",
+    "snyk",
+    "sonarqube-cloud",
+    "trivy",
+    "typescript",
+    "vulture",
+    "xenon"
+  ]
 }
