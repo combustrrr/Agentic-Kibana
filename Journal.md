@@ -10862,3 +10862,9 @@
 ### 2026-09-02 â€” codex â€” fresh-evidence-only supervisor run started
 
 - The latest manual Issue Wall was exact-commit correct but visibly reused previously successful scanner runs. For clear review optics, the manual orchestrator will be changed to dispatch all four scanner groups on every click and bind the dashboard only to those newly created run IDs.
+
+### 2026-09-07 — codex — Install reusable analysis service on trusted host branch
+- Context: User authorizes live rollout of one public dashboard monitoring upstream branches and PRs.
+- Did: Installed analysis-owned code, workflows, UI, configuration, restored scanner canaries, and service architecture from feature commit fda272e6. Product runtime and documentation deployment workflow are unchanged.
+- Validation: Feature branch passed 79 hosted/service tests, workflow policy, documentation consistency, and initial 3 Chrome browser tests against retained findings.
+- Status: Live source scan and Pages rollout pending.

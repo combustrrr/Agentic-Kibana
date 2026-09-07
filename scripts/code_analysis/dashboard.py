@@ -12,12 +12,54 @@ def load(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def validate_snapshot(snapshot: dict) -> None:
-    if snapshot.get("schema_version") != "snapshot-v1" or snapshot.get("publishable") is not True:
-        raise ValueError("dashboard requires a publishable snapshot-v1 document")
+def validate_snapshot(snapshot: dict, *, allow_partial: bool = False) -> None:
+    if snapshot.get("schema_version") != "snapshot-v2" or (not allow_partial and snapshot.get("publishable") is not True):
+        raise ValueError("dashboard requires a publishable snapshot-v2 document")
+    if "channel_status" in snapshot or "additional_channels" in snapshot:
+        raise ValueError("snapshot-v2 cannot contain split channel inventories")
+    channels = snapshot.get("analysis_channels")
+    if not isinstance(channels, list) or not channels:
+        raise ValueError("snapshot requires all analysis channels")
+    if snapshot.get("analysis_channel_count") != len(channels):
+        raise ValueError("analysis channel count does not reconcile")
+    identities = [row.get("channel") for row in channels]
+    if any(not value for value in identities) or len(identities) != len(set(identities)):
+        raise ValueError("analysis channel identities must be unique")
+    for row in channels:
+        count = row.get("findings")
+        if row.get("class") not in {"code", "security", "dependencies", "infrastructure", "reliability"}:
+            raise ValueError("unknown analysis channel class")
+        if not row.get("name") or not row.get("status"):
+            raise ValueError("analysis channel metadata is incomplete")
+        if count is not None and (type(count) is not int or count < 0):
+            raise ValueError("invalid channel finding count")
+    gate = snapshot.get("publication_gate", {})
+    if gate.get("policy") != "static-evidence-v1":
+        raise ValueError("unsupported publication policy")
+    if not gate.get("channel_ids") or (not allow_partial and gate.get("satisfied") is not True):
+        raise ValueError("publication gate is not satisfied")
+    by_id = {row["channel"]: row for row in channels}
+    if any(identity not in by_id for identity in gate["channel_ids"]):
+        raise ValueError("publication gate references unknown channels")
+    if (not allow_partial or gate.get("satisfied") is True) and any(
+            by_id[identity]["status"] != "COMPLETED" for identity in gate["channel_ids"]):
+        raise ValueError("publication gate evidence is incomplete")
     findings = snapshot.get("canonical_findings", [])
     advisories = snapshot.get("ai_advisories", [])
     observations = snapshot.get("observations", [])
+    observations_by_id = {row["observation_id"]: row for row in observations}
+    channel_observation_ids = []
+    for channel in channels:
+        ids = channel.get("observation_ids")
+        if not isinstance(ids, list) or channel.get("observation_count") != len(ids):
+            raise ValueError("channel observation count does not reconcile")
+        if any(identity not in observations_by_id for identity in ids):
+            raise ValueError("channel references unavailable observation evidence")
+        channel_observation_ids.extend(ids)
+    if len(channel_observation_ids) != len(set(channel_observation_ids)):
+        raise ValueError("an observation cannot belong to multiple analysis channels")
+    if set(channel_observation_ids) != set(observations_by_id):
+        raise ValueError("analysis channels do not account for every observation")
     if snapshot.get("finding_count") != len(findings) + len(advisories):
         raise ValueError("snapshot finding count does not reconcile")
     if snapshot.get("observation_count") != len(observations):
@@ -27,19 +69,16 @@ def validate_snapshot(snapshot: dict) -> None:
 def github_summary(snapshot: dict) -> str:
     validate_snapshot(snapshot)
     severities = Counter(row.get("severity", "UNKNOWN") for row in snapshot["canonical_findings"])
-    channels = snapshot["channel_status"]
-    additional = snapshot.get("additional_channels", [])
-    observed_additional = [
-        row for row in additional
-        if row.get("status") in {"CONFIGURED_COMPLETE", "COMPLETED_OPTIONAL"}
-    ]
+    all_channels = snapshot["analysis_channels"]
+    covered_statuses = {"COMPLETED", "CONFIGURED_COMPLETE", "COMPLETED_OPTIONAL"}
+    covered = sum(row.get("status") in covered_statuses for row in all_channels)
     lines = ["## Issue Wall — Web of Scanners", "",
              f"- **Snapshot commit:** `{snapshot['commit_sha']}`",
-             f"- **Required channels complete:** {sum(c['status'] == 'COMPLETED' for c in channels)}/{len(channels)}",
+             f"- **Analysis coverage:** {covered}/{len(all_channels)} channels",
              f"- **Canonical findings:** {snapshot['finding_count']:,}",
              f"- **Raw observations:** {snapshot['observation_count']:,}",
              f"- **AI advisories:** {snapshot['ai_advisory_count']:,}",
-             f"- **Additional lanes observed:** {len(observed_additional)}/{len(additional)} (not part of required coverage)",
+             f"- **Channels incomplete or unavailable:** {len(all_channels) - covered}",
              "- **Mode:** read-only; no Issues, patches, comments, history, or remediation",
              "- **Offline launch:** download and extract the artifact, then open `dashboard/index.html`", "",
              "| Severity | Findings |", "|---|---:|",
@@ -57,14 +96,14 @@ def artifact_readme(snapshot: dict) -> str:
         "",
         "1. Extract the complete GitHub Actions artifact.",
         "2. Open `dashboard/index.html` in a modern browser.",
-        "3. Start with the risk report, top affected files, and Where to start guidance.",
-        "4. Use the Fix queue, filters, CSV export, and evidence drawer to investigate.",
-        "5. Use the Web of Scanners controls to open GitHub's authenticated Actions pages.",
+        "3. Start with Snapshot health and Risk posture, then explore Issue discovery.",
+        "4. Use Issue Wall, filters, CSV export, and the Evidence Graph to investigate.",
+        "5. Inspect Channel Observatory, Workflow Provenance, and Snapshot Proof.",
         "",
         "## Two-minute review walkthrough",
         "",
-        "1. Confirm the branch and full commit SHA at the top of Issue Wall.",
-        "2. Show `16/16` required scanner evidence and the Critical/High review queue.",
+        "1. Confirm the repository, branch and commit; expand Snapshot details for the full SHA.",
+        "2. Review Observation Health across all analysis channels and the Critical/High Issue Wall.",
         "3. Open the first Actionable Issue and follow its immutable source link.",
         "4. Expand supporting scanner evidence and Snapshot integrity/source proof.",
         "5. Toggle all priorities only if Low/informational notes are requested.",
@@ -80,17 +119,6 @@ def artifact_readme(snapshot: dict) -> str:
         "The JSON downloads are evidence records, not instructions to execute scanner output.",
         "",
     ])
-
-
-def _generate_legacy(snapshot: dict, output: Path) -> None:
-    validate_snapshot(snapshot)
-    payload = json.dumps(snapshot, separators=(",", ":"), ensure_ascii=False).replace("<", "\\u003c")
-    template = r'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Code Quality &amp; Security Findings</title><style>
-:root{color-scheme:dark;background:#07111f;color:#e7eef9;font:14px Inter,system-ui,sans-serif}*{box-sizing:border-box}body{margin:0;padding:24px;max-width:1800px;margin-inline:auto}h1{margin-bottom:5px}.muted{color:#9eb0ca}.bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px;margin:20px 0}.card,section,dialog{background:#111d30;border:1px solid #2a405f;border-radius:10px;padding:15px}.value{font-size:25px;font-weight:760}.ok{color:#75d5a6}.bad,.CRITICAL,.HIGH{color:#ff928a}.MEDIUM{color:#ffd166}.LOW,.INFO{color:#8fc7ff}input,select,button{background:#07111f;color:#fff;border:1px solid #49678e;border-radius:6px;padding:9px}button{cursor:pointer}button:disabled{opacity:.45}.filters{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.filters input{min-width:320px;flex:1}.scroll{max-height:64vh;overflow:auto;padding:0}table{width:100%;border-collapse:collapse}th,td{text-align:left;border-bottom:1px solid #253b58;padding:9px;vertical-align:top}th{position:sticky;top:0;background:#111d30;z-index:1}.pill{display:inline-block;padding:2px 7px;border:1px solid #49678e;border-radius:12px;margin:2px}.pager{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin:10px 0}code{word-break:break-all}dialog{color:inherit;width:min(1000px,92vw);max-height:88vh;overflow:auto}dialog::backdrop{background:#020713cc}.evidence{padding:10px;margin:8px 0;background:#081425;border-left:3px solid #557ba9}.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.chart-row{display:grid;grid-template-columns:minmax(90px,1fr) 3fr 45px;gap:7px;margin:5px 0}.track{background:#07111f;border-radius:4px}.fill{height:100%;min-height:8px;background:#4d92da;border-radius:4px}
-</style></head><body><h1>Code Quality &amp; Security — Current Snapshot</h1><div class="bar muted"><span>Commit <code id="commit"></code></span><span id="generated"></span><span id="complete"></span><span class="ok">PUBLISHABLE</span></div><div class="cards" id="cards"></div><div class="charts" id="charts"></div><section><div class="bar"><h2>All canonical findings</h2><label><input type="checkbox" id="ai"> AI advisories</label></div><div class="filters"><input id="search" placeholder="Search concept, message, file, scanner, rule…"><select id="severity"><option value="">All severities</option></select><select id="category"><option value="">All categories</option></select><select id="component"><option value="">All components</option></select><select id="scanner"><option value="">All scanners</option></select></div><div class="pager"><strong id="shown"></strong><select id="pageSize"><option>50</option><option selected>100</option><option>250</option></select><button id="previous">Previous</button><span id="page"></span><button id="next">Next</button></div><div class="scroll"><table><thead><tr><th>Severity</th><th>Concept</th><th>Location</th><th>Category</th><th>Evidence</th><th></th></tr></thead><tbody id="rows"></tbody></table></div></section><section><h2>Required scanner channels</h2><div class="scroll"><table><thead><tr><th>Surface</th><th>Channel</th><th>Family</th><th>Status</th><th>Findings</th></tr></thead><tbody id="channels"></tbody></table></div></section><p><a href="raw-observations.json" download>Download raw observations</a> · <a href="current-snapshot.json" download>Download current snapshot</a></p><dialog id="detail"><button id="close">Close</button><div id="detailBody"></div></dialog><script id="snapshot" type="application/json">__PAYLOAD__</script><script>
-const data=JSON.parse(document.querySelector('#snapshot').textContent),$=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const obs=new Map(data.observations.map(x=>[x.observation_id,x]));let page=1;$('#commit').textContent=data.commit_sha;$('#generated').textContent='Generated '+data.generated_at;$('#complete').textContent=`${data.channel_status.filter(x=>x.status==='COMPLETED').length}/${data.channel_status.length} channels complete`;const card=(v,t)=>`<div class=card><div class=value>${v}</div><div class=muted>${t}</div></div>`;$('#cards').innerHTML=card(data.finding_count.toLocaleString(),'Canonical findings')+card(data.observation_count.toLocaleString(),'Raw observations')+card(data.deterministic_finding_count.toLocaleString(),'Deterministic')+card(data.ai_advisory_count.toLocaleString(),'AI advisory');const base=data.canonical_findings,all=[...base,...data.ai_advisories];const values=key=>[...new Set(all.map(x=>x[key]).filter(Boolean))].sort();for(const [id,key] of [['#severity','severity'],['#category','category'],['#component','component']])for(const value of values(key))$(id).insertAdjacentHTML('beforeend',`<option>${esc(value)}</option>`);for(const value of [...new Set(all.flatMap(x=>x.supporting_scanner_families||[]))].sort())$('#scanner').insertAdjacentHTML('beforeend',`<option>${esc(value)}</option>`);function chart(title,key){const counts={};for(const row of base)counts[row[key]||'Unknown']=(counts[row[key]||'Unknown']||0)+1;const entries=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,12),max=Math.max(...entries.map(x=>x[1]),1);return `<section><h3>${title}</h3>${entries.map(([k,v])=>`<div class=chart-row><span>${esc(k)}</span><span class=track><span class=fill style="display:block;width:${v/max*100}%"></span></span><b>${v}</b></div>`).join('')}</section>`}$('#charts').innerHTML=chart('Severity','severity')+chart('Category','category')+chart('Component','component');$('#channels').innerHTML=data.channel_status.map(c=>`<tr><td>${esc(c.surface)}</td><td>${esc(c.channel)}</td><td>${esc(c.scanner_family)}</td><td class=${c.status==='COMPLETED'?'ok':'bad'}>${esc(c.status)}</td><td>${Number(c.finding_count||0).toLocaleString()}</td></tr>`).join('');function details(id){const f=all.find(x=>x.stable_id===id),e=(f.observation_ids||[]).map(x=>obs.get(x)).filter(Boolean);$('#detailBody').innerHTML=`<h2>${esc(f.concept)} · <span class=${esc(f.severity)}>${esc(f.severity)}</span></h2><p><code>${esc(f.file)}:${f.start_line}</code></p><p>${esc(f.message)}</p><p>${f.scanner_family_count} independent scanner families · ${f.observation_count} observations</p><h3>Supporting evidence</h3>${e.map(x=>`<div class=evidence><b>${esc(x.scanner_family)}</b> · ${esc(x.channel)} · <code>${esc(x.rule)}</code><p>${esc(x.message)}</p><code>${esc(x.file)}:${x.start_line}</code><br><span class=muted>Native result: ${esc(x.native_result_id)} · Analysis: ${esc(x.analysis_category)} · Version: ${esc(x.tool_version)} · Artifact: ${esc(x.raw_artifact)}</span></div>`).join('')}`;$('#detail').showModal()}window.details=details;function render(reset=false){if(reset)page=1;const source=$('#ai').checked?data.ai_advisories:base,q=$('#search').value.toLowerCase(),sev=$('#severity').value,cat=$('#category').value,comp=$('#component').value,scanner=$('#scanner').value,size=Number($('#pageSize').value),filtered=source.filter(f=>(!sev||f.severity===sev)&&(!cat||f.category===cat)&&(!comp||f.component===comp)&&(!scanner||(f.supporting_scanner_families||[]).includes(scanner))&&(!q||JSON.stringify(f).toLowerCase().includes(q))),pages=Math.max(1,Math.ceil(filtered.length/size));page=Math.min(page,pages);const shown=filtered.slice((page-1)*size,page*size);$('#shown').textContent=`${filtered.length.toLocaleString()} matching`;$('#page').textContent=`Page ${page} of ${pages}`;$('#previous').disabled=page===1;$('#next').disabled=page===pages;$('#rows').innerHTML=shown.map(f=>`<tr><td class=${esc(f.severity)}>${esc(f.severity)}</td><td><b>${esc(f.concept)}</b><br><span class=muted>${esc(f.message)}</span></td><td><code>${esc(f.file)}:${f.start_line}</code></td><td>${esc(f.category)}</td><td><b>${f.scanner_family_count}</b> families / ${f.observation_count} observations<br>${(f.supporting_scanner_families||[]).map(x=>`<span class=pill>${esc(x)}</span>`).join('')}</td><td><button onclick="details('${esc(f.stable_id)}')">Evidence</button></td></tr>`).join('')}document.querySelectorAll('input,select').forEach(x=>x.addEventListener('input',()=>render(true)));$('#previous').onclick=()=>{page--;render()};$('#next').onclick=()=>{page++;render()};$('#close').onclick=()=>$('#detail').close();render();
-</script></body></html>'''
-    output.write_text(template.replace("__PAYLOAD__", payload), encoding="utf-8")
 
 
 def generate(snapshot: dict, output: Path) -> None:

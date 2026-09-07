@@ -1,0 +1,31 @@
+name: Discover upstream analysis targets
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ['Exact Source Analysis']
+    types: [completed]
+  schedule:
+    - cron: '23 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: analysis-discovery
+  cancel-in-progress: false
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11'
+      - name: Reconcile upstream and queue changed exact revisions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python -m scripts.code_analysis.github_service scan

@@ -101,7 +101,8 @@ def compatibility_fingerprint(finding: dict[str, Any]) -> str:
 
 
 def scanner_family(tool: str) -> str:
-    aliases = {"Trivy-SCA": "Trivy", "Coverage.py": "Coverage.py", "SnykCode": "Snyk"}
+    aliases = {"Trivy-SCA": "Trivy", "Coverage.py": "Coverage.py", "SnykCode": "Snyk",
+               "Snyk Open Source": "Snyk"}
     return aliases.get(tool, tool or "Unknown")
 
 
@@ -147,10 +148,12 @@ def canonicalize(raw_findings: list[dict[str, Any]], repository: str, run: dict[
 
     findings: list[dict[str, Any]] = []
     observations: list[dict[str, Any]] = []
+    observation_occurrences: dict[str, int] = defaultdict(int)
     for group_key in sorted(groups):
         lane, fingerprint = group_key
         members = sorted(groups[group_key], key=lambda row: (
-            -SEVERITY_RANK.get(str(row.get("severity")), 0), str(row.get("source_tool")), str(row.get("rule_id"))))
+            -SEVERITY_RANK.get(str(row.get("severity")), 0), str(row.get("source_tool")), str(row.get("rule_id")),
+            json.dumps(row, sort_keys=True, ensure_ascii=False)))
         primary = members[0]
         sid = stable_id(repository, primary)
         member_observations: list[dict[str, Any]] = []
@@ -175,7 +178,14 @@ def canonicalize(raw_findings: list[dict[str, Any]], repository: str, run: dict[
                 "native_url": str(member.get("native_url") or ""),
                 "evidence_source": str(member.get("evidence_source") or "DETERMINISTIC"),
             }
-            observation["observation_id"] = observation_id(sid, run, observation)
+            base_observation_id = observation_id(sid, run, observation)
+            occurrence = observation_occurrences[base_observation_id]
+            observation_occurrences[base_observation_id] += 1
+            # Native IDs are not always unique (including repeated identical records).
+            # Preserve every occurrence without changing existing singleton identities.
+            observation["observation_id"] = (base_observation_id if occurrence == 0 else
+                "obs-v1:" + hashlib.sha256(
+                    f"{base_observation_id}\0occurrence:{occurrence}".encode("utf-8")).hexdigest())
             member_observations.append(observation)
             observations.append(observation)
         families = sorted({row["scanner_family"] for row in member_observations})
@@ -214,7 +224,7 @@ def canonicalize(raw_findings: list[dict[str, Any]], repository: str, run: dict[
 
 
 def build_snapshot(current: dict[str, Any], channel_status: dict[str, Any],
-                   provenance: dict[str, Any]) -> dict[str, Any]:
+                   provenance: dict[str, Any], *, allow_partial: bool = False) -> dict[str, Any]:
     """Build the one current, publishable findings snapshot.
 
     This deliberately has no baseline, lifecycle, or triage semantics.  A snapshot is
@@ -228,7 +238,7 @@ def build_snapshot(current: dict[str, Any], channel_status: dict[str, Any],
     if not isinstance(channels, list) or not channels:
         raise EvidenceError("channel status is missing")
     incomplete = [str(row.get("channel")) for row in channels if row.get("status") != "COMPLETED"]
-    if incomplete:
+    if incomplete and not allow_partial:
         raise EvidenceError("required scanner channels incomplete: " + ", ".join(incomplete))
     run = current.get("run") or {}
     commit = str(run.get("commit_sha") or "")
@@ -272,7 +282,7 @@ def build_snapshot(current: dict[str, Any], channel_status: dict[str, Any],
         "canonical_findings": deterministic,
         "ai_advisories": advisories,
         "observations": observations,
-        "publishable": True,
+        "publishable": not incomplete,
     }
 
 

@@ -52,15 +52,16 @@ def severity(body: str) -> str:
     return "INFO"
 
 
-def collect(repository: str, branch: str, commit: str, token: str) -> tuple[dict, dict]:
+def collect(repository: str, branch: str, commit: str, token: str, *, pr_number: int | None = None) -> tuple[dict, dict]:
     commit = commit.lower()
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ValueError("commit must be a full SHA")
-    pulls = request_json(f"{API}/repos/{repository}/commits/{commit}/pulls", token)
+    pulls = ([request_json(f"{API}/repos/{repository}/pulls/{pr_number}", token)] if pr_number
+             else request_json(f"{API}/repos/{repository}/commits/{commit}/pulls", token))
     relevant = [row for row in pulls if row.get("state") == "open" and
                 row.get("head", {}).get("sha", "").lower() == commit and
                 row.get("head", {}).get("ref") == branch and
-                row.get("head", {}).get("repo", {}).get("full_name") == repository]
+                (pr_number is not None or row.get("head", {}).get("repo", {}).get("full_name") == repository)]
     advisories: list[dict[str, Any]] = []
     review_seen = False
     completion_signals: list[str] = []
@@ -115,7 +116,7 @@ def collect(repository: str, branch: str, commit: str, token: str) -> tuple[dict
                for row in statuses):
             review_seen = True
             completion_signals.append("exact-head-success-status")
-    status = "COMPLETED_OPTIONAL" if review_seen else "NOT_APPLICABLE"
+    status = "COMPLETED_OPTIONAL" if review_seen else "NOT_AVAILABLE" if pr_number and relevant else "NOT_APPLICABLE"
     reason = ("No open same-repository PR exists for this branch head" if not relevant else
               "CodeRabbit review evidence collected for the exact PR head" if review_seen else
               "An open PR exists, but CodeRabbit has not submitted an exact-head review")
