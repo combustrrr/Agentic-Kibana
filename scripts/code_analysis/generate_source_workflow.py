@@ -131,7 +131,7 @@ def generate():
                 steps.remove(probe)
                 position = next(i for i, s in enumerate(steps) if s.get('name') == 'Ensure Browse for the verified Sonar API user')
                 probe['id'] = 'sonar-access'
-                probe['run'] += '\npython -c \'import json; p=json.load(open("sonar-access-probe.json")); print("native_export_ready="+str(p["credentials"].get("issue_api",{}).get("project_issues_http_status")==200).lower())\' >> "$GITHUB_OUTPUT"'
+                probe['run'] += '\npython -c \'import json; p=json.load(open("sonar-access-probe.json")); print("native_export_ready="+str(p["credentials"].get("issue_api",{}).get("project_issues_http_status")==200 and p["credentials"].get("issue_api",{}).get("branch_issues_http_status") not in (401,403)).lower())\' >> "$GITHUB_OUTPUT"'
                 steps.insert(position + 1, probe)
                 for s in steps:
                     if s.get('id') in {'sonar-native', 'sonar-manual'}:

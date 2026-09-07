@@ -10890,3 +10890,7 @@
 - Did: Use absolute tooling relocation paths and stage CodeQL's trusted policy under ignored Git metadata.
 - Validation: Workflow policy passes; source isolation is preserved.
 
+
+### 2026-09-07 - codex - Sonar export readiness guard
+- Did: Report unauthorized branch export explicitly and skip repeated unusable vendor analysis. No deferral or purchase.
+

@@ -89,8 +89,9 @@ jobs:
         cat sonar-access-probe.json
 
 
-        python -c ''import json; p=json.load(open("sonar-access-probe.json")); print("native_export_ready="+str(p["credentials"].get("issue_api",{}).get("project_issues_http_status")==200).lower())''
-        >> "$GITHUB_OUTPUT"'
+        python -c ''import json; p=json.load(open("sonar-access-probe.json")); print("native_export_ready="+str(p["credentials"].get("issue_api",{}).get("project_issues_http_status")==200
+        and p["credentials"].get("issue_api",{}).get("branch_issues_http_status") not in (401,403)).lower())'' >>
+        "$GITHUB_OUTPUT"'
       id: sonar-access
     - name: Derive stable Sonar analysis branch
       id: sonar-identity
