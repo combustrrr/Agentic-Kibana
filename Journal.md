@@ -11303,3 +11303,7 @@
 - Found: CodeQL requires its policy inside the workspace, and the JavaScript job uses a webui working directory.
 - Did: Stage only CodeQL policy under ignored Git metadata and make tooling relocation use an absolute workspace path. Both preserve isolation from source scanning.
 - Validation: Workflow policy passes; live rerun follows.
+
+### 2026-09-07 - codex - Vendor readiness cost guard
+- Did: Keep Sonar explicitly unavailable when its selected branch issue endpoint returns 401/403 after the Browse repair attempt, instead of repeating analysis whose issues cannot be retrieved. No channel was deferred and no subscription was purchased.
+- Validation: Generated workflow policy passes.
