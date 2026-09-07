@@ -20,6 +20,7 @@
     "javascript_install_command": ["npm", "ci", "--ignore-scripts"],
     "javascript_test_command": ["npm", "run", "test", "--", "--run"],
     "api_command": ["python", "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8088"],
-    "openapi_url": "http://127.0.0.1:8088/openapi.json"
+    "openapi_url": "http://127.0.0.1:8088/openapi.json",
+    "api_environment": {"TLSOC_AUTH_ENABLED": "false"}
   }
 }

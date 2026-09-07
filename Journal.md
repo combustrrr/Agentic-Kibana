@@ -10879,3 +10879,9 @@
 - Did: Use validated Scorecard native JSON with unavailable check status, expose Snyk quota failures, refresh target data, and reconcile exact completed runs without notifications.
 - Validation: 85 service tests, workflow policy, and three browser checks pass; UI dependency audit reports zero advisories.
 
+
+### 2026-09-07 - codex - Exact source boundary repaired
+- Found: Nested tooling contaminated Snyk findings and Atheris imported the tooling backend; earlier reports are not accepted as exact-source evidence.
+- Did: Move tooling outside source, verify the Atheris source SHA, require the isolated-tooling attestation, and validate hosted counts/provenance. Wire repository profile commands and explicit vendor readiness failures.
+- Validation: 91 service tests, three browser tests, workflow policy, documentation, and clean UI dependency audit.
+

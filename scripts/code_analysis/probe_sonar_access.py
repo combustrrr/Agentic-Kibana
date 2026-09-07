@@ -67,6 +67,8 @@ def probe(output: Path) -> dict[str, object]:
                 if isinstance(row, dict)
             )
         issue_status, _ = _request(f"{server}/api/issues/search?{issue_query}", token)
+        project_query = urllib.parse.urlencode({'componentKeys': project, 'p': 1, 'ps': 1})
+        project_status, _ = _request(f"{server}/api/issues/search?{project_query}", token)
         credentials[role] = {
             "configured": True,
             "authentication_http_status": auth_status,
@@ -76,6 +78,7 @@ def probe(output: Path) -> dict[str, object]:
             "permission_list_http_status": permission_status,
             "browse_granted_to_current_user": browse_granted,
             "branch_issues_http_status": issue_status,
+            "project_issues_http_status": project_status,
         }
     output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return result

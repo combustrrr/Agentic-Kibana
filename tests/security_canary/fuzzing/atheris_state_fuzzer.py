@@ -1,5 +1,5 @@
 """
-Atheris Fuzzing Harness for Kavach-AgenticSOC State Machine
+Atheris Fuzzing Harness for Agentic SOC State Machine
 ============================================================
 Targets the core state transition logic in backend/app/engine/ and
 backend/app/state.py. Uses coverage-guided fuzzing to find unhandled
@@ -15,13 +15,19 @@ CI: runs in the 07-api-fuzzing.yml workflow (weekly + on API changes).
 """
 
 import sys
+import os
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 # Executing a script by path makes its own directory, not the caller's working
 # directory, the first import root. Pin the repository's backend package here so
 # local and Actions invocations exercise the same target.
-_BACKEND_ROOT = Path(__file__).resolve().parents[3] / "backend"
+_BACKEND_ROOT = Path(os.environ.get('ANALYSIS_BACKEND_ROOT', str(Path(__file__).resolve().parents[3] / "backend"))).resolve()
+if os.environ.get('ANALYSIS_SOURCE_SHA'):
+    actual = subprocess.check_output(['git', '-C', str(_BACKEND_ROOT), 'rev-parse', 'HEAD'], text=True).strip()
+    if actual != os.environ['ANALYSIS_SOURCE_SHA']:
+        raise RuntimeError('Atheris backend checkout does not match the selected source revision')
 if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
@@ -31,7 +37,7 @@ except ImportError:
     atheris = None
 
 # ─────────────────────────────────────────────────────────────
-# Fuzzing targets — imports from the Kavach backend
+# Fuzzing targets — imports from the Agentic SOC backend
 # ─────────────────────────────────────────────────────────────
 
 # Import the actual state machine logic under test

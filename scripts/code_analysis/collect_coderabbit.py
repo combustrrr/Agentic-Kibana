@@ -36,6 +36,8 @@ def paged(url: str, token: str) -> list[dict[str, Any]]:
         rows.extend(batch)
         if len(batch) < 100:
             break
+    else:
+        raise ValueError('CodeRabbit collection exceeded pagination bound; completeness unavailable')
     return rows
 
 
@@ -58,7 +60,7 @@ def collect(repository: str, branch: str, commit: str, token: str, *, pr_number:
         raise ValueError("commit must be a full SHA")
     pulls = ([request_json(f"{API}/repos/{repository}/pulls/{pr_number}", token)] if pr_number
              else request_json(f"{API}/repos/{repository}/commits/{commit}/pulls", token))
-    relevant = [row for row in pulls if row.get("state") == "open" and
+    relevant = [row for row in pulls if (pr_number is not None or row.get("state") == "open") and
                 row.get("head", {}).get("sha", "").lower() == commit and
                 row.get("head", {}).get("ref") == branch and
                 (pr_number is not None or row.get("head", {}).get("repo", {}).get("full_name") == repository)]
@@ -116,9 +118,11 @@ def collect(repository: str, branch: str, commit: str, token: str, *, pr_number:
                for row in statuses):
             review_seen = True
             completion_signals.append("exact-head-success-status")
-    status = "COMPLETED_OPTIONAL" if review_seen else "NOT_AVAILABLE" if pr_number and relevant else "NOT_APPLICABLE"
-    reason = ("No open same-repository PR exists for this branch head" if not relevant else
+    status = "COMPLETED_OPTIONAL" if review_seen else "NOT_AVAILABLE" if pr_number else "NOT_APPLICABLE"
+    reason = ("Selected PR no longer has the expected source head" if pr_number and not relevant else
+              "No open same-repository PR exists for this branch head" if not relevant else
               "CodeRabbit review evidence collected for the exact PR head" if review_seen else
+              "The selected PR has no CodeRabbit review for the expected head" if pr_number else
               "An open PR exists, but CodeRabbit has not submitted an exact-head review")
     evidence = {"schema_version": "1", "repository": repository, "branch": branch,
                 "commit_sha": commit, "pull_requests": pr_numbers,
