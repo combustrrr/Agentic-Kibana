@@ -10885,3 +10885,8 @@
 - Did: Move tooling outside source, verify the Atheris source SHA, require the isolated-tooling attestation, and validate hosted counts/provenance. Wire repository profile commands and explicit vendor readiness failures.
 - Validation: 91 service tests, three browser tests, workflow policy, documentation, and clean UI dependency audit.
 
+
+### 2026-09-07 - codex - Workspace compatibility repair
+- Did: Use absolute tooling relocation paths and stage CodeQL's trusted policy under ignored Git metadata.
+- Validation: Workflow policy passes; source isolation is preserved.
+
