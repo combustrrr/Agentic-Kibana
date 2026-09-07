@@ -12,8 +12,8 @@ def load(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def validate_snapshot(snapshot: dict) -> None:
-    if snapshot.get("schema_version") != "snapshot-v2" or snapshot.get("publishable") is not True:
+def validate_snapshot(snapshot: dict, *, allow_partial: bool = False) -> None:
+    if snapshot.get("schema_version") != "snapshot-v2" or (not allow_partial and snapshot.get("publishable") is not True):
         raise ValueError("dashboard requires a publishable snapshot-v2 document")
     if "channel_status" in snapshot or "additional_channels" in snapshot:
         raise ValueError("snapshot-v2 cannot contain split channel inventories")
@@ -36,11 +36,13 @@ def validate_snapshot(snapshot: dict) -> None:
     gate = snapshot.get("publication_gate", {})
     if gate.get("policy") != "static-evidence-v1":
         raise ValueError("unsupported publication policy")
-    if gate.get("satisfied") is not True or not gate.get("channel_ids"):
+    if not gate.get("channel_ids") or (not allow_partial and gate.get("satisfied") is not True):
         raise ValueError("publication gate is not satisfied")
     by_id = {row["channel"]: row for row in channels}
-    if any(identity not in by_id or by_id[identity]["status"] != "COMPLETED"
-           for identity in gate["channel_ids"]):
+    if any(identity not in by_id for identity in gate["channel_ids"]):
+        raise ValueError("publication gate references unknown channels")
+    if (not allow_partial or gate.get("satisfied") is True) and any(
+            by_id[identity]["status"] != "COMPLETED" for identity in gate["channel_ids"]):
         raise ValueError("publication gate evidence is incomplete")
     findings = snapshot.get("canonical_findings", [])
     advisories = snapshot.get("ai_advisories", [])

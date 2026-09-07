@@ -1,0 +1,87 @@
+name: Publish current analysis dashboard
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '7,17,27,37,47,57 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: current-dashboard-publication
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '22'
+      - name: Restore matching UI build
+        id: ui
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: analysis-ui/ui-build
+          key: dashboard-ui-${{ runner.os }}-${{ hashFiles('analysis-ui/src/**', 'analysis-ui/package-lock.json', 'analysis-ui/index.html', 'analysis-ui/vite.config.ts', 'analysis-ui/tsconfig.json') }}
+      - name: Build UI only on source changes or cache eviction
+        if: steps.ui.outputs.cache-hit != 'true'
+        working-directory: analysis-ui
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+          mv dist ui-build
+      - name: Prepare clean site from the reusable UI build
+        run: cp -a analysis-ui/ui-build analysis-ui/dist
+      - name: Collect validated current reports
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python -m scripts.code_analysis.github_service publish
+      - name: Retain publication metrics
+        if: always()
+        run: |
+          python -c 'import pathlib; p=pathlib.Path("analysis-ui/dist"); print("Site bytes:",sum(f.stat().st_size for f in p.rglob("*") if f.is_file()))' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: analysis-ui/dist
+  deploy:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+      - uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
+        id: deployment
+  cleanup:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11'
+      - name: Remove unreferenced managed assets after successful deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python -m scripts.code_analysis.github_service cleanup

@@ -224,7 +224,7 @@ def canonicalize(raw_findings: list[dict[str, Any]], repository: str, run: dict[
 
 
 def build_snapshot(current: dict[str, Any], channel_status: dict[str, Any],
-                   provenance: dict[str, Any]) -> dict[str, Any]:
+                   provenance: dict[str, Any], *, allow_partial: bool = False) -> dict[str, Any]:
     """Build the one current, publishable findings snapshot.
 
     This deliberately has no baseline, lifecycle, or triage semantics.  A snapshot is
@@ -238,7 +238,7 @@ def build_snapshot(current: dict[str, Any], channel_status: dict[str, Any],
     if not isinstance(channels, list) or not channels:
         raise EvidenceError("channel status is missing")
     incomplete = [str(row.get("channel")) for row in channels if row.get("status") != "COMPLETED"]
-    if incomplete:
+    if incomplete and not allow_partial:
         raise EvidenceError("required scanner channels incomplete: " + ", ".join(incomplete))
     run = current.get("run") or {}
     commit = str(run.get("commit_sha") or "")
@@ -282,7 +282,7 @@ def build_snapshot(current: dict[str, Any], channel_status: dict[str, Any],
         "canonical_findings": deterministic,
         "ai_advisories": advisories,
         "observations": observations,
-        "publishable": True,
+        "publishable": not incomplete,
     }
 
 

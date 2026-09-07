@@ -1,0 +1,23 @@
+{
+  "schema_version": "analysis-service-v1",
+  "source_repository": "ARYDESTROYER/Kavach-AgenticSOC",
+  "analysis_repository": "combustrrr/Agentic-Kibana",
+  "publishing_repository": "combustrrr/code-analysis-dashboard",
+  "preferred_branch": "Testing",
+  "discovery_cron": "23 * * * *",
+  "max_parallel_analyses": 2,
+  "artifact_retention_days": 7,
+  "site_limit_bytes": 900000000,
+  "deferred_channels": {},
+  "profile": {
+    "python_root": "backend",
+    "python_requirements": "backend/requirements.txt",
+    "python_development_requirements": "backend/requirements-dev.txt",
+    "python_test_command": ["python", "-m", "pytest", "-q", "--cov=app", "--cov-report=json:coverage.json"],
+    "javascript_root": "webui",
+    "javascript_install_command": ["npm", "ci", "--ignore-scripts"],
+    "javascript_test_command": ["npm", "run", "test", "--", "--run"],
+    "api_command": ["python", "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8088"],
+    "openapi_url": "http://127.0.0.1:8088/openapi.json"
+  }
+}

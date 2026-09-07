@@ -13,7 +13,7 @@ except ModuleNotFoundError:  # package import in repository tests
 
 
 CLASSES = {"code", "security", "dependencies", "infrastructure", "reliability"}
-COMPLETE_STATUSES = {"COMPLETED", "CONFIGURED_COMPLETE", "COMPLETED_OPTIONAL"}
+COMPLETE_STATUSES = {"COMPLETED", "CONFIGURED_COMPLETE", "COMPLETED_OPTIONAL", "POLICY_FINDINGS"}
 
 
 def build_analysis_channels(catalog: dict, artifacts: Path | None,
@@ -59,7 +59,7 @@ def build_analysis_channels(catalog: dict, artifacts: Path | None,
         finding_ids = set().union(*(findings_by_family.get(family, set()) for family in families))
         status = str(gate["status"] if gate else native.get("status") or
                      ("COMPLETED_OPTIONAL" if observations else "NOT_AVAILABLE"))
-        reason = str((gate or native).get("reason") or "")
+        reason = str((gate or {}).get("reason") or native.get("reason") or "")
         if not gate and not native and not observations:
             reason = "No retained evidence for this exact snapshot"
         rows.append({
@@ -74,6 +74,8 @@ def build_analysis_channels(catalog: dict, artifacts: Path | None,
             "artifact_files": list(gate.get("artifact_files", [])) if gate else None,
             "status_artifact": status_artifact,
             "evidence_source": configured.get("evidence_source", "DETERMINISTIC"),
+            "test_exit_code": native.get("test_exit_code"),
+            "coverage_exit_code": native.get("coverage_exit_code"),
         })
     return rows
 

@@ -108,3 +108,77 @@ renderer rejects legacy or split inventories, missing/duplicate identities, inva
 classes/counts, broken observation membership, and incomplete gate evidence. Existing
 v1 offline artifacts remain immutable and self-contained; new reports require
 regeneration rather than an implicit metadata backfill.
+
+## Current hosted dashboard (2026-09-07)
+
+The implemented direction is one public React/TypeScript/Vite application, published
+from the dedicated `combustrrr/code-analysis-dashboard` repository to GitHub Pages.
+The analysis host is `combustrrr/Agentic-Kibana`; the configured read-only source is
+`ARYDESTROYER/Kavach-AgenticSOC`, with `Testing` selected by default. This supersedes
+the earlier R2, private-hosting, third-party UI, and historical-storage proposals.
+
+`config/code-analysis/service.json` supplies source/host/publisher identities, preferred
+branch, concurrency, retention, site capacity, and trusted repository commands.
+Hourly discovery enumerates all upstream branches and open PRs. A successful complete
+inventory replaces active membership; API errors never mean that targets disappeared.
+The host keeps its bounded current queue in the `current-analysis-state` release body.
+At most two source analyses run concurrently, with Testing then PRs prioritized.
+Completion events reconcile the queue between hourly discovery runs.
+
+The generated exact-source workflow derives scanner steps from existing definitions,
+checks out immutable source and trusted tooling separately, and assembles evidence from
+one producer run and attempt. It grants no source job publishing privileges and persists
+no checkout credentials. Vendor secrets are restricted to relevant scanners; source
+installation/test jobs do not receive publishing credentials. Changes to legacy scanner
+definitions require regenerating the exact-source workflow. CodeRabbit collection for
+explicit PR targets handles fork source repositories and requires exact-head evidence.
+
+Hosted validity is separate from completeness. Snapshot-v2 canonical findings and
+observations remain authoritative; its static-evidence-v1 gate is preserved unchanged.
+The hosted-report-v1 envelope permits valid partial reports, retaining failed channels
+and null unavailable counts. Legacy offline generation remains strict. Policy findings
+are completed scanner execution, and coverage reports retain test exit status.
+
+The dedicated publisher is serialized and periodically reconciles the host queue and
+upstream heads. It downloads only explicitly identified producer artifacts, validates
+source/target/tooling/attempt identity, and rejects superseded revisions. Current reports
+are compressed managed assets on its `current-reports` release; the release body is the
+small active manifest. Replacement assets are uploaded before references change. Cleanup
+runs only after successful deployment and removes only unreferenced managed report assets.
+Artifact handoff retention is seven days; active reports do not depend on artifact expiry.
+No generated report history is committed to Git, and there is no history browser.
+
+A matching UI build is cached independently of report data. Publications assemble the
+whole active collection, compress static JSON for explicit browser decompression, and
+reject deployments at 900 MB. Source snippets are content-addressed, findings details
+are paginated, and selection loads only that target's data. Every target shows discovered
+head, analyzed SHA, last discovery time, analysis time, scanner status, and run links.
+A previous report remains visibly stale during a new scan; partial results never borrow
+findings from older revisions. GitHub API/scan controls remain outside the browser.
+
+The site is public. Detected Gitleaks values are withheld from public finding messages,
+and source previews for affected files are withheld. Scanner text is rendered as text,
+not HTML. Findings remain observations rather than verified defects. The implementation
+is isolated from the Agentic SOC runtime and its existing documentation Pages site.
+
+Operational acceptance requires live branch and PR scans, every applicable non-deferred
+scanner's evidence, publication recovery, and browser checks. Missing vendor entitlement
+or upstream posture permissions remain explicit blockers; they must not be renamed
+as deferrals. Operational status must reflect actual rollout and verification results.
+
+Useful commands:
+
+```shell
+python -m scripts.code_analysis.generate_source_workflow
+python -m unittest scripts.code_analysis.test_hosted scripts.code_analysis.test_service
+python scripts/code_analysis/audit_workflows.py
+cd analysis-ui
+npm ci --ignore-scripts
+npm run build
+```
+
+The standalone browser tests consume the retained-report fixture under ignored
+`analysis-ui/public/data`; scanner findings and source files are never committed there.
+The deployment workflow template lives in `config/code-analysis/dashboard-pages.yml`.
+GitHub Pages size/usage limits and scanner OSS entitlements must be checked at rollout;
+free standard public runners do not promise unlimited artifact or commercial-vendor use.

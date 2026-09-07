@@ -5,36 +5,49 @@
   "layers": {
     "contracts": [
       "config/code-analysis/required-channels.json",
-      "config/code-analysis/proposal-tool-catalog.json"
+      "config/code-analysis/proposal-tool-catalog.json",
+      "config/code-analysis/service.json"
     ],
     "ingestion_adapters": [
       "scripts/code_analysis/normalizer.py",
       "scripts/code_analysis/collect_coderabbit.py"
     ],
     "domain": [
-      "scripts/code_analysis/monitoring.py"
+      "scripts/code_analysis/monitoring.py",
+      "scripts/code_analysis/hosted.py"
     ],
     "application": [
       "scripts/code_analysis/evidence_contract.py",
       "scripts/code_analysis/channel_status.py",
       "scripts/code_analysis/provenance.py",
       "scripts/code_analysis/snapshot.py",
-      "scripts/code_analysis/pipeline.py"
+      "scripts/code_analysis/pipeline.py",
+      "scripts/code_analysis/hosted_pipeline.py",
+      "scripts/code_analysis/source_identity.py",
+      "scripts/code_analysis/run_profile.py"
     ],
     "presentation": [
       "scripts/code_analysis/bound_sarif.py",
       "scripts/code_analysis/validate_sbom.py",
       "scripts/code_analysis/dashboard.py",
-      "scripts/code_analysis/dashboard_template.html"
+      "scripts/code_analysis/dashboard_template.html",
+      "analysis-ui/src/main.tsx",
+      "analysis-ui/src/style.css"
     ],
     "infrastructure_adapters": [
-      ".github/workflows/05-issue-aggregation.yml"
+      ".github/workflows/05-issue-aggregation.yml",
+      "scripts/code_analysis/github_service.py",
+      ".github/workflows/10-analysis-discovery.yml",
+      ".github/workflows/11-source-analysis.yml",
+      "config/code-analysis/dashboard-pages.yml"
     ],
     "verification": [
       "scripts/code_analysis/audit_workflows.py",
       "scripts/code_analysis/validate_canary.py",
       "scripts/code_analysis/benchmark_monitoring.py",
-      "scripts/code_analysis/test_service.py"
+      "scripts/code_analysis/test_service.py",
+      "scripts/code_analysis/test_hosted.py",
+      "scripts/code_analysis/generate_source_workflow.py"
     ],
     "compatibility_entrypoints": [
       "scripts/code_analysis/normalizer.py",

@@ -11163,3 +11163,118 @@
 - Tests: 125 service/CI-contract tests, workflow policy audit, 90-page documentation consistency, and diff check passed. Header and origin JavaScript checks and the scale gate passed earlier in this session. Changes remain confined to the external analysis tooling and its docs.
 - Decision: Use latest fetched upstream Testing 2c38720d0b6814383779b701345b0c286b7c5f77; Stable main is older. Publish tooling to the existing fork feature branch and run analysis against the exact upstream scan branch.
 - Status: Ready for authorized fork publication; full application suites not rerun for external-tool-only changes.
+
+### 2026-09-07 07:18Z â€” codex â€” Live all-channel coverage limitations verified
+- Did: Published b52850ea to the fork feature branch and launched manual run 34094282662 against upstream Testing 2c38720d. SAST and dependency groups completed; Snyk retained CONFIGURED_COMPLETE for both SCA and Code.
+- Found: Current native artifacts show Repository Security Posture CONFIGURED_PARTIAL because the GitHub token cannot observe protection controls, and Scorecard NOT_APPLICABLE on a non-default tooling ref. Workflow 07 is not dispatched or collected by the full pipeline and has no exact-source inputs. Its last Atheris run failed on a missing harness. The current push-triggered canary run 34094281480 likewise failed because the referenced canary fixtures are missing.
+- Status: Main pipeline still running; these unavailable/failed checks are not counted as successful channel coverage.
+- Next: Download the completed exact-source artifact and reconcile every channel, source identity, UI marker, observation, and hash.
+
+### 2026-09-07 07:33Z â€” codex â€” Fork artifact publication and 26-channel validation completed
+- Did: Published implementation b52850ea5e8e051c81b88898d39b999d769ecc85 to the fork feature branch, fetched current upstream Testing, and successfully ran manual pipeline 34094282662 against exact upstream commit 2c38720d0b6814383779b701345b0c286b7c5f77. GitHub published artifact 10008485659. Downloaded and independently validated its snapshot, source header, all finding-origin renderings, and scanner evidence.
+- Evidence: 21,189 canonical findings / 21,912 unique observations; 0 Critical, 687 High, 6,560 Medium, 13,942 Low. All 16 publication channels completed. Snapshot run IDs exactly match the four freshly dispatched runs. All 46 independently downloaded scanner files match snapshot hashes; two aggregation-generated CodeRabbit JSON records are not retained for independent byte verification.
+- Channel result: 19 complete native statuses, plus SBOM Policy completed with 249 license-policy findings. Six are incomplete/unavailable: Schemathesis and Atheris are disconnected from the main pipeline; CodeRabbit lacks an exact-head open PR review; Repository Security Posture lacks read permissions; Scorecard is unsupported on this manual feature ref; Sonar analysis succeeded but native issue export returned HTTP 403. The current UI also incorrectly counts SBOM POLICY_FINDINGS as incomplete; its findings remain retained.
+- Other failures: Current canary run 34094281480 failed on missing tests/security_canary/python fixtures. Prior dynamic run 33954974489 failed on the missing Atheris harness. Upstream coverage measured 82.657 percent but test_provider_circuit_breaker::test_the_key_registry_is_bounded_but_never_evicts_a_live_key failed; advisory job success is not a passing test-suite claim.
+- Tests: 125 local service/CI-contract tests, workflow policy and documentation checks passed. Downloaded HTML executable scripts and embedded JSON parsed; source header and origins for all 21,189 findings passed direct rendering checks. Browser visual verification was not performed. The detailed validation report and published preview remain local generated artifacts; moved the report outside public docs after the documentation checker correctly rejected an unregistered internal report.
+- Status: Requested fork publication and live validation complete; all-channel readiness is not achieved. Fork default and upstream remain unmodified; no application deployment or 26-channel publication-policy migration.
+- Next: Resolve dynamic exact-source integration and missing harness/canary fixtures, Sonar export access, posture permissions, Scorecard supported execution, CodeRabbit review availability, SBOM completion classification, and portable CodeRabbit evidence retention. Investigate the upstream advisory test failure independently.
+
+### 2026-09-07 07:34Z â€” codex â€” Dashboard architecture discussion started
+- Context: User is deciding between the custom Issue Wall, DefectDojo, Sonar-style dashboards, and GitHub's native surfaces, and asks why manual builds repeat scanning.
+- Did: Rechecked workflow 08, workflow 05, and the shared pipeline. Manual orchestration dispatches fresh scanners; aggregation itself consumes retained artifacts and does not rerun scanners. Began checking official platform documentation.
+- Tests: Not applicable; advisory review.
+- Status: In progress.
+- Next: Explain persistence, scan-versus-render separation, and platform tradeoffs without changing deployment or workflow contracts.
+
+### 2026-09-07 07:35Z â€” codex â€” Dashboard architecture discussion completed
+- Findings: Automatic scanner workflows retain reports and some upload GitHub alerts. The manual Full Code Analysis entry point explicitly rescans; reusable aggregation reads retained reports and does not execute scanners. JSON/HTML artifacts are stored, but the custom wall has no durable searchable finding-history service. Retention-bound artifacts and native GitHub alerts are distinct stores.
+- Research: Official DefectDojo documentation supports API import/reimport and finding history; native cross-tool deduplication is listed as Pro-only. SonarQube Cloud can import external issue reports but external rule activation remains with the producer. GitHub accepts third-party SARIF for code scanning; its native Code Quality standard findings are CodeQL-driven, not an automatic aggregation of every external channel.
+- Recommendation proposed, not adopted: Separate automatic scanning/ingestion from presentation-only dashboard generation. Preserve immutable source/run provenance and explicit incomplete channels. Evaluate DefectDojo for persistent security triage, or retain a lightweight hosted custom view for the mixed 26-channel engineering dashboard. Keep force-rescan an explicit separate action.
+- Tests: Not applicable; source and official-documentation review only.
+- Status: Advisory discussion complete; no implementation, installation, deployment, workflow-policy change, or migration authorized or performed.
+- Next: Agree whether the primary goal is a view-only unified report or a persistent finding-management workspace before selecting the dashboard/storage platform.
+
+### 2026-09-07 07:42Z â€” codex â€” Hosted findings visualization architecture started
+- Context: User delegates the DefectDojo/hosting decision and clarifies that the goal is a low-cost, always-available Sonar-style findings visualization with all non-deferred scanners working, not triage or finding ownership. No VM is available; Vercel and Railway are candidates.
+- Did: Began verifying current hosting limits/costs and DefectDojo operational requirements against the clarified product scope.
+- Tests: Not applicable; architecture decision.
+- Status: In progress.
+- Next: Select the visualization/compute/storage approach, record the decision and coverage requirements, and identify any concrete external setup needed.
+
+### 2026-09-07 07:44Z â€” codex â€” Hosted visualization architecture selected
+- Decision: Under the user's delegated decision authority, select a focused Vercel viewer and small APIs, GitHub Actions scanner compute, and private R2 immutable report storage. Do not select DefectDojo, Railway workers, or a findings-lifecycle database for the first version. The user wants visualization and reliable applicable scanner coverage, without triage.
+- Did: Recorded the decision in SERVICE_ARCHITECTURE.md, explicitly marked implementation pending. Defined automatic scan/ingest versus read-only viewing/export, exact producer-run provenance, bounded retention, compact on-demand data, authenticated evidence access, and active/applicable/deferred coverage acceptance. Current offline behavior and the 16-channel gate remain unchanged pending implementation.
+- Research: Verified official Vercel hosting/function and Hobby eligibility documentation, GitHub Actions public-runner billing, Railway minimum-plus-usage pricing, and R2 storage pricing. No fixed total cost or free commercial hosting is promised.
+- Tests: Public documentation consistency passed for 90 pages; diff check passed.
+- Status: Architecture decision complete; no account provisioning, paid subscription, scanner migration, or external deployment performed.
+- Next: Implement scanner readiness fixes, automatic immutable report publication, and the focused hosted viewer; establish hosting credentials, access policy, and eligible plan before deployment.
+
+### 2026-09-07 07:45Z â€” codex â€” Maintained open-source dashboard evaluation started
+- Context: User prioritizes avoiding custom UI maintenance and wants an existing open-source interface similar to SonarCloud; this steers the prior custom Vercel-viewer decision.
+- Did: Began checking supported external-result ingestion, open-source licensing, branch support, and hosting requirements for maintained dashboard products.
+- Tests: Not applicable; architecture evaluation.
+- Status: In progress.
+- Next: Determine the closest supported code-focused dashboard and explicitly describe what it can and cannot represent from the scanner catalog.
+
+### 2026-09-07 — codex — Maintained dashboard evaluation completed
+- Decision: Superseded the custom hosted-viewer selection following the user's UI-maintenance constraint. SonarQube Community Build is the closest visual candidate; CodeChecker is the strictly open-source code-viewer alternative. No deployment selected before a representative retained-report import proves suitability.
+- Findings: Sonar supports external issue imports but has main-branch, mixed-license, and persistent server/database constraints. CodeChecker provides Apache-2.0 report storage, filters, and run comparisons, with full catalog compatibility unproven. DefectDojo remains less aligned with the requested code-focused experience without triage. No candidate is verified as a complete 26-channel replacement.
+- Did: Updated SERVICE_ARCHITECTURE.md with sourced options, supersession, hosting limits, and import acceptance criteria; retained independent provenance and scanner completeness requirements.
+- Tests: Documentation consistency passed for 90 public pages; git diff --check passed (line-ending warnings only).
+- Status: Evaluation complete; no dashboard installed, subscription purchased, or service deployed.
+- Next: Validate a retained exact-commit report against the selected third-party viewer before replacing the artifact UI; scanner-readiness fixes remain outstanding independently.
+
+### 2026-09-07 — codex — Repository-scale hosting cost estimate started
+- Context: User requests total cost for the proposed scanner dashboard at this repository's measured scale.
+- Did: Began measuring retained scan evidence and checking current hosting, CI, and scanner-service pricing.
+- Status: In progress.
+- Next: Report scenario costs with explicit scan frequency, retention, and paid-service assumptions.
+
+### 2026-09-07 — codex — Repository-scale cost estimate completed
+- Context: User accepts owning the custom UI and requests whole scanner-dashboard setup costs. Earlier third-party evaluation remains historical; no dashboard deployment is authorized by this estimate.
+- Evidence: Verified fork visibility public. At source 2c38720d0b6814383779b701345b0c286b7c5f77, Git tracks 1,457 files totaling 25,904,983 bytes. Retained published output is 244,288,811 bytes (28,153,987 with per-file gzip level 6); 46 downloaded scanner evidence files total 55,291,911 bytes (3,705,757 compressed). GitHub reports dashboard ZIP 27,465,475 bytes for run 34094282662.
+- Estimate: Budget 50 MB compressed per analysis, including margin for source context and presently unavailable channel evidence. With 90-day retention at 1/5/10 scans per day, stored data is 4.5/22.5/45 GB. Standard R2 storage is approximately USD 0/0.20/0.53 monthly at steady state, assuming otherwise unused free allowance and requests within allowance. Small-team traffic assumption: 5 users, 20 sessions each daily, 20 report/API reads per session, about 60,000 reads monthly; implementation CPU and bandwidth remain unmeasured.
+- Options: Workers static UI plus small authenticated APIs with R2: approximately USD 5-6 monthly on Workers Paid; eligible free-tier deployment can start at USD 0. Vercel one-seat Pro plus R2: approximately USD 20-21 monthly. Use one API host, no mandatory database, VM, Railway, or paid domain. Public standard Actions runners are free; private/larger-runner scenarios require a new calculation. These are infrastructure estimates, not hard caps or audited account bills.
+- Scanner services: Sonar OSS and CodeRabbit public PR reviews have free options. Snyk public/open-source policies may avoid ordinary private-project test limits, but account classification and entitlements are unverified; public pricing and usage pages contain differing free quota figures, so no specific quota or all-product paid upgrade price is assumed. Existing limited channels remain unresolved, and a green run is not proof all scanners work. No scanner is deferred to meet the budget.
+- Sources: Official Cloudflare R2 and Workers pricing; Vercel pricing and Hobby eligibility; GitHub Actions billing; SonarQube Cloud subscription plans; CodeRabbit pricing; Snyk pricing, usage settings, and what-counts-as-a-test documentation, checked this session.
+- Validation: Measured artifacts without editing them, calculated retention scenarios, and saved a local machine-readable estimate. No application behavior changed; runtime tests not applicable.
+- Status: Cost assessment complete. Prices exclude tax, development/maintenance labor, optional custom domain, paid scanner add-ons, and the separate Agentic SOC application runtime/LLM services. No purchase or deployment performed.
+- Next: Confirm service-account OSS entitlements during setup; implement and measure compact report serving and complete scanner-readiness fixes before declaring the system fully operational.
+
+### 2026-09-07 — codex — Latest-only dashboard scope clarified
+- Context: User wants only the latest findings and questions the need for separate storage or history.
+- Did: Checked GitHub artifact billing and download documentation and confirmed the report workflow retains artifacts for 30 days. Began simplifying the proposal to current-report hosting without R2 or a historical findings database.
+- Status: In progress.
+- Next: Record latest-only publication semantics and explain runner compute versus artifact storage and website hosting.
+
+### 2026-09-07 — codex — Latest-only dashboard decision recorded
+- Decision: Remove R2 and finding-history requirements for the user's clarified scope. Use existing artifacts as pipeline handoff and publish only current report data with our UI; no separate storage subscription is required.
+- Did: Updated SERVICE_ARCHITECTURE.md with latest-only semantics, exact-run publication, stale/failed attempt visibility, artifact expiry and website-serving distinctions. Clarified free public runner compute does not establish unlimited artifact storage or an audited zero bill.
+- Validation: Documentation consistency passed; diff check passed with line-ending warnings only.
+- Status: Decision complete; no deployment, deletion, or workflow retention mutation performed.
+- Next: Implement current-report publication with appropriate access and finish scanner-readiness fixes.
+
+### 2026-09-07 — codex — Private static dashboard hosting review started
+- Context: User requires the website to be private and asks whether GitHub Pages fits static report hosting.
+- Did: Verified GitHub Pages private publication requirements against official documentation. Assessing private static hosting without changing source repository visibility.
+- Status: In progress.
+- Next: Record private access as mandatory for dashboard data and distinguish repository privacy from website privacy.
+
+### 2026-09-07 — codex — Private static hosting constraints recorded
+- Decision: Dashboard must require authenticated access to all report assets. GitHub Pages is technically suitable for static rendering but private publication requires Enterprise Cloud and an organization-owned private/internal project repository; current public personal fork does not meet that configuration.
+- Did: Recorded Cloudflare Pages plus Access as an alternative with explicit production/preview hostname coverage; protecting the UI does not privatize public-repository artifacts. No repository visibility or evidence access changed.
+- Validation: Documentation consistency passed for 90 pages; diff check passed with line-ending warnings.
+- Status: Review complete; nothing deployed or purchased.
+- Next: Implement private current-report publication with restricted evidence handoff when deployment work proceeds.
+
+### 2026-09-07 — codex — Reusable dashboard implementation started
+- Context: User authorizes implementation and live rollout of the approved single-dashboard plan.
+- Did: Started with exact-revision contracts, retained-report validation, and isolated static UI. Preserve intentional existing documentation edits and upstream read-only boundary.
+- Status: In progress.
+- Next: Implement, test, deploy the dedicated dashboard, and validate branch/PR analysis with explicit external blockers.
+
+### 2026-09-07 — codex — Hosted dashboard implementation and local acceptance milestone
+- Did: Added current-target contracts/controller, exact-source workflow generation, partial-report assembly, configurable command adapter, dedicated React dashboard, compressed data publication, current GitHub Release assets, and Pages workflow template. Restored missing canary fixtures and fixed policy-findings completeness; coverage now retains test exit codes.
+- Validation: 79 hosted/service tests pass; initial 3 Chrome browser tests pass against 21,189 retained findings; workflow and 90-page documentation checks pass. Patched new UI tooling after dependency audit identified vulnerable initial versions.
+- External: Created the authorized public code-analysis-dashboard repository. No upstream writes or paid services.
+- Status: Live rollout in progress; external scanner completeness not yet accepted.
