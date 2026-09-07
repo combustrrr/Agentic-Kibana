@@ -51,6 +51,10 @@ def selection(config: dict, source: Path) -> tuple[list[str], dict, list[str]]:
         absent['shipping-image-security'] = 'Selected source lacks the configured pair of shipping Dockerfiles'
     if not present(profile['python_root'] + '/Dockerfile') and not present(profile['javascript_root'] + '/Dockerfile'):
         absent['hadolint'] = 'Selected source has no configured shipping Dockerfiles to lint'
+    manifests = [profile['python_requirements'], profile.get('python_development_requirements'),
+                 profile['javascript_root'] + '/package-lock.json']
+    if not any(present(path) for path in manifests if path):
+        absent['osv-scanner'] = 'Selected source has none of the configured dependency manifests'
     jobs, excluded = [], {}
     for job, channels in GROUPS.items():
         active = enabled.intersection(channels)
@@ -64,6 +68,13 @@ def selection(config: dict, source: Path) -> tuple[list[str], dict, list[str]]:
                     'status': 'NOT_APPLICABLE' if active else 'DEFERRED',
                     'reason': absent[job] if active else deferred[channel],
                 }
+    workflow_directory = source / '.github/workflows'
+    if ('github-actions-security' in enabled and
+            (not present('.github/workflows') or not any(
+                p.is_file() and p.suffix in {'.yml', '.yaml'} for p in workflow_directory.iterdir()))):
+        # This producer also reads repository posture, which remains applicable.
+        excluded['github-actions-security'] = {
+            'status': 'NOT_APPLICABLE', 'reason': 'Selected source contains no GitHub Actions workflow definitions'}
     return jobs, excluded, languages
 
 

@@ -546,12 +546,15 @@ class MonitoringTests(unittest.TestCase):
             self.assertEqual(state['malformed_artifacts'],['radon-cc.json'])
             self.assertEqual(state['status'],'PARTIAL')
 
-    def test_scanners_collect_automatically_but_dashboard_is_manual_only(self):
-        monitored='branches: ["**"]'
+    def test_legacy_scanners_are_manual_and_hourly_discovery_is_the_automatic_path(self):
         for name in ("01-code-quality.yml","02-security-sast.yml",
                      "03-dependency-security.yml","04-code-health.yml"):
             workflow=Path(".github/workflows",name).read_text(encoding="utf-8")
-            self.assertIn(monitored,workflow)
+            self.assertIn('workflow_dispatch:',workflow)
+            self.assertNotIn('\n  push:\n',workflow)
+            self.assertNotIn('\n  pull_request:\n',workflow)
+        discovery=Path('.github/workflows/10-analysis-discovery.yml').read_text(encoding='utf-8')
+        self.assertIn("cron: '23 * * * *'",discovery)
         aggregator=Path(".github/workflows/05-issue-aggregation.yml").read_text(encoding="utf-8")
         self.assertIn("workflow_call:",aggregator)
         self.assertNotIn("workflow_run:",aggregator)
@@ -692,11 +695,11 @@ class MonitoringTests(unittest.TestCase):
             self.assertEqual(snapshot["finding_count"],0)
             self.assertTrue((output/"dashboard/index.html").is_file())
 
-    def test_every_branch_uses_exact_pr_head_and_manual_aggregation(self):
+    def test_legacy_manual_scanners_keep_exact_source_checkout_and_aggregation(self):
         for name in ("01-code-quality.yml","02-security-sast.yml",
                      "03-dependency-security.yml","04-code-health.yml"):
             workflow=Path(".github/workflows",name).read_text(encoding="utf-8")
-            self.assertIn('branches: ["**"]',workflow)
+            self.assertIn('workflow_dispatch:',workflow)
             self.assertNotIn("branches: [claude/main, Testing]",workflow)
             target_checkouts=workflow.count(
                 "ref: ${{ inputs.scan_sha || github.event.pull_request.head.sha || github.sha }}")
@@ -732,7 +735,7 @@ class MonitoringTests(unittest.TestCase):
             "  openssf-scorecard:",1)[0]
         self.assertIn("security-events: write", posture)
         dynamic=Path(".github/workflows/07-api-fuzzing.yml").read_text(encoding="utf-8")
-        self.assertIn('cron: "17 4 * * 6"',dynamic)
+        self.assertNotIn('\n  schedule:\n',dynamic)
         self.assertIn("atheris==3.0.0",dynamic)
         self.assertIn("-runs=25000",dynamic)
         self.assertNotIn("\n  pull_request:\n",dynamic)

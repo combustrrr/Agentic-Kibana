@@ -10904,3 +10904,9 @@
 ### 2026-09-07 - Bounded explicit scanner retry
 - Added refresh_target to discovery for one branch/PR retry without an upstream commit, preserving the two-source limit and active collection. Hadolint skips sources without configured shipping Dockerfiles.
 - Validation: 94 tests, workflow policy, and documentation checks passed. Current Testing 1ca36a60 report has 21,439 findings and both test exits 0; gh-pages partial report assembly verified.
+
+
+### 2026-09-08 - Single automatic scan path rollout
+- All four active upstream branch heads have durable current reports. Main run 34151327640 produced 14,282 findings / 14,793 observations with passing tests; Testing run 34151329431 produced 21,439 findings / 22,162 observations. Pages deployment 34152215991 succeeded.
+- Legacy scanner workflows 01-04 and 07 are manual-only; discovery 10 and exact-source 11 own automatic analysis. Added no-input OSV and workflow-security classifications for generated documentation branches while preserving repository posture and native Scorecard limitations.
+- Validation: 94 tests, workflow policy, and documentation checks passed. Vendor quota/export/posture access and unavailable exact-head CodeRabbit review remain operational blockers, not deferrals.

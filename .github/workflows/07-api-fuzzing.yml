@@ -11,8 +11,6 @@ name: API Fuzzing & Reliability
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "17 4 * * 6"    # isolated default-branch DAST, Saturday 04:17 UTC
   # Pull-request execution remains disabled: DAST executes application code and must
   # not elevate untrusted fork changes merely to gain earlier feedback.
   # pull_request:
