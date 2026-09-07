@@ -125,6 +125,11 @@ The host keeps its bounded current queue in the `current-analysis-state` release
 At most two source analyses run concurrently, with Testing then PRs prioritized.
 Completion events reconcile the queue between hourly discovery runs.
 
+Legacy scanner workflows 01-04 and 07 are manual entry points. They no longer launch
+duplicate fork-head scans on tooling pushes or a separate DAST schedule. Automatic
+upstream analysis flows through discovery 10 and exact-source workflow 11, avoiding
+competing automatic Sonar analyses and unnecessary vendor quota consumption.
+
 The generated exact-source workflow derives scanner steps from existing definitions,
 checks out immutable source and trusted tooling separately, and assembles evidence from
 one producer run and attempt. It grants no source job publishing privileges and persists
@@ -188,6 +193,9 @@ jobs. Generated documentation branches without those projects show explained
 `NOT_APPLICABLE` channels, while repository-wide scanners remain enabled. This does
 not change the legacy strict evidence gate or turn missing evidence into zero findings.
 Hadolint is also inapplicable when neither configured shipping Dockerfile exists.
+OSV is inapplicable without its configured manifests; Actions security is inapplicable
+without workflow definitions, while repository posture still runs. Native Scorecard
+checks that cannot evaluate a selected commit remain explicitly unavailable.
 
 To retry after credentials or vendor evidence become available, run **Discover upstream
 analysis targets** in the analysis fork's Actions tab with `refresh_target` set to a

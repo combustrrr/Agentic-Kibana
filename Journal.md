@@ -11334,3 +11334,9 @@
 - gh-pages run 34150667031 produced 31 findings / 32 observations with explicit absent-project statuses. Hadolint alone attempted absent Dockerfiles; added the missing applicability exclusion.
 - Added Actions refresh_target input for one explicit branch/PR retry after vendor access or review availability changes, preserving the bounded queue and other targets. Exact-head CodeRabbit read for closed PR 112 reports NOT_AVAILABLE, without triggering a review or posting comments.
 - Validation: 94 service/hosted tests and workflow policy passed.
+
+
+### 2026-09-07 - Final input applicability and single automatic scan path
+- Live gh-pages run 34151110674 passed, with Hadolint explicitly inapplicable and 31 findings / 32 observations retained. Further native inspection showed OSV has no configured manifests and Actions security has no workflow definitions on this generated branch; added precise no-input classifications. Repository posture remains active and native Scorecard unavailable checks remain explicit.
+- Legacy scanner entry points 01-04 and 07 are now manual-only. Automatic source analysis uses discovery 10 and exact-source 11, avoiding duplicate tooling-fork scans, vendor quota consumption, and competing automatic Sonar analyses. Product CI and the upstream repository remain unchanged.
+- Validation: 94 service/hosted tests, workflow policy, and 90-page documentation checks passed. The final full-code branch runs are allowed to finish before deploying this last applicability-only refinement.

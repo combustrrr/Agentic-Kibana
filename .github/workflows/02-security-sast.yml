@@ -19,13 +19,10 @@ on:
         description: "Source branch associated with the selected commit"
         required: false
         type: string
-  pull_request:
-  push:
-    branches: ["**"]
   # schedule:
     # - cron: "0 2 * * 1"    # weekly full scan — Monday 02:00 UTC
 
-  # Fork-only monitoring: analysis-branch pushes exercise upstream syncs automatically.
+# Legacy manual scanner entry point; hourly upstream scans use workflows 10 and 11.
 permissions:
   contents: read
   actions: read
