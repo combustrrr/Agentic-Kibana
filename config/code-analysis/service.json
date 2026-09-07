@@ -10,6 +10,8 @@
   "site_limit_bytes": 900000000,
   "deferred_channels": {},
   "profile": {
+    "snyk_python_manifests": [".ci/requirements.txt", "backend/requirements.txt", "docs/requirements.txt"],
+    "snyk_npm_manifests": ["webui/package-lock.json", "archive/kibana-plugin/tlsoc_agentic_triage/package.json"],
     "python_root": "backend",
     "python_requirements": "backend/requirements.txt",
     "python_development_requirements": "backend/requirements-dev.txt",

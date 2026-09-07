@@ -160,6 +160,12 @@ def collect(config: dict, row: dict, destination: Path) -> dict:
     archive = gh('api', f"repos/{host}/actions/artifacts/{candidates[0]['id']}/zip", binary=True)
     extract_zip(archive, destination)
     report = load(destination / 'report.json')
+    if (report.get('schema_version') == 'hosted-report-v1' and report.get('target', {}).get('kind') == 'branch'
+            and row['kind'] == 'branch' and report.get('tooling_sha') == row['tooling_sha']
+            and analysis_key(report['target'], row['tooling_sha'], config) == row['analysis_key']):
+        report['target'] = {k: row.get(k) for k in ('id', 'repository', 'source_repository', 'kind', 'branch',
+                                                 'pr', 'head_sha', 'base_sha', 'base_branch', 'label')}
+        write(destination / 'report.json', report)
     if report.get('schema_version') != 'hosted-report-v1' or not accept(row, report):
         raise ValueError('report target/revision mismatch')
     if report.get('tooling_sha') != row['tooling_sha'] or report.get('producer_run_attempt') != row['run_attempt']:
@@ -195,8 +201,9 @@ def publish(config: dict, output: Path) -> None:
                         # Recheck before making results visible; collection may take minutes.
                         latest = next((r for r in discover(config) if r['id'] == row['id']), None)
                         if latest is None or not accept(latest, report):
-                            row['status'] = 'stale'
-                            continue
+                            # Preserve/materialize the previous report below. Aborting
+                            # this loop would leave its manifest URL missing on Pages.
+                            raise ValueError('target changed during collection; previous report retained')
                         content = {p.relative_to(report_dir).as_posix(): load(p) for p in report_dir.rglob('*.json')}
                         packed = gzip.compress(json.dumps(content, separators=(',', ':')).encode(), mtime=0)
                         name = 'report-' + digest(content) + '.json.gz'

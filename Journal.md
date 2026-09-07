@@ -10868,3 +10868,9 @@
 - Did: Installed analysis-owned code, workflows, UI, configuration, restored scanner canaries, and service architecture from feature commit fda272e6. Product runtime and documentation deployment workflow are unchanged.
 - Validation: Feature branch passed 79 hosted/service tests, workflow policy, documentation consistency, and initial 3 Chrome browser tests against retained findings.
 - Status: Live source scan and Pages rollout pending.
+
+### 2026-09-07 - codex - Live analysis repairs
+- Did: Repair Scorecard, partial aggregation, safe Snyk metadata resolution, and publication race handling after real branch/PR scans.
+- Validation: 83 service tests pass; retained live evidence produces 21,435 findings with explicit partial status.
+- Blockers: Native Sonar export and upstream security-posture permissions remain unavailable.
+

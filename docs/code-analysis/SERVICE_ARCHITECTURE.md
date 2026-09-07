@@ -166,6 +166,16 @@ scanner's evidence, publication recovery, and browser checks. Missing vendor ent
 or upstream posture permissions remain explicit blockers; they must not be renamed
 as deferrals. Operational status must reflect actual rollout and verification results.
 
+The dedicated public site is deployed at
+`https://combustrrr.github.io/code-analysis-dashboard/`. Initial live discovery found
+25 targets. Testing and PR 110 exercised exact-source scans, including both dynamic
+channels. Live validation exposed and repaired the Scorecard SARIF feature flag and
+partial normalization of malformed producer outputs. Such outputs remain invalid
+evidence and preserve a failed strict gate while usable observations can publish.
+Snyk uses an explicit manifest profile and wheel metadata only: it never installs
+source package code in the vendor-token job. Native Sonar export and upstream
+secret-protection permissions remain operational checks, not assumed capabilities.
+
 Useful commands:
 
 ```shell
