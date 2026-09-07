@@ -54,7 +54,7 @@
  * Advisory (#3): read-only. Nothing here can reach `decide()`.
  */
 import * as React from 'react';
-import { ChevronDown, Search, X } from 'lucide-react';
+import { ChevronDown, Download, Search, X } from 'lucide-react';
 
 import type { Case, CasesResponse } from '@/lib/types';
 import { api } from '@/lib/api';
@@ -152,6 +152,12 @@ export const DRILLDOWN_SORTS: readonly DrilldownSortOption[] = [
 export interface DrilldownTargetContext {
   /** The severity band selected, or null for "all severities". */
   band: string | null;
+  /**
+   * The detection source selected, or null for "all sources". No destination can honour
+   * it today — the case list has no server-side source filter — so it is carried here
+   * precisely so the hand-off DISCLOSES it as dropped instead of losing it in silence.
+   */
+  source: string | null;
   /** The single status selected, or null for "all statuses". */
   status: string | null;
   /** The panel's current horizon in hours, or null when it is all-time. */
@@ -165,6 +171,7 @@ export interface DrilldownTargetContext {
 /** Human names for the context keys, for the "not carried" disclosure. */
 const CONTEXT_LABEL: Record<keyof DrilldownTargetContext, string> = {
   band: 'severity',
+  source: 'detection source',
   status: 'status',
   windowHours: 'time range',
   search: 'search text',
@@ -239,7 +246,29 @@ export interface KpiDrilldownPanelProps {
   headingId: string;
   /** Close the panel. The PARENT restores focus to the trigger tile. */
   onClose: () => void;
+  /**
+   * Every metric the strip offers, so the operator can move between populations without
+   * closing and reopening the panel. Omitted → no switcher is rendered and the panel is
+   * exactly the single-metric disclosure it has always been.
+   *
+   * The switcher's counts are the TILES' numerals, which are server rollups over the
+   * dashboard's window. The table below reads pages of the case list. They answer
+   * different questions and must never be presented as one measurement — hence the
+   * switcher is labelled as the dashboard's own numerals, and the footer keeps stating
+   * what this panel actually read.
+   */
+  metrics?: readonly KpiDrilldownMetric[];
+  /** Select another metric. The PARENT owns which tile is expanded, so it owns this. */
+  onSelectMetric?: (key: string) => void;
   className?: string;
+}
+
+/** One entry in the metric switcher: a tile's key, its label, and the numeral it shows. */
+export interface KpiDrilldownMetric {
+  key: string;
+  label: string;
+  /** The tile's rendered numeral, verbatim — never recomputed here. */
+  value: React.ReactNode;
 }
 
 /** The one place a case's display id is resolved (number first, then id). */
@@ -327,6 +356,105 @@ function riskOf(c: Case): number {
   return typeof c.risk_score === 'number' && Number.isFinite(c.risk_score) ? c.risk_score : 0;
 }
 
+/**
+ * A DURATION, on the same ladder `humanizeAge` uses for an instant but without its "ago":
+ * these read as spans ("4h", "3d") rather than as points in time. Kept local because it is
+ * the only span this file needs and `format.ts` deliberately exposes instants.
+ */
+function humanizeSpan(ms: number): string {
+  const secs = Math.max(0, Math.round(ms / 1000));
+  if (secs < 45) return 'under a minute';
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `${days}d`;
+  const months = Math.round(days / 30);
+  if (months < 12) return `${months}mo`;
+  return `${Math.round(months / 12)}y`;
+}
+
+/**
+ * One scalar above the table. A `null` value means NOT MEASURED — the backing field is
+ * absent across every listed case — and renders as an explicit dash with the reason,
+ * never as a zero. Zero and "we cannot tell" are different answers.
+ */
+interface DrilldownStat {
+  key: string;
+  label: string;
+  value: string | null;
+  hint: string;
+}
+
+/**
+ * One CSV field: RFC-4180 quoted, embedded quotes doubled — and defused for the
+ * SPREADSHEET, not merely for the grammar.
+ *
+ * Quoting alone protects the file's column structure; it does nothing about the program
+ * that opens it. Excel and LibreOffice evaluate any cell whose first character is `=`, `+`,
+ * `-` or `@` as a formula, quotes included. The fields written here are exactly the ones
+ * this codebase classes as UNTRUSTED (#9) — case titles fall back to rule ids, which are
+ * source-controlled — so a rule named `=HYPERLINK("http://…",…)` would render in the
+ * analyst's spreadsheet as a live link instead of as the rule's name, turning an evidence
+ * export into an attacker-authored cell. A leading apostrophe is the standard
+ * neutralisation: spreadsheets treat the rest as literal text and do not display it.
+ */
+function csvField(value: unknown): string {
+  const raw = String(value ?? '');
+  const defused = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+  return `"${defused.replace(/"/g, '""')}"`;
+}
+
+/** Filename-safe slug of a panel title. */
+function slug(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'cases';
+}
+
+/**
+ * The listed rows as CSV.
+ *
+ * It exports exactly what the operator is looking at — the filtered, sorted rows the
+ * table renders — and nothing more. It is NOT a population export: the panel reads bounded
+ * pages, so a caller must present this as the rows read, which is why the row count
+ * travels in the filename and the footer keeps stating the bound.
+ *
+ * Every field is quoted, so a case title containing a comma, a quote or a newline cannot
+ * shift the column layout of the row it sits in.
+ */
+export function drilldownCsv(rows: readonly Case[]): string {
+  const header = [
+    'case_id',
+    'case_number',
+    'created_at',
+    'title',
+    'detection_source',
+    'severity_band',
+    'risk_score',
+    'status',
+    'assignee',
+  ];
+  const lines = [header.map(csvField).join(',')];
+  for (const c of rows) {
+    lines.push(
+      [
+        c.case_id,
+        c.case_number ?? '',
+        c.created_at ?? '',
+        displayTitle(c),
+        c.detection_source ?? '',
+        c.severity_band ?? '',
+        typeof c.risk_score === 'number' ? c.risk_score : '',
+        c.status ?? '',
+        c.assignee ?? '',
+      ]
+        .map(csvField)
+        .join(','),
+    );
+  }
+  return `${lines.join('\r\n')}\r\n`;
+}
+
 /** Free-text haystack — the same fields the Cases list searches. */
 function haystack(c: Case): string {
   return [
@@ -380,6 +508,8 @@ export function KpiDrilldownPanel({
   panelId,
   headingId,
   onClose,
+  metrics,
+  onSelectMetric,
   className,
 }: KpiDrilldownPanelProps) {
   const { onOpenCase } = spec;
@@ -391,6 +521,8 @@ export function KpiDrilldownPanel({
   const [search, setSearch] = React.useState('');
   const [band, setBand] = React.useState<string>(ANY);
   const [status, setStatus] = React.useState<string>(ANY);
+  /** Detection-source facet — client-side, over the rows read (there is no server one). */
+  const [source, setSource] = React.useState<string>(ANY);
   const [page, setPage] = React.useState(0);
 
   const [rows, setRows] = React.useState<Case[] | null>(null);
@@ -422,6 +554,15 @@ export function KpiDrilldownPanel({
   /** Every status / band seen across every page read for the CURRENT question. */
   const [statusUniverse, setStatusUniverse] = React.useState<string[]>(NO_TOKENS);
   const [bandUniverse, setBandUniverse] = React.useState<string[]>(NO_TOKENS);
+  /**
+   * Detection sources seen across every page read for this question, not just the page in
+   * hand — the same session-scoped union the two facets above use, and for the same
+   * reason. Deriving the menu from the CURRENT rows instead is self-defeating: a source
+   * that first appears on page two can only be selected after paging there, and selecting
+   * it resets paging to page one, whose rows may not contain it — so the menu shrinks and
+   * the self-heal effect below silently clears the filter the operator just set.
+   */
+  const [sourceUniverse, setSourceUniverse] = React.useState<string[]>(NO_TOKENS);
 
   /**
    * A tile swap re-seeds the panel: a new population must never inherit the previous
@@ -436,13 +577,49 @@ export function KpiDrilldownPanel({
    */
   const seedKey = `${spec.key}\u0000${spec.defaultRange}`;
   const [seededFor, setSeededFor] = React.useState(seedKey);
+  /**
+   * Whether the operator has CHOSEN a range, as opposed to being handed a default.
+   *
+   * This distinction is what lets the metric switcher carry a range across a swap without
+   * lying. Carrying an untouched default would silently put a window on a population that
+   * has none — the open-case stock is all-time — and show a windowed subset under a
+   * numeral that counted the whole stock. Carrying an EXPLICIT choice is the opposite: the
+   * operator asked to look at a range, and dropping it on every metric change would defeat
+   * the comparison the switcher exists to support.
+   */
+  const [rangeTouched, setRangeTouched] = React.useState(false);
   if (seededFor !== seedKey) {
     setSeededFor(seedKey);
-    setRange(spec.defaultRange);
+    // An operator-set range survives the swap; an untouched default is replaced by the
+    // incoming population's own natural horizon.
+    if (!rangeTouched) setRange(spec.defaultRange);
     setSort('recent');
-    setSearch('');
+    // The free text survives too. It is always an explicit act, and it is the narrowing
+    // an operator most often wants to hold while moving between populations.
+    // The two FACETS do not: a band or status drawn from one population's rows may not
+    // exist in the next, and the self-healing effects below would drop them anyway.
     setBand(ANY);
     setStatus(ANY);
+    setSource(ANY);
+    /**
+     * Drop the PREVIOUS metric's data with its label.
+     *
+     * Without this the heading, the population sentence, the stat cards, the table and the
+     * completeness footer all re-point to the incoming metric a full commit before its
+     * rows arrive — so for one render the panel states the new population's name over the
+     * old population's cases and the old population's proven totals. That is precisely the
+     * disagreement every other line in this file exists to prevent, and the metric switcher
+     * is what made it reachable.
+     *
+     * A RANGE change deliberately does NOT do this (see the question branch below): there
+     * the population is the same and only its horizon moved, so the previous rows stay
+     * mounted and the footer says "Re-reading this range…" rather than blanking.
+     */
+    setRows(null);
+    setTotal(null);
+    setRead(null);
+    setProven(false);
+    setLoading(true);
   }
 
   /**
@@ -456,6 +633,7 @@ export function KpiDrilldownPanel({
     setQuestionFor(questionKey);
     setStatusUniverse(NO_TOKENS);
     setBandUniverse(NO_TOKENS);
+    setSourceUniverse(NO_TOKENS);
   }
 
   /**
@@ -467,7 +645,7 @@ export function KpiDrilldownPanel({
   // NUL joins the parts because one of them is ARBITRARY operator text: any printable
   // separator could be typed into the search box and collide two different questions
   // into one key, which would silently skip a paging reset.
-  const pagingKey = [questionKey, sort, search, band, status].join('\u0000');
+  const pagingKey = [questionKey, sort, search, band, status, source].join('\u0000');
   const [pagedFor, setPagedFor] = React.useState(pagingKey);
   if (pagedFor !== pagingKey) {
     setPagedFor(pagingKey);
@@ -569,6 +747,7 @@ export function KpiDrilldownPanel({
       });
       setStatusUniverse((prev) => mergeTokens(prev, fresh.map((c) => c.status)));
       setBandUniverse((prev) => mergeTokens(prev, fresh.map(bandOf)));
+      setSourceUniverse((prev) => mergeTokens(prev, fresh.map((c) => c.detection_source)));
       setTotal(typeof res.total === 'number' ? res.total : null);
       setSortableFields(Array.isArray(res.sortable_fields) ? res.sortable_fields : null);
       setAppliedSort(
@@ -686,6 +865,7 @@ export function KpiDrilldownPanel({
     const filtered = population.filter((c) => {
       if (status !== ANY && (c.status || '') !== status) return false;
       if (band !== ANY && bandOf(c) !== band) return false;
+      if (source !== ANY && (c.detection_source || '').trim() !== source) return false;
       if (q && !haystack(c).includes(q)) return false;
       return true;
     });
@@ -703,9 +883,121 @@ export function KpiDrilldownPanel({
       }
     });
     return sorted;
-  }, [population, search, status, band, sort]);
+  }, [population, search, status, band, source, sort]);
 
-  const facetsApplied = search.trim() !== '' || status !== ANY || band !== ANY;
+  const facetsApplied =
+    search.trim() !== '' || status !== ANY || band !== ANY || source !== ANY;
+
+  /**
+   * Download the LISTED rows as CSV — what the operator is looking at, filtered and
+   * sorted as they left it, and nothing more. The row count is in the filename because
+   * this is a page export, not a population export; the footer states the bound.
+   *
+   * Same Blob/anchor pattern the recovery-code download already uses. The object URL is
+   * revoked immediately: the click is synchronous, so the browser has already taken the
+   * data by the time this returns.
+   */
+  const exportCsv = React.useCallback(() => {
+    if (typeof document === 'undefined' || !visible.length) return;
+    // Feature-DETECTED, not assumed. `URL.createObjectURL` is absent in some environments
+    // (jsdom implements no object-URL store at all), and an unguarded call there is a
+    // TypeError thrown out of an onClick — which in this suite is a failed run, not a
+    // degraded download. Nothing else on the page depends on this succeeding, so the
+    // honest fallback is to do nothing rather than to throw.
+    if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') return;
+    const blob = new Blob([drilldownCsv(visible)], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `agentic-soc-${slug(spec.title)}-${visible.length}-cases.csv`;
+    a.click();
+    URL.revokeObjectURL?.(url);
+  }, [visible, spec.title]);
+
+  /**
+   * Detection-source facet options, from the rows read.
+   *
+   * There is no server-side source narrowing on the case list, so unlike `status_group`
+   * this cannot be pushed into the store: the menu can only offer what the pages read
+   * actually contain, and selecting one narrows those same rows. That is the same
+   * contract the severity and status facets already carry, and the footer already states
+   * it. `detection_source` is the PRODUCT's word (detection | anomaly | rule); it is not
+   * a vendor "sensor" and must never be relabelled as one.
+   */
+  const sourceFacets = React.useMemo(
+    () => [...sourceUniverse].sort((a, b) => a.localeCompare(b)),
+    [sourceUniverse],
+  );
+  React.useEffect(() => {
+    if (source !== ANY && !sourceFacets.includes(source)) setSource(ANY);
+  }, [source, sourceFacets]);
+
+  /**
+   * The four scalars above the table.
+   *
+   * Every one is computed over `visible` — the EXACT rows the table lists — so a card can
+   * never disagree with the list beneath it. They are deliberately NOT taken from the
+   * posture rollup that feeds the tile numerals: that rollup answers over the whole
+   * window while this panel reads pages, and putting the two side by side under one
+   * heading would imply an agreement that does not exist. The block says which it is.
+   *
+   * A card whose backing field is absent across every row is reported as NOT MEASURED
+   * rather than as zero. "No case here has been acknowledged" and "zero acknowledged" are
+   * different claims, and the lifecycle anchors are optional on the backend and default
+   * to null, so the unpopulated deployment is the ordinary case rather than an error.
+   */
+  const statCards = React.useMemo<DrilldownStat[]>(() => {
+    const n = visible.length;
+    if (!n) return [];
+    const unassigned = visible.filter((c) => !(c.assignee || '').trim()).length;
+    const acked = visible.filter((c) => Boolean(c.acknowledged_at)).length;
+    /**
+     * Whether this deployment RECORDS acknowledgement at all, which is a different
+     * question from whether anything has been acknowledged. The key is present-and-null on
+     * every case once the backend serializes it, and absent entirely on one that does not,
+     * so presence of the KEY is the test — not truthiness of the value. Getting this
+     * backwards is what made a real zero indistinguishable from an unimplemented field.
+     */
+    const ackRecorded = visible.some((c) => c.acknowledged_at !== undefined);
+    const ages = visible
+      .map((c) => createdMs(c))
+      .filter((ms) => Number.isFinite(ms) && ms > 0)
+      .sort((a, b) => a - b);
+    const now = Date.now();
+    const median =
+      ages.length > 0 ? now - ages[Math.floor((ages.length - 1) / 2)] : null;
+    const oldest = ages.length > 0 ? now - ages[0] : null;
+    return [
+      {
+        key: 'unassigned',
+        label: 'Unassigned',
+        value: fmtNumber(unassigned),
+        hint: `of ${fmtNumber(n)} listed`,
+      },
+      {
+        key: 'acknowledged',
+        label: 'Acknowledged',
+        // A measured ZERO is a real answer and reads as "0 of 40 listed". Only a
+        // deployment that records no acknowledgement instants at all reads as not-measured.
+        value: ackRecorded ? fmtNumber(acked) : null,
+        hint: ackRecorded
+          ? `of ${fmtNumber(n)} listed`
+          : 'this deployment records no acknowledgement instant',
+      },
+      {
+        key: 'median-age',
+        label: 'Median age',
+        value: median == null ? null : humanizeSpan(median),
+        hint: median == null ? 'no listed case carries a creation instant' : 'since created',
+      },
+      {
+        key: 'oldest',
+        label: 'Oldest',
+        value: oldest == null ? null : humanizeSpan(oldest),
+        hint: oldest == null ? 'no listed case carries a creation instant' : 'since created',
+      },
+    ];
+  }, [visible]);
 
   /**
    * ESCAPE closes — but only its OWN Escape.
@@ -743,6 +1035,14 @@ export function KpiDrilldownPanel({
 
   const rangeOptions: DrilldownRange[] = ['window', '1h', '24h', '7d', '30d', 'all'];
   const windowOptionLabel = `Dashboard window (${spec.windowHours}h)`;
+  /** The range currently in force, named the way its own menu names it. */
+  const activeRangeLabel = range === 'window' ? windowOptionLabel : RANGE_LABEL[range];
+  /**
+   * True when this panel's own range applies a bound the TILE's population does not carry,
+   * so the population sentence above the list would otherwise describe something wider
+   * than the rows shown. `all` never narrows; otherwise a `from` bound really is sent.
+   */
+  const rangeNarrows = range !== 'all' && spec.defaultRange === 'all';
 
   /**
    * The sort MENU is the intersection of what this panel can express with what the
@@ -794,6 +1094,11 @@ export function KpiDrilldownPanel({
   if (populationResolvedBy !== 'store') pageScoped.push('this tile’s own population rule');
   if (band !== ANY) pageScoped.push('the severity band');
   if (status !== ANY) pageScoped.push('the status filter');
+  // The detection source belongs here for the same reason the two facets above do — it is
+  // applied in the BROWSER over the rows read, because the case list offers no server-side
+  // source narrowing to push it into. A narrowing that changes the list but not this
+  // sentence is exactly the silent kind this disclosure exists to prevent.
+  if (source !== ANY) pageScoped.push('the detection source');
   if (search.trim() !== '') pageScoped.push('the free-text search');
   // The store orders the WHOLE matching set, so the ordering is page-scoped only when
   // something else already narrowed the rows in the browser — the top N of a
@@ -839,6 +1144,7 @@ export function KpiDrilldownPanel({
     range === 'all' ? null : range === 'window' ? spec.windowHours : RANGE_HOURS[range];
   const targetContext: DrilldownTargetContext = {
     band: band === ANY ? null : band,
+    source: source === ANY ? null : source,
     status: status === ANY ? null : status,
     windowHours: contextWindowHours,
     search: search.trim(),
@@ -880,6 +1186,17 @@ export function KpiDrilldownPanel({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
+          {/* Where the operator is. Plain text, product vocabulary only. */}
+          <p
+            data-testid="kpi-drilldown-breadcrumb"
+            className="mb-1 flex min-w-0 flex-wrap items-center gap-1 text-2xs text-muted-foreground"
+          >
+            <span className="truncate">Cyber Defence Center</span>
+            <span aria-hidden>/</span>
+            <span className="truncate text-foreground">{spec.title}</span>
+            <span aria-hidden>/</span>
+            <span className="truncate">Deep inspection</span>
+          </p>
           {/* tabIndex -1 so open() can move focus here. The heading is OUTSIDE the
               trigger button by design: a heading swallowed by a button's
               name-from-contents breaks heading-jump navigation. */}
@@ -892,20 +1209,110 @@ export function KpiDrilldownPanel({
           >
             {spec.title} · details
           </h2>
-          <p className="mt-0.5 text-2xs text-muted-foreground">{spec.population}</p>
+          {/* The population sentence describes the TILE's population, which is not always
+              the population this panel is listing. A window-exempt stock says in so many
+              words that it is "not filtered by the window" — and stays true only until the
+              operator picks a range, which really is pushed down as a `from` bound. Left
+              alone the sentence then contradicts the list directly underneath it, which is
+              worse than saying nothing: it is the surface an operator reads to decide what
+              the rows in front of them ARE. So the narrowing is stated beside it whenever
+              one is in force. */}
+          <p className="mt-0.5 text-2xs text-muted-foreground">
+            {spec.population}
+            {rangeNarrows ? (
+              <>
+                {' '}
+                <span className="text-foreground">
+                  Narrowed here to {activeRangeLabel} — the list below is a slice of that
+                  population, not the whole of it.
+                </span>
+              </>
+            ) : null}
+          </p>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={onClose}
-          data-testid="kpi-drilldown-close"
-          className="h-7 shrink-0 px-2 text-2xs"
-        >
-          <X className="h-3.5 w-3.5" aria-hidden />
-          Close
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          {/* Exports the LISTED rows, which is why the label says so rather than
+              "Export report" — the panel reads bounded pages and must not offer what
+              looks like a population export. Hidden with nothing to export. */}
+          {visible.length ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={exportCsv}
+              data-testid="kpi-drilldown-export"
+              aria-label={`Download the ${fmtNumber(visible.length)} listed ${spec.title} cases as CSV`}
+              className="h-7 px-2 text-2xs"
+            >
+              <Download className="h-3.5 w-3.5" aria-hidden />
+              Export listed
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            data-testid="kpi-drilldown-close"
+            className="h-7 px-2 text-2xs"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden />
+            Close
+          </Button>
+        </div>
       </div>
+
+      {/* METRIC SWITCHER — move between the strip's populations without closing.
+          Deliberately NOT a Radix Tabs: the panels these would control are the strip's
+          own tiles, which live outside this section, so a tablist here would claim an
+          ownership it does not have. This is a labelled group of buttons, each carrying
+          `aria-pressed` for the one that is current.
+
+          The numerals are the TILES' numerals, restated verbatim — server rollups over
+          the dashboard's window. The table below reads pages of the case list. The group
+          label says which these are, and the footer keeps saying what the table read, so
+          the two are never presented as one measurement. */}
+      {metrics && metrics.length > 1 && onSelectMetric ? (
+        <div
+          role="group"
+          aria-label="Switch metric — values are the dashboard's own numerals"
+          data-testid="kpi-drilldown-metrics"
+          className="mt-3 flex min-w-0 flex-wrap gap-1"
+        >
+          {/* Visible, not only in the group's aria-label: a sighted operator otherwise sees
+              five bare numerals with nothing saying they are whole-window rollups rather
+              than counts of the rows in the table below. */}
+          <p className="w-full text-2xs text-muted-foreground">
+            Switch metric — these numerals are the dashboard&rsquo;s own window rollups, not
+            counts of the rows listed below.
+          </p>
+          {metrics.map((m) => {
+            const current = m.key === spec.key;
+            return (
+              <button
+                key={m.key}
+                type="button"
+                aria-pressed={current}
+                data-testid={`kpi-drilldown-metric-${m.key}`}
+                onClick={() => {
+                  if (current) return;
+                  onSelectMetric(m.key);
+                }}
+                className={cn(
+                  'inline-flex min-w-0 items-center gap-1.5 rounded-[4px] border px-2 py-1 text-2xs transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  current
+                    ? 'border-primary/40 bg-primary/10 text-foreground'
+                    : 'border-border/70 bg-background/40 text-muted-foreground hover:border-border hover:text-foreground',
+                )}
+              >
+                <span className="truncate">{m.label}</span>
+                <span className="shrink-0 font-mono tabular-nums text-foreground">{m.value}</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
 
       {spec.trend ? (
         <div
@@ -913,6 +1320,52 @@ export function KpiDrilldownPanel({
           className="mt-3 rounded-md border border-border/70 bg-background/40 p-3"
         >
           <MetricTrendBody {...spec.trend} />
+        </div>
+      ) : null}
+
+      {/* The four scalars, all computed over the rows the table lists — so a card can
+          never disagree with the list under it. The heading says whose numbers these are,
+          because the tile numerals above them answer over the whole window instead. */}
+      {statCards.length ? (
+        <div className="mt-3">
+          <p className="mb-1.5 text-2xs text-muted-foreground">
+            Over the {fmtNumber(visible.length)} case{visible.length === 1 ? '' : 's'} listed
+            below, not the whole window.
+          </p>
+          <dl
+            data-testid="kpi-drilldown-stats"
+            className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4"
+          >
+            {statCards.map((s) => (
+              <div
+                key={s.key}
+                data-testid={`kpi-drilldown-stat-${s.key}`}
+                className="min-w-0 rounded-md border border-border/70 bg-background/40 px-2.5 py-2"
+              >
+                <dt className="truncate text-2xs uppercase tracking-widest text-muted-foreground">
+                  {s.label}
+                </dt>
+                {/* The hint lives INSIDE the <dd>: a <div> in a <dl> may contain only
+                    <dt>/<dd>, so a sibling <p> here is a definition-list violation. */}
+                <dd className="mt-0.5 min-w-0">
+                  <span
+                    className={cn(
+                      'block font-mono text-sm font-semibold tabular-nums',
+                      s.value == null ? 'text-muted-foreground' : 'text-foreground',
+                    )}
+                  >
+                    {s.value ?? DASH}
+                  </span>
+                  <span
+                    className="mt-0.5 block truncate text-2xs font-normal text-muted-foreground"
+                    title={s.hint}
+                  >
+                    {s.hint}
+                  </span>
+                </dd>
+              </div>
+            ))}
+          </dl>
         </div>
       ) : null}
 
@@ -973,6 +1426,30 @@ export function KpiDrilldownPanel({
           </SelectContent>
         </Select>
 
+        {/* Detection source. Offered only when the rows read actually carry one, because
+            unlike `status_group` there is no server-side source narrowing to push this
+            into — the menu can only describe the pages that were read, and an empty menu
+            would invite a filter that could never match. */}
+        {sourceFacets.length ? (
+          <Select value={source} onValueChange={setSource}>
+            <SelectTrigger
+              className="h-8 rounded-[4px] text-xs"
+              aria-label={`Filter ${spec.title} cases by detection source`}
+              data-testid="kpi-drilldown-source"
+            >
+              <SelectValue placeholder="Source" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ANY}>All sources</SelectItem>
+              {sourceFacets.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {humanizeToken(s)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+
         <div className="grid min-w-0 grid-cols-2 gap-2">
           <Select value={sort} onValueChange={(v) => setSort(v as DrilldownSort)}>
             <SelectTrigger
@@ -991,7 +1468,15 @@ export function KpiDrilldownPanel({
             </SelectContent>
           </Select>
 
-          <Select value={range} onValueChange={(v) => setRange(v as DrilldownRange)}>
+          <Select
+            value={range}
+            onValueChange={(v) => {
+              // Mark the range as the OPERATOR's, so a metric switch carries it forward
+              // instead of resetting to the next population's default.
+              setRangeTouched(true);
+              setRange(v as DrilldownRange);
+            }}
+          >
             <SelectTrigger
               className="h-8 rounded-[4px] text-xs"
               aria-label={`Time range for ${spec.title} cases`}
@@ -1031,62 +1516,118 @@ export function KpiDrilldownPanel({
             }
           />
         ) : (
-          <ul
+          /* A real table, because these rows carry independent per-column facts that an
+             operator scans down rather than reads across. Its own horizontal scroller:
+             the shell's <main> is `overflow-x-hidden`, so a wide table inside it would be
+             CLIPPED rather than scrollable. Every column below is backed by a field the
+             Case really carries — no column is invented, and any the population does not
+             carry renders an explicit dash. */
+          /* `tabIndex={0}` + a group name is what makes this scroller reachable at all by
+             keyboard. The table is wider than the panel at narrow widths and high zoom, and
+             every focusable thing in it lives in the FIRST column — so without a focusable
+             scroll port a keyboard-only operator could never reach Source, Severity, Status
+             or Owner. A scrollable region carrying its own accessible name is the standard
+             remedy, and it is the reason this is a labelled group rather than a bare div. */
+          /* eslint-disable jsx-a11y/no-noninteractive-tabindex -- a SCROLLABLE region is
+             the documented exception to this rule: WCAG 2.1.1 requires that a container
+             which scrolls be operable by keyboard, and a container carrying an accessible
+             name is exactly how that is done. The rule cannot see that `overflow-auto`
+             plus content wider than the box makes this element operable. */
+          <div
             data-testid="kpi-drilldown-rows"
-            className="max-h-80 min-w-0 space-y-1 overflow-y-auto pr-1"
+            tabIndex={0}
+            role="group"
+            aria-label={`${spec.title} cases — scrollable table`}
+            className="max-h-80 min-w-0 overflow-auto rounded-md border border-border/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            {visible.map((c) => {
-              const id = displayId(c);
-              const title = displayTitle(c);
-              const body = (
-                <>
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="flex min-w-0 items-center gap-2 font-mono text-xs">
-                      <span className="max-w-28 shrink-0 truncate text-primary" title={id}>
-                        {id}
-                      </span>
-                      <span className="truncate text-foreground" title={title}>
-                        {title}
-                      </span>
-                    </span>
-                    <span className="block font-mono text-2xs text-muted-foreground">
-                      {humanizeAge(c.updated_at || c.created_at) || 'Just now'}
-                    </span>
-                  </span>
-                  <SeverityBadge
-                    severity={c.severity_band ?? c.risk_score ?? null}
-                    className="shrink-0 rounded-sm px-1.5 py-0.5 text-2xs"
-                  />
-                  <StatusBadge
-                    status={c.status}
-                    className="shrink-0 rounded-sm px-1.5 py-0.5 text-2xs"
-                  />
-                </>
-              );
-              const rowClass =
-                'flex w-full min-w-0 items-center gap-2 rounded-sm border border-border/70 bg-background/40 px-2 py-1.5 text-left';
-              return (
-                <li key={c.case_id} data-testid="kpi-drilldown-row" className="min-w-0">
-                  {onOpenCase ? (
-                    <button
-                      type="button"
-                      onClick={() => onOpenCase(c.case_id)}
-                      aria-label={`Open case ${title}`}
-                      className={cn(
-                        rowClass,
-                        'transition-colors hover:border-border hover:bg-muted/40',
-                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                      )}
+            <table className="w-full min-w-[44rem] border-collapse text-left">
+              <caption className="sr-only">
+                {spec.title} — the cases read for the current filters
+              </caption>
+              <thead className="sticky top-0 z-10 bg-card">
+                <tr className="border-b border-border/70 text-2xs uppercase tracking-widest text-muted-foreground">
+                  <th scope="col" className="px-2 py-1.5 font-semibold">Case</th>
+                  {/* CREATED, not "detected". `Case.detected_at` is declared on the wire
+                      but no backend path assigns it, so a "Detected" column could only ever
+                      show the creation instant under a label that claims a sensor time the
+                      product does not have. Naming the field we actually read is the whole
+                      fix. */}
+                  <th scope="col" className="px-2 py-1.5 font-semibold">Created</th>
+                  <th scope="col" className="px-2 py-1.5 font-semibold">Title / rule</th>
+                  <th scope="col" className="px-2 py-1.5 font-semibold">Source</th>
+                  <th scope="col" className="px-2 py-1.5 font-semibold">Severity</th>
+                  <th scope="col" className="px-2 py-1.5 font-semibold">Status</th>
+                  <th scope="col" className="px-2 py-1.5 font-semibold">Owner</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((c) => {
+                  const id = displayId(c);
+                  const title = displayTitle(c);
+                  const owner = (c.assignee || '').trim();
+                  const detectionSource = (c.detection_source || '').trim();
+                  return (
+                    <tr
+                      key={c.case_id}
+                      data-testid="kpi-drilldown-row"
+                      className="border-b border-border/60 last:border-b-0 hover:bg-muted/30"
                     >
-                      {body}
-                    </button>
-                  ) : (
-                    <span className={rowClass}>{body}</span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+                      <td className="px-2 py-1.5 align-top font-mono text-xs">
+                        {onOpenCase ? (
+                          <button
+                            type="button"
+                            onClick={() => onOpenCase(c.case_id)}
+                            // WCAG 2.5.3 (Label in Name): this button's visible label is
+                            // the case IDENTIFIER, so the accessible name has to contain
+                            // it — speech input targets what a user can see. The id trails
+                            // the title so the name still READS as a sentence.
+                            aria-label={`Open case ${title} (${id})`}
+                            className="max-w-28 truncate rounded-sm text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            title={id}
+                          >
+                            {id}
+                          </button>
+                        ) : (
+                          <span className="block max-w-28 truncate text-foreground" title={id}>
+                            {id}
+                          </span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-1.5 align-top font-mono text-2xs text-muted-foreground">
+                        {humanizeAge(c.created_at)}
+                      </td>
+                      <td className="px-2 py-1.5 align-top text-xs">
+                        <span className="block max-w-72 truncate text-foreground" title={title}>
+                          {title}
+                        </span>
+                      </td>
+                      <td className="px-2 py-1.5 align-top text-2xs text-muted-foreground">
+                        {detectionSource ? humanizeToken(detectionSource) : DASH}
+                      </td>
+                      <td className="px-2 py-1.5 align-top">
+                        <SeverityBadge
+                          severity={c.severity_band ?? c.risk_score ?? null}
+                          className="rounded-sm px-1.5 py-0.5 text-2xs"
+                        />
+                      </td>
+                      <td className="px-2 py-1.5 align-top">
+                        <StatusBadge
+                          status={c.status}
+                          className="rounded-sm px-1.5 py-0.5 text-2xs"
+                        />
+                      </td>
+                      <td className="px-2 py-1.5 align-top text-2xs text-muted-foreground">
+                        <span className="block max-w-28 truncate" title={owner || undefined}>
+                          {owner || 'Unassigned'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          /* eslint-enable jsx-a11y/no-noninteractive-tabindex */
         )}
       </div>
 
@@ -1106,14 +1647,19 @@ export function KpiDrilldownPanel({
                 : `Showing ${fmtNumber(visible.length)} of ${fmtNumber(population.length)} in the ${fmtNumber(pagesRead)} pages read`}
               {/* The tile's numeral is a server rollup over the whole window; this list
                   is one or more pages of it. Never imply they are the same measurement,
-                  and never call a page after the first "the newest N" — it is not. */}
+                  and never call a page after the first "the newest N" — it is not.
+                  Page ONE is not "the newest" either unless the newest-first sort is the
+                  one in force: under "Oldest first" it is the oldest rows, and under
+                  either risk sort it is neither. The store really applies all four, so
+                  the neutral "first N in this order" is the only phrasing true of all of
+                  them — and the order itself is named by the Sort control beside it. */}
               {total != null && rows != null
                 ? complete
                   ? pagesRead <= 1
                     ? ` · complete page of ${fmtNumber(total)} case${total === 1 ? '' : 's'}`
                     : ` · complete: all ${fmtNumber(total)} case${total === 1 ? '' : 's'} read`
                   : pagesRead <= 1
-                    ? ` · newest ${fmtNumber(rows.length)} of ${fmtNumber(total)} read · lower bound`
+                    ? ` · first ${fmtNumber(rows.length)} of ${fmtNumber(total)} in this order · lower bound`
                     : ` · rows 1–${fmtNumber(readThrough)} of ${fmtNumber(total)} read · lower bound`
                 : ' · bounded page'}
             </>

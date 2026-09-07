@@ -34,6 +34,14 @@ vi.mock('../pages/Metrics.posture.api', async () => {
   return { ...actual, fetchPosture: fetchPostureMock };
 });
 
+// Opening a listed case mounts the SHARED <CaseDetail> over the dashboard. The real
+// component reads auth context unconditionally and this page mounts under no
+// <AuthProvider>, so it is stubbed to a probe (the same stub Scans and Investigate use).
+vi.mock('@/soc/pages/CaseDetail', () => ({
+  CaseDetail: ({ caseId }: { caseId?: string | null }) =>
+    caseId ? <div data-testid="case-detail-probe">{caseId}</div> : null,
+}));
+
 const { listCasesMock, getMetricsMock, usageMock, trendsMock } = vi.hoisted(() => ({
   listCasesMock: vi.fn(),
   getMetricsMock: vi.fn(),
@@ -709,7 +717,7 @@ describe('Overview — KPI drill-down depth', () => {
     // complete: the store said it could not prove the number it returned.
     const scope = () => screen.getByTestId('kpi-drilldown-scope');
     await waitFor(() => expect(scope()).toHaveTextContent(/lower bound/i));
-    expect(scope()).toHaveTextContent('newest 2 of 2 read');
+    expect(scope()).toHaveTextContent('first 2 of 2 in this order');
     expect(scope()).not.toHaveTextContent(/complete/i);
   });
 
@@ -749,7 +757,7 @@ describe('Overview — KPI drill-down depth', () => {
 
     const scope = () => screen.getByTestId('kpi-drilldown-scope');
     await waitFor(() => expect(scope()).toHaveTextContent(/lower bound/i));
-    expect(scope()).toHaveTextContent('newest 3 of 3 read');
+    expect(scope()).toHaveTextContent('first 3 of 3 in this order');
     expect(scope()).not.toHaveTextContent(/complete/i);
   });
 
@@ -773,11 +781,11 @@ describe('Overview — KPI drill-down depth', () => {
     await openPanel('kpi-total-cases');
     // Page one: the old wording, unchanged — it really is the newest N.
     expect(screen.getByTestId('kpi-drilldown-scope')).toHaveTextContent(
-      'newest 200 of 260 read',
+      'first 200 of 260 in this order',
     );
 
     await userEvent.click(screen.getByTestId('kpi-drilldown-more'));
-    // Page two: "newest 260 of 260" would be a lie about WHICH rows were read, and the
+    // Page two: "first 260 of 260 in this order" would be a lie about WHICH rows were read, and the
     // completeness test now accounts for the offset instead of comparing the total with
     // one page's length.
     await waitFor(() =>
@@ -785,7 +793,7 @@ describe('Overview — KPI drill-down depth', () => {
         /complete: all 260 cases read/i,
       ),
     );
-    expect(screen.getByTestId('kpi-drilldown-scope')).not.toHaveTextContent(/newest 260/);
+    expect(screen.getByTestId('kpi-drilldown-scope')).not.toHaveTextContent(/first 260 of/);
     expect(screen.getByTestId('kpi-drilldown-scope')).toHaveTextContent(/2 pages read/i);
   });
 
@@ -897,11 +905,18 @@ describe('Overview — KPI drill-down depth', () => {
     await userEvent.click(
       within(panel).getByRole('button', { name: /Open case Newest by creation/i }),
     );
-    expect(onNavigate).toHaveBeenCalledWith('cases', { caseId: 'axis-newest-created' });
-    expect(onNavigate.mock.calls[0][1]).not.toHaveProperty('window');
+    // The row opens the case OVER the dashboard rather than routing to it, so nothing is
+    // handed over that could carry a window narrower than the row just clicked.
+    expect(await screen.findByTestId('case-detail-probe')).toHaveTextContent(
+      'axis-newest-created',
+    );
+    expect(onNavigate).not.toHaveBeenCalledWith(
+      'cases',
+      expect.objectContaining({ caseId: 'axis-newest-created' }),
+    );
 
-    // The window-exempt stock's own hand-off still carries no window when the operator
-    // has not narrowed the range.
+    // The window-exempt stock's own drill-THROUGH is still a navigation, and still
+    // carries no window when the operator has not narrowed the range.
     onNavigate.mockClear();
     await userEvent.click(screen.getByTestId('kpi-drilldown-drillthrough'));
     expect(onNavigate).toHaveBeenCalledWith('cases', { status: '__active__' });

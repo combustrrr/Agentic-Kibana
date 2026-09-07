@@ -17,7 +17,7 @@
  *   B29      the client's band ladder ASCENDS and the server's DESCENDS; a naive index
  *            zip therefore mislabels every severity facet option, and the labels still
  *            look plausible.
- *   B33      "newest N of M read" is false on page 2 and reads exactly as true.
+ *   B33      the first-page completeness claim is false on page 2 and reads exactly as true.
  *   B36      the server's rate and the panel's predicate answer different questions; a
  *            footer that claims they match is a lie with a number attached.
  */
@@ -32,6 +32,14 @@ vi.mock('../pages/Metrics.posture.api', async () => {
   );
   return { ...actual, fetchPosture: fetchPostureMock };
 });
+
+// Opening a listed case mounts the SHARED <CaseDetail> over the dashboard. The real
+// component reads auth context unconditionally and this page mounts under no
+// <AuthProvider>, so it is stubbed to a probe (the same stub Scans and Investigate use).
+vi.mock('@/soc/pages/CaseDetail', () => ({
+  CaseDetail: ({ caseId }: { caseId?: string | null }) =>
+    caseId ? <div data-testid="case-detail-probe">{caseId}</div> : null,
+}));
 
 const { listCasesMock, getMetricsMock, usageMock, trendsMock } = vi.hoisted(() => ({
   listCasesMock: vi.fn(),
@@ -370,7 +378,7 @@ describe('KPI drill-down — spec-derived depth', () => {
   /* ===================================================================== */
   /* B33 — the completeness statement accounts for offset                  */
   /* ===================================================================== */
-  it('B33: replaces the "newest N of M" claim with a page-scoped one after the first page', async () => {
+  it('B33: replaces the first-page "first N of M" claim with a page-scoped one after the first page', async () => {
     let pageSize = 0;
     listCasesMock.mockImplementation(async (params: Record<string, unknown>) => {
       if (!params || !('offset' in params)) return page([], 0);
@@ -389,8 +397,10 @@ describe('KPI drill-down — spec-derived depth', () => {
     await waitFor(() => expect(rowIds().length).toBe(pageSize));
 
     const beforePaging = screen.getByTestId('kpi-drilldown-scope').textContent ?? '';
-    // On page one the panel legitimately holds the newest rows of the cohort.
-    expect(beforePaging.toLowerCase()).toContain('newest');
+    // Page one legitimately holds the first N rows OF THE ORDER IN FORCE. It is not
+    // "the newest N" — three of the four sorts the store honours put something else
+    // first — so the claim names the order rather than assuming recency.
+    expect(beforePaging.toLowerCase()).toContain('in this order');
 
     await userEvent.click(screen.getByTestId('kpi-drilldown-more'));
     await waitFor(() => expect(pageRequests().length).toBeGreaterThan(1));
@@ -398,7 +408,7 @@ describe('KPI drill-down — spec-derived depth', () => {
 
     const afterPaging = screen.getByTestId('kpi-drilldown-scope').textContent ?? '';
     expect(afterPaging).not.toEqual(beforePaging);
-    expect(afterPaging.toLowerCase()).not.toContain('newest');
+    expect(afterPaging.toLowerCase()).not.toContain('in this order');
   });
 
   /* ===================================================================== */
