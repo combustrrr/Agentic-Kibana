@@ -28,6 +28,9 @@ def generate():
         path = next((ROOT / '.github/workflows').glob(f'0{number}-*.yml'))
         old = yaml.safe_load(path.read_text(encoding='utf-8'))
         for name, original in old['jobs'].items():
+            if name == 'dependency-review':
+                # GitHub's host-PR gate is not an upstream-head scanner.
+                continue
             job = copy.deepcopy(original)
             job['needs'] = ['identity']
             job['permissions'] = {'contents': 'read'}
@@ -61,9 +64,11 @@ def generate():
                     step = {'name': 'Validate redacted Gitleaks output', 'run': 'jq -e \'(.runs | type) == "array"\' gitleaks-results.sarif > /dev/null'}
                 if name == 'snyk':
                     if step.get('name') in {'Resolve Python dependency manifests for Snyk SCA'}:
-                        continue
+                        step['run'] = 'python -I .analysis-tooling/scripts/code_analysis/snyk_metadata.py --source "$GITHUB_WORKSPACE" --destination "$RUNNER_TEMP/snyk-metadata"'
                     if step.get('name') in {'Scan open-source dependencies', 'Scan source code'}:
                         step.setdefault('env', {})['SNYK_TOKEN'] = '${{ secrets.SNYK_TOKEN }}'
+                    if step.get('name') == 'Scan open-source dependencies':
+                        step['run'] = 'set -o pipefail\npython -I .analysis-tooling/scripts/code_analysis/snyk_scan.py 2>&1 | tee snyk-open-source.log'
                 text = yaml.safe_dump(step, sort_keys=False)
                 text = text.replace('inputs.scan_sha || github.event.pull_request.head.sha || github.sha', 'fromJSON(inputs.target).head_sha')
                 text = text.replace('inputs.scan_sha', 'fromJSON(inputs.target).head_sha')
@@ -71,15 +76,20 @@ def generate():
                 text = text.replace('inputs.ensure_sonar_browse', 'false')
                 text = text.replace('env.SNYK_TOKEN != \'\'', "env.SNYK_CONFIGURED == 'true'")
                 text = text.replace('env.SNYK_TOKEN == \'\'', "env.SNYK_CONFIGURED != 'true'")
-                text = text.replace('--command=.snyk-venv/bin/python', '--command=python')
+                text = text.replace('--command=.snyk-venv/bin/python', '--command="$RUNNER_TEMP/snyk-metadata/inspect-python"')
                 text = text.replace('repos/${GITHUB_REPOSITORY}', 'repos/${SOURCE_REPOSITORY}')
                 step = yaml.safe_load(text)
+                if step.get('name') == 'Ensure Browse for the verified Sonar API user':
+                    step['if'] = "env.SONAR_API_TOKEN != ''"
+                    step['continue-on-error'] = True
                 if name == 'atheris-state-machine' and 'run' in step:
                     step['run'] = step['run'].replace('../tests/security_canary/', '../.analysis-tooling/tests/security_canary/')
                 steps.append(step)
             if name == 'snyk':
                 job['env'].pop('SNYK_TOKEN', None)
                 job['env']['SNYK_CONFIGURED'] = "${{ secrets.SNYK_TOKEN != '' }}"
+                steps.insert(1, {'uses': CHECKOUT, 'with': {'repository': '${{ github.repository }}',
+                             'ref': '${{ inputs.tooling_sha }}', 'path': '.analysis-tooling', 'persist-credentials': False}})
             if name in {'test-coverage', 'typescript-quality'}:
                 # The existing scanner configuration still supplies language-specific
                 # lint rules, while project install/test commands come from the profile.
@@ -100,10 +110,13 @@ def generate():
                     'curl --fail --location --retry 3 https://github.com/ossf/scorecard/releases/download/v5.5.0/scorecard_5.5.0_linux_amd64.tar.gz -o scorecard.tar.gz\n'
                     'echo "83b90a05c1540ef1390db1cd5711e5fd04be9c1d8537fb84d39d02092d6a8dff  scorecard.tar.gz" | sha256sum --check\n'
                     'tar -xzf scorecard.tar.gz scorecard\n'},
-                    {'name': 'Scan external repository at selected commit',
-                     'env': {'GITHUB_AUTH_TOKEN': '${{ github.token }}', 'SOURCE_SHA': '${{ fromJSON(inputs.target).head_sha }}'},
+                    {'name': 'Scan external repository at selected commit', 'id': 'scorecard', 'continue-on-error': True,
+                     'env': {'GITHUB_AUTH_TOKEN': '${{ github.token }}', 'ENABLE_SARIF': 'true', 'SOURCE_SHA': '${{ fromJSON(inputs.target).head_sha }}'},
                      'run': './scorecard --repo="github.com/$SOURCE_REPOSITORY" --commit="$SOURCE_SHA" --format=sarif --show-details > openssf-scorecard.sarif'},
-                    {'uses': UPLOAD, 'if': 'always()', 'with': {'name': 'openssf-scorecard', 'path': 'openssf-scorecard.sarif', 'retention-days': 7}}]
+                    {'name': 'Retain Scorecard execution status', 'if': 'always()',
+                     'env': {'OUTCOME': '${{ steps.scorecard.outcome }}'},
+                     'run': 'status=OPERATIONAL_FAILURE\nif [[ "$OUTCOME" == success ]]; then status=COMPLETED; fi\njq -n --arg status "$status" \'{scanner_family:"OpenSSF Scorecard",status:$status,reason:"Repository checks against the selected source commit; unavailable individual checks remain in scanner evidence"}\' > scorecard-status.json'},
+                    {'uses': UPLOAD, 'if': 'always()', 'with': {'name': 'openssf-scorecard', 'path': 'openssf-scorecard.sarif\nscorecard-status.json', 'retention-days': 7}}]
             job['steps'] = steps
             jobs[f'scanner-{number}-{name}'] = job
     jobs['report'] = {'needs': list(jobs), 'if': "${{ always() && needs.identity.result == 'success' }}",

@@ -1081,7 +1081,8 @@ class SonarExternalIssuesExporter:
 @click.option("--output-dir", "-o", type=click.Path(), default="./normalized",
               help="Directory for normalized output")
 @click.option("--verbose", "-v", is_flag=True)
-def main(input_dir: str, output_dir: str, verbose: bool) -> None:
+@click.option("--allow-partial", is_flag=True, help="Retain usable observations; record malformed inputs for hosted partial reports.")
+def main(input_dir: str, output_dir: str, verbose: bool, allow_partial: bool = False) -> None:
     """
     Normalize findings from multiple code analysis tools into a unified schema.
     """
@@ -1108,6 +1109,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
 
     all_findings: list[Finding] = []
     parse_errors: list[str] = []
+    malformed_artifacts: list[str] = []
 
     def retain(findings: list[Finding], artifact: Path) -> None:
         reference = artifact.relative_to(input_path).as_posix()
@@ -1119,6 +1121,7 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
     def report_parse_error(artifact: Path, error: Exception) -> None:
         message = f"{artifact}: {error}"
         parse_errors.append(message)
+        malformed_artifacts.append(artifact.relative_to(input_path).as_posix())
         print(f"[ERROR] Failed to parse {message}", file=sys.stderr)
 
     # ── Parse SARIF files ────────────────────────────────────
@@ -1288,10 +1291,15 @@ def main(input_dir: str, output_dir: str, verbose: bool) -> None:
         except Exception as e:
             report_parse_error(schemathesis_file, e)
 
-    if parse_errors:
+    if parse_errors and not allow_partial:
         raise click.ClickException(
             "normalization rejected malformed scanner artifacts:\n" + "\n".join(parse_errors)
         )
+
+    (output_path / 'normalization-status.json').write_text(json.dumps({
+        'status': 'PARTIAL' if parse_errors else 'COMPLETED', 'malformed_artifact_count': len(parse_errors),
+        'malformed_artifacts': malformed_artifacts
+    }), encoding='utf-8')
 
     print(f"\n Parsed input files: {len(parsed_files)}")
     print(f" Total raw findings: {len(all_findings)}")

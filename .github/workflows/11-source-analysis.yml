@@ -78,7 +78,7 @@ jobs:
 
         '
     - name: Ensure Browse for the verified Sonar API user
-      if: false == true || (github.event_name == 'push' && contains(github.event.head_commit.message, '[ensure-sonar-browse]'))
+      if: env.SONAR_API_TOKEN != ''
       env:
         SCAN_BRANCH: ${{ fromJSON(inputs.target).branch || github.head_ref || github.ref_name }}
       run: 'python .analysis-tooling/scripts/code_analysis/ensure_sonar_browse.py
@@ -86,6 +86,7 @@ jobs:
         cat sonar-browse-grant.json
 
         '
+      continue-on-error: true
     - name: Derive stable Sonar analysis branch
       id: sonar-identity
       env:
@@ -540,6 +541,12 @@ jobs:
         ref: ${{ fromJSON(inputs.target).head_sha }}
         persist-credentials: false
         repository: ${{ fromJSON(inputs.target).source_repository }}
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      with:
+        repository: ${{ github.repository }}
+        ref: ${{ inputs.tooling_sha }}
+        path: .analysis-tooling
+        persist-credentials: false
     - name: Record unconfigured status
       if: env.SNYK_CONFIGURED != 'true'
       shell: bash
@@ -563,17 +570,19 @@ jobs:
           docs/requirements.txt
 
           '
+    - name: Resolve Python dependency manifests for Snyk SCA
+      if: env.SNYK_CONFIGURED == 'true'
+      shell: bash
+      run: python -I .analysis-tooling/scripts/code_analysis/snyk_metadata.py --source "$GITHUB_WORKSPACE" --destination
+        "$RUNNER_TEMP/snyk-metadata"
     - name: Scan open-source dependencies
       id: snyk-sca
       if: env.SNYK_CONFIGURED == 'true'
       continue-on-error: true
       shell: bash
-      run: "set +e\nsnyk test --all-projects --command=python \\\n  --sarif-file-output=snyk-open-source.sarif 2>&1\
-        \ | tee snyk-open-source.log\nscan_exit=${PIPESTATUS[0]}\nset -e\n# Snyk can exit zero after testing only\
-        \ some discovered projects. A partial\n# dependency graph is evidence, but it is never a complete SCA result.\n\
-        if grep -Eq 'potential projects failed|Missing required packages' snyk-open-source.log; then\n  exit 2\n\
-        fi\n# Exit 1 means a valid scan found vulnerabilities; this lane is advisory.\n[[ \"$scan_exit\" -le 1 ]]\
-        \ || exit \"$scan_exit\"\n"
+      run: 'set -o pipefail
+
+        python -I .analysis-tooling/scripts/code_analysis/snyk_scan.py 2>&1 | tee snyk-open-source.log'
       env:
         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
     - name: Scan source code
@@ -665,30 +674,6 @@ jobs:
         retention-days: 7
     needs:
     - identity
-    env:
-      SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
-  scanner-3-dependency-review:
-    name: Dependency Review (PR Gate)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    continue-on-error: true
-    steps:
-    - name: Checkout
-      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-      with:
-        ref: ${{ fromJSON(inputs.target).head_sha }}
-        fetch-depth: 0
-        persist-credentials: false
-        repository: ${{ fromJSON(inputs.target).source_repository }}
-    - name: GitHub Dependency Review Action
-      uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48
-      with:
-        fail-on-severity: high
-        deny-licenses: GPL-2.0, AGPL-3.0
-    needs:
-    - identity
-    permissions:
-      contents: read
     env:
       SOURCE_REPOSITORY: ${{ fromJSON(inputs.target).source_repository }}
   scanner-3-gitleaks:
@@ -1048,16 +1033,31 @@ jobs:
 
         '
     - name: Scan external repository at selected commit
+      id: scorecard
+      continue-on-error: true
       env:
         GITHUB_AUTH_TOKEN: ${{ github.token }}
+        ENABLE_SARIF: 'true'
         SOURCE_SHA: ${{ fromJSON(inputs.target).head_sha }}
       run: ./scorecard --repo="github.com/$SOURCE_REPOSITORY" --commit="$SOURCE_SHA" --format=sarif --show-details
         > openssf-scorecard.sarif
+    - name: Retain Scorecard execution status
+      if: always()
+      env:
+        OUTCOME: ${{ steps.scorecard.outcome }}
+      run: 'status=OPERATIONAL_FAILURE
+
+        if [[ "$OUTCOME" == success ]]; then status=COMPLETED; fi
+
+        jq -n --arg status "$status" ''{scanner_family:"OpenSSF Scorecard",status:$status,reason:"Repository checks
+        against the selected source commit; unavailable individual checks remain in scanner evidence"}'' > scorecard-status.json'
     - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
       if: always()
       with:
         name: openssf-scorecard
-        path: openssf-scorecard.sarif
+        path: 'openssf-scorecard.sarif
+
+          scorecard-status.json'
         retention-days: 7
     needs:
     - identity
@@ -1381,7 +1381,6 @@ jobs:
     - scanner-2-semgrep
     - scanner-3-snyk
     - scanner-3-osv-scanner
-    - scanner-3-dependency-review
     - scanner-3-gitleaks
     - scanner-3-trivy
     - scanner-3-hadolint

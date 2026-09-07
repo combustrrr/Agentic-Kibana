@@ -24,7 +24,9 @@
       "scripts/code_analysis/pipeline.py",
       "scripts/code_analysis/hosted_pipeline.py",
       "scripts/code_analysis/source_identity.py",
-      "scripts/code_analysis/run_profile.py"
+      "scripts/code_analysis/run_profile.py",
+      "scripts/code_analysis/snyk_metadata.py",
+      "scripts/code_analysis/snyk_scan.py"
     ],
     "presentation": [
       "scripts/code_analysis/bound_sarif.py",

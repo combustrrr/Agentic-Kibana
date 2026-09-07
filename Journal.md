@@ -11278,3 +11278,10 @@
 - Validation: 79 hosted/service tests pass; initial 3 Chrome browser tests pass against 21,189 retained findings; workflow and 90-page documentation checks pass. Patched new UI tooling after dependency audit identified vulnerable initial versions.
 - External: Created the authorized public code-analysis-dashboard repository. No upstream writes or paid services.
 - Status: Live rollout in progress; external scanner completeness not yet accepted.
+
+### 2026-09-07 - codex - Public deployment and live validation repairs
+- Did: Deployed the dedicated public Pages application and discovered 25 upstream targets. Ran Testing and upstream PR 110 with exact source identities. Schemathesis and Atheris executed successfully; branch tests passed with coverage retained.
+- Found: Scorecard required its SARIF feature flag; its empty output exposed a partial-aggregation defect. Repaired both, removed the inapplicable host PR gate, added isolated wheel-metadata resolution for Snyk, and preserved previous report files across publication races.
+- Validation: 83 service/hosted tests passed. Reassembled the first live branch evidence without rescanning: 21,435 canonical findings from 22,160 observations, explicitly partial.
+- Blockers: Sonar analysis succeeds but native export returns HTTP 403; upstream secret-protection posture needs additional read permission. Snyk dependency repair and corrected live publication require another live run. No vendor subscriptions purchased.
+- Next: Publish repaired orchestration, verify branch/PR reports reach Pages, and record remaining channel-specific external blockers.

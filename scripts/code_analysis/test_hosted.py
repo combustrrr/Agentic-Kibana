@@ -1,5 +1,6 @@
 """Behavior tests for exact-revision, current-only public report publication."""
 import copy
+import gzip
 import io
 import json
 import tempfile
@@ -148,6 +149,55 @@ class ReportTests(unittest.TestCase):
             z.writestr('../outside', 'payload')
         with self.assertRaises(ValueError):
             service.extract_zip(data.getvalue(), self.root)
+
+    def test_wrong_producer_workflow_rejected_before_download(self):
+        row = {**self.identity, 'scan_run_id': 123, 'tooling_sha': 'd' * 40}
+        with patch.object(service, 'api', return_value={'path': '.github/workflows/other.yml'}):
+            with self.assertRaisesRegex(ValueError, 'producer workflow'):
+                service.collect({'analysis_repository': 'service/host'}, row, self.root)
+
+    def test_expired_exact_artifact_is_unavailable(self):
+        row = {**self.identity, 'scan_run_id': 123, 'tooling_sha': 'd' * 40, 'run_attempt': 2}
+        run = {'path': '.github/workflows/11-source-analysis.yml', 'head_sha': 'd' * 40, 'status': 'completed'}
+        with patch.object(service, 'api', return_value=run), patch.object(service, 'pages', return_value=[
+                {'name': 'hosted-report-123-1', 'expired': False},
+                {'name': 'hosted-report-123-2', 'expired': True}]):
+            with self.assertRaisesRegex(ValueError, 'missing or expired'):
+                service.collect({'analysis_repository': 'service/host'}, row, self.root)
+
+    def test_changed_head_during_download_keeps_old_files(self):
+        current = {**self.identity, 'status': 'partial', 'report': 'reports/old',
+                   'asset': 'report-old.json.gz', 'collected_run': '122-1'}
+        scan = {**self.identity, 'status': 'collected', 'scan_run_id': 123, 'run_attempt': 1}
+        config = {'source_repository': 'owner/repo', 'analysis_repository': 'service/host',
+                  'publishing_repository': 'service/site', 'preferred_branch': 'main', 'site_limit_bytes': 1000000}
+        old_content = {'report.json': {'analyzed_sha': 'a' * 40}}
+        releases = [{'body': json.dumps({'targets': [scan]})},
+                    {'id': 1, 'body': json.dumps({'targets': [current]})}]
+        with patch.object(service, 'release', side_effect=releases), patch.object(service, 'discover', side_effect=[
+                [self.identity], [{**self.identity, 'head_sha': 'b' * 40}]]), \
+                patch.object(service, 'pages', return_value=[{'name': current['asset'], 'id': 99}]), \
+                patch.object(service, 'collect', return_value={'target': self.identity, 'analyzed_sha': 'a' * 40}), \
+                patch.object(service, 'gh', return_value=gzip.compress(json.dumps(old_content).encode())), \
+                patch.object(service, 'save_state') as save:
+            service.publish(config, self.root)
+        self.assertTrue((self.root / 'data/reports/old/report.json.gz').exists())
+        self.assertEqual(save.call_args.args[2]['targets'][0]['collected_run'], '122-1')
+
+    def test_snyk_metadata_rejects_executable_requirements(self):
+        from scripts.code_analysis.snyk_metadata import requirements, metadata
+        path = self.root / 'requirements.txt'
+        for unsafe in ['-e .', 'package @ https://example.com/source.tar.gz', '../package']:
+            path.write_text(unsafe)
+            with self.assertRaises(ValueError):
+                requirements(path)
+        path.write_text('fastapi==0.110.1\nuvicorn[standard]==0.29.0 # comment')
+        self.assertEqual(len(requirements(path)), 2)
+        name, text = metadata({'name': 'safe-package', 'version': '1.0', 'requires_dist': ['other>=1']})
+        self.assertEqual(name, 'safe_package-1.0.dist-info')
+        self.assertIn('Requires-Dist: other>=1', text)
+        with self.assertRaises(ValueError):
+            metadata({'name': '../bad', 'version': '1.0'})
 
 
 if __name__ == '__main__':

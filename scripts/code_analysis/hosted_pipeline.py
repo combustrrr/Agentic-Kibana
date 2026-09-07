@@ -17,18 +17,32 @@ def assemble(artifacts: Path, output: Path, identity: dict, producer_repository:
     output.mkdir(parents=True, exist_ok=True)
     normalized = output / 'normalized'
     subprocess.run([sys.executable, '-m', 'scripts.code_analysis.normalizer', '--input-dir',
-                    str(artifacts), '--output-dir', str(normalized)], check=True)
+                    str(artifacts), '--output-dir', str(normalized), '--allow-partial'], check=True)
     raw = load(normalized / 'unified-findings.json')
     manifest = load(config_root / 'required-channels.json')
     repository, sha = identity['source_repository'], identity['head_sha']
     contract = evidence_contract.build(manifest, artifacts, repository, sha, [run_id])
     status = channel_status.build(manifest, artifacts, raw, contract, repository, sha)
+    malformed = load(normalized / 'normalization-status.json')['malformed_artifacts']
+    for channel in status['channels']:
+        if set(channel['artifact_files']).intersection(malformed):
+            channel.update(status='INVALID_EVIDENCE', reason='Malformed scanner output retained in producer artifacts')
     from scripts.code_analysis.hosted import now
     current = canonicalize(raw, repository, {'commit_sha': sha, 'branch': identity['branch'],
                             'workflow_run_id': run_id, 'generated_at': now()}, manifest)
     proof = provenance.build(artifacts, sha, [run_id])
     snapshot = build_analysis_snapshot(build_snapshot(current, status, proof, allow_partial=True),
                                       load(config_root / 'proposal-tool-catalog.json'), artifacts)
+    if malformed:
+        # The strict normalizer would reject these inputs. Preserve that gate
+        # result while publishing the successfully parsed observations.
+        snapshot['publishable'] = False
+        snapshot['publication_gate']['satisfied'] = False
+        for channel in snapshot['analysis_channels']:
+            if any(channel['channel'].replace('-', '') in Path(path).name.lower().replace('-', '') for path in malformed):
+                channel.update(status='INVALID_EVIDENCE', reason='Malformed scanner output retained in producer artifacts')
+                if not channel['observation_count']:
+                    channel['findings'] = None
     # Persist the strict gate result unchanged; hosted validity permits missing evidence.
     write(output / 'snapshot.json', snapshot)
     return build(snapshot, identity, output / 'report', producer_repository=producer_repository,
