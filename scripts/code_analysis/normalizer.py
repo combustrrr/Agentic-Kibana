@@ -410,16 +410,22 @@ class SarifParser:
         "qodana": "Qodana",
         "osv-scanner": "OSV-Scanner",
         "checkov": "Checkov",
+        "snyk open source": "Snyk",
+        "snykcode": "Snyk",
     }
 
     def parse(self, sarif_path: Path, tool_hint: str = "",
               tool_override: str = "") -> list[Finding]:
         findings: list[Finding] = []
-        with sarif_path.open() as f:
+        with sarif_path.open(encoding="utf-8") as f:
             sarif = json.load(f)
 
         for run in sarif.get("runs", []):
             driver = run.get("tool", {}).get("driver", {})
+            if driver.get("name") == "AgenticSOCStaticMonitoring":
+                # Our retained SARIF projection is not an independent scanner.
+                # Native artifacts remain the evidence authority.
+                continue
             raw_tool = tool_override or driver.get("name", tool_hint)
             tool_name = self.TOOL_NAME_MAP.get(raw_tool.lower(), raw_tool)
 

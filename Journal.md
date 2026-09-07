@@ -11112,3 +11112,54 @@
 - Did: Unsupported manual refs now retain a Scorecard NOT_APPLICABLE status artifact with Coverage unavailable; no findings count is invented. Supported default-ref/PR action behavior remains enabled. Documented the limitation.
 - Tests: 123 service/CI-contract tests, workflow policy, documentation consistency, and diff checks passed.
 - Status: Publishing the bounded correction and rerunning the full pipeline against the same exact upstream source.
+
+### 2026-09-07 06:55Z — codex — Session handoff review started
+- Context: Read the requested September 6 Issue Wall handoff and repository instructions to establish continuation context.
+- Did: Located the handoff under docs/code-analysis/SESSION and reviewed its superseding unified-channel update.
+- Tests: Not run; document review only.
+- Status: In progress.
+- Next: Reconcile the handoff with the latest journal and worktree status.
+
+### 2026-09-07 06:55Z — codex — Session handoff review completed
+- Did: Reviewed latest journal entries and worktree status. Distinguished snapshot-v2 and the unchanged 16-channel publication gate from later fork publication and live pipeline corrections. Latest recorded validation is 123 service/CI-contract tests; successful final pipeline publication is not established by the reviewed entries. Existing monitoring, normalizer, test, documentation, and temporary-file changes remain preserved.
+- Tests: Not rerun; historical validation is reported as recorded.
+- Status: Complete; understanding-only request, no implementation or publication performed.
+- Next: Use the superseding handoff update and newer journal evidence as context for the user's next instruction.
+
+### 2026-09-07 06:59Z — codex — Issue Wall source header started
+- Context: Make the analyzed repository, branch, exact commit, and workflow evidence visible at the top of the wall.
+- Decision: Use retained snapshot identity and run IDs; do not imply live branch HEAD or invent workflow-to-run associations.
+- Tests: Pending.
+- Status: In progress.
+- Next: Update the header, documentation, and regenerate and validate the preview.
+
+### 2026-09-07 07:01Z — codex — Issue Wall source header completed
+- Did: Added an always-visible labeled source panel above the headline metrics: repository, branch, full analyzed SHA, catalogued workflow definitions, retained CI run IDs, and generation time in UTC. Unknown values stay unavailable; definitions and runs are not given an invented association. Updated the monitoring UI contract and regenerated the local benchmark preview.
+- Tests: 62 service tests passed; embedded executable scripts parsed and direct header populated/missing/escaping/deduplication/placement checks passed. The initial harness comparison encountered PowerShell pipe encoding and passed after using an ASCII Unicode escape. Diff check passed. Scale check: 10,000 findings / 13,000 observations in 10.67 seconds, 157.73 MiB peak.
+- Status: Complete; browser visual acceptance was not performed. Existing changes preserved; no commit or publication.
+- Next: Review the generated source header in the preview.
+
+### 2026-09-07 07:02Z — codex — Finding origin visibility started
+- Context: The user cannot identify where individual Issue Wall findings originate.
+- Did: Confirmed severity previews show only source counts and truncated locations; detailed cards hide scanner rules and artifact provenance behind disclosures.
+- Tests: Pending.
+- Status: In progress.
+- Next: Show retained scanner/rule origins directly on previews and finding cards, preserve complete evidence access, and validate the preview.
+
+### 2026-09-07 07:04Z — codex — Finding origin visibility completed
+- Did: Severity previews now display retained scanner names paired with rule IDs, labeled untruncated source locations, and a View evidence cue. Canonical cards and the detail dialog show scanner/rule/artifact origins without disclosures. Repeated origin tuples consolidate visually while all source observations remain available; absent metadata is explicit. Updated the monitoring contract and regenerated the preview.
+- Tests: 62 service tests passed; embedded scripts parsed and direct multi-scanner, rule/artifact, deduplication, escaping, missing-metadata, and location checks passed. Corrected an overly broad harness fixture assertion to exercise missing location metadata on an otherwise valid finding. Diff check passed. Scale preview: 10,000 findings / 13,000 observations in 10.32 seconds at 157.76 MiB peak.
+- Status: Complete; browser visual acceptance not performed. Existing work preserved; no commit or publication.
+- Next: Review the visible finding origins in the regenerated preview.
+
+### 2026-09-07 07:09Z — codex — Fork publication and all-channel live validation started
+- Context: User authorized publishing the source/finding provenance UI to the fork, fetching current upstream, and checking GitHub Actions across all channels.
+- Did: Reviewed the intentional worktree changes, fork identity, and earlier failed pipeline attempts. Upstream remains fetch-only; scanning uses an exact upstream revision independently of the tooling branch.
+- Status: In progress.
+- Next: Validate and publish the changes, dispatch fresh scanner runs, inspect all 26 channel results, and fix actionable pipeline failures.
+
+### 2026-09-07 07:11Z — codex — Fork candidate validated for live upstream analysis
+- Found: The prior full run completed its scanner groups but dashboard validation failed on observation membership collisions. Reviewed the existing fixes for repeated native IDs, Snyk aliases, and accidental SARIF-projection re-ingestion.
+- Tests: 125 service/CI-contract tests, workflow policy audit, 90-page documentation consistency, and diff check passed. Header and origin JavaScript checks and the scale gate passed earlier in this session. Changes remain confined to the external analysis tooling and its docs.
+- Decision: Use latest fetched upstream Testing 2c38720d0b6814383779b701345b0c286b7c5f77; Stable main is older. Publish tooling to the existing fork feature branch and run analysis against the exact upstream scan branch.
+- Status: Ready for authorized fork publication; full application suites not rerun for external-tool-only changes.

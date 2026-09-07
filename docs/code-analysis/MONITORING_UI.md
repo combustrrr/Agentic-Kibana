@@ -24,8 +24,14 @@ hide older findings.
 ## Snapshot contract
 
 The header leads with **Issue Wall ? Unified engineering & risk observation** and
-snapshot evidence health across all catalogued channels. A repository / branch / short
-commit row precedes three headline columns: channels and completion, deterministic
+snapshot evidence health across all catalogued channels. An always-visible source panel
+shows the source repository, source branch, full analyzed commit SHA, catalogued analysis
+workflow definitions, retained CI workflow run IDs, and snapshot generation time in UTC.
+The commit identifies the captured source revision, not a live branch-HEAD check.
+Workflow definitions and retained run IDs are listed separately because the snapshot
+does not retain a verified one-to-one mapping or the run repository; the header does not
+invent run links. Missing metadata is explicitly unavailable.
+This panel precedes three headline columns: channels and completion, deterministic
 canonical findings and Critical count, then corroborated findings and High count.
 Corroboration uses the same 2+ independent scanner-family definition as the agreement
 chart and excludes AI advisories. All counts come from the current snapshot.
@@ -33,13 +39,20 @@ chart and excludes AI advisories. All counts come from the current snapshot.
 The health badge is green **HEALTHY** only for a publishable snapshot with every channel
 complete, amber **INCOMPLETE** for missing/partial evidence, and red **FAILED** for explicit
 channel failures or rejected publication. It describes evidence health, not application
-security or live scanner availability. The full exact commit, generation time, downloads,
+security or live scanner availability. Downloads,
 copy control, secondary totals, and publication proof remain in **Snapshot details &
 downloads**, collapsed beneath the headline.
 A snapshot is published only when every required scanner workflow succeeded, retained
 artifacts match the same commit, hashes validate, normalization succeeds, and canonical
 finding/observation counts reconcile. A failed refresh leaves the last publishable
 snapshot active.
+
+The severity previews and canonical finding cards show **Reported by** scanner names
+paired with their retained rule IDs, followed by a labeled source file and line. Preview
+locations wrap instead of truncating. Cards and the evidence dialog also show retained
+artifact names directly, without opening a disclosure. Duplicate origin tuples are
+consolidated visually; every underlying observation remains accessible. Missing scanner,
+rule, or artifact metadata is labeled unavailable rather than inferred.
 
 The main workspace contains one card per canonical issue. Opening **Evidence** shows every
 contributing scanner family, rule, native result, message, location, version, and raw
@@ -245,6 +258,12 @@ configuration come from the fork's trusted default-branch tooling checkout, so a
 upstream source commit need not contain the external analysis service.
 OpenSSF Scorecard rejects non-default tooling refs for manual runs. Those runs retain
 an explicit unavailable status for that channel rather than reporting zero findings.
+Repeated native record IDs retain every raw occurrence. Deterministic occurrence IDs
+disambiguate collisions within a snapshot; singleton observation IDs and canonical
+finding identities stay stable. Repeated records from one scanner do not add sources.
+Retained service-generated SARIF projections are not re-ingested as scanner evidence;
+their native input artifacts remain authoritative. Snyk Code and Open Source share the
+Snyk channel and count as one scanner family for corroboration.
 
 The manual run exposes four visible phases in the Actions log and job summary: resolve
 the authoritative branch head, dispatch four fresh scanner groups, validate those four

@@ -108,6 +108,20 @@ class MonitoringTests(unittest.TestCase):
         doc=evidence([left,right])
         self.assertEqual(len(doc["findings"]),2)
         self.assertEqual(len(doc["observations"]),2)
+
+    def test_repeated_native_ids_preserve_every_observation_deterministically(self):
+        first=raw()
+        other={**first,"message":"another native message"}
+        rows=[first,other,first]
+        doc=evidence(rows)
+        self.assertEqual(doc,evidence(list(reversed(rows))))
+        self.assertEqual(len(doc["observations"]),3)
+        self.assertEqual(len({row["observation_id"] for row in doc["observations"]}),3)
+        self.assertEqual(sorted(row["message"] for row in doc["observations"]),
+                         sorted(row["message"] for row in rows))
+        self.assertEqual(doc["findings"][0]["observation_count"],3)
+        self.assertEqual(doc["findings"][0]["scanner_family_count"],1)
+        validate_snapshot(snapshot(rows))
     def test_missing_region_evidence_has_unique_conservative_identities(self):
         left={**raw("CodeQL",snippet=""),"id":"native-left","native_result_id":"native-left"}
         right={**raw("CodeQL",snippet=""),"id":"native-right","native_result_id":"native-right"}
@@ -211,6 +225,7 @@ class MonitoringTests(unittest.TestCase):
 
     def test_snyk_code_driver_and_rules_use_canonical_snyk_identity(self):
         self.assertEqual(scanner_family("SnykCode"), "Snyk")
+        self.assertEqual(scanner_family("Snyk Open Source"), "Snyk")
         expected = {
             "python/NoHardcodedPasswords/test": "hardcoded-secret",
             "javascript/HardcodedNonCryptoSecret": "hardcoded-secret",
@@ -221,6 +236,16 @@ class MonitoringTests(unittest.TestCase):
             "javascript/OR": "open-redirect",
         }
         self.assertEqual({rule: normalize_concept(rule) for rule in expected}, expected)
+
+    def test_sarif_projection_is_not_reingested_as_an_independent_scanner(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/"mixed.sarif"
+            path.write_text(json.dumps({"runs":[
+                {"tool":{"driver":{"name":name}},"results":[
+                    {"ruleId":"CVE-example","message":{"text":"native finding"}}]}
+                for name in ("AgenticSOCStaticMonitoring","Snyk Open Source","SnykCode")]}),encoding="utf-8")
+            findings=SarifParser().parse(path)
+        self.assertEqual([row.source_tool for row in findings],["Snyk","Snyk"])
 
     def test_dashboard_is_bounded_and_exposes_all_current_findings(self):
         result=snapshot([raw("CodeQL"),raw("Semgrep")])
