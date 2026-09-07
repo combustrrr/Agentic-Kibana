@@ -20,6 +20,10 @@ from urllib.parse import quote
 from scripts.code_analysis.hosted import accept, analysis_key, digest, load, now, reconcile, target, write
 
 
+class SupersededReport(ValueError):
+    """A newer upstream identity appeared while a producer report downloaded."""
+
+
 def gh(*args: str, payload: object | None = None, binary: bool = False):
     command = ['gh', *args]
     if payload is not None:
@@ -165,7 +169,8 @@ def collect(config: dict, row: dict, destination: Path) -> dict:
             and analysis_key(report['target'], row['tooling_sha'], config) == row['analysis_key']):
         report['target'] = {k: row.get(k) for k in ('id', 'repository', 'source_repository', 'kind', 'branch',
                                                  'pr', 'head_sha', 'base_sha', 'base_branch', 'label')}
-        write(destination / 'report.json', report)
+        # Keep the producer envelope on disk immutable so aliases share the same
+        # content-addressed asset. Only this validation view uses the target alias.
     if report.get('schema_version') != 'hosted-report-v1' or not accept(row, report):
         raise ValueError('report target/revision mismatch')
     if report.get('tooling_sha') != row['tooling_sha'] or report.get('producer_run_attempt') != row['run_attempt']:
@@ -186,6 +191,15 @@ def publish(config: dict, output: Path) -> None:
     state = reconcile(previous, discover(config), now())
     state.update(preferred_branch=config['preferred_branch'], analysis_repository=host)
     runs = {r['id']: r for r in scan_state['targets']}
+    # Workflow completion notifications may be suppressed or delayed. Resolve the
+    # unique persisted dispatch nonce, then collect that exact run and attempt.
+    producers = pages(f'repos/{host}/actions/workflows/11-source-analysis.yml/runs', 'workflow_runs')
+    by_title = {r['display_title']: r for r in reversed(producers)}
+    for row in runs.values():
+        producer = by_title.get('Source analysis ' + row.get('request_id', ''))
+        if producer and producer['head_sha'] == row.get('tooling_sha'):
+            row.update(scan_run_id=producer['id'], run_attempt=producer['run_attempt'],
+                       status='collected' if producer['status'] == 'completed' else 'scanning')
     existing = {a['name']: a for a in pages(f"repos/{repo}/releases/{rel['id']}/assets")}
     with tempfile.TemporaryDirectory(prefix='dashboard-publish-') as temporary:
         work = Path(temporary)
@@ -203,7 +217,9 @@ def publish(config: dict, output: Path) -> None:
                         if latest is None or not accept(latest, report):
                             # Preserve/materialize the previous report below. Aborting
                             # this loop would leave its manifest URL missing on Pages.
-                            raise ValueError('target changed during collection; previous report retained')
+                            if latest is not None:
+                                row.update(latest, checked_at=now())
+                            raise SupersededReport('target changed during collection; previous report retained')
                         content = {p.relative_to(report_dir).as_posix(): load(p) for p in report_dir.rglob('*.json')}
                         packed = gzip.compress(json.dumps(content, separators=(',', ':')).encode(), mtime=0)
                         name = 'report-' + digest(content) + '.json.gz'
@@ -213,6 +229,8 @@ def publish(config: dict, output: Path) -> None:
                         row.update(report='reports/' + name[7:-8], asset=name, collected_run=key,
                                    analyzed_sha=report['analyzed_sha'], status=report['status'])
                         row.pop('error', None)
+                    except SupersededReport as exc:
+                        row.update(status='stale', error=str(exc))
                     except (ValueError, RuntimeError) as exc:
                         row.update(status='failed', error=str(exc))
             elif same:

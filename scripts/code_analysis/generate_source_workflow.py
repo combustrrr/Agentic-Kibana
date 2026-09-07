@@ -79,6 +79,8 @@ def generate():
                 text = text.replace('--command=.snyk-venv/bin/python', '--command="$RUNNER_TEMP/snyk-metadata/inspect-python"')
                 text = text.replace('repos/${GITHUB_REPOSITORY}', 'repos/${SOURCE_REPOSITORY}')
                 step = yaml.safe_load(text)
+                if name == 'snyk' and step.get('name') == 'Record configured scan status':
+                    step['run'] = step['run'].replace('jq -n', 'if grep -q "monthly limit" snyk-*.log; then\n  reason="Snyk organization monthly test quota exhausted; eligible OSS entitlement or quota renewal is required"\nfi\njq -n')
                 if step.get('name') == 'Ensure Browse for the verified Sonar API user':
                     step['if'] = "env.SONAR_API_TOKEN != ''"
                     step['continue-on-error'] = True
@@ -106,17 +108,18 @@ def generate():
                 steps.insert(1, {'uses': CHECKOUT, 'with': {'repository': '${{ github.repository }}',
                              'ref': '${{ inputs.tooling_sha }}', 'path': '.analysis-tooling', 'persist-credentials': False}})
             if name == 'openssf-scorecard':
-                steps = [{'name': 'Install verified Scorecard 5.5.0', 'run':
+                steps = [{'uses': CHECKOUT, 'with': {'ref': '${{ inputs.tooling_sha }}', 'persist-credentials': False}},
+                    {'name': 'Install verified Scorecard 5.5.0', 'run':
                     'curl --fail --location --retry 3 https://github.com/ossf/scorecard/releases/download/v5.5.0/scorecard_5.5.0_linux_amd64.tar.gz -o scorecard.tar.gz\n'
                     'echo "83b90a05c1540ef1390db1cd5711e5fd04be9c1d8537fb84d39d02092d6a8dff  scorecard.tar.gz" | sha256sum --check\n'
                     'tar -xzf scorecard.tar.gz scorecard\n'},
                     {'name': 'Scan external repository at selected commit', 'id': 'scorecard', 'continue-on-error': True,
                      'env': {'GITHUB_AUTH_TOKEN': '${{ github.token }}', 'ENABLE_SARIF': 'true', 'SOURCE_SHA': '${{ fromJSON(inputs.target).head_sha }}'},
-                     'run': './scorecard --repo="github.com/$SOURCE_REPOSITORY" --commit="$SOURCE_SHA" --format=sarif --show-details > openssf-scorecard.sarif'},
+                     'run': './scorecard --repo="github.com/$SOURCE_REPOSITORY" --commit="$SOURCE_SHA" --format=json --show-details > scorecard-native.json\npython -I scripts/code_analysis/scorecard_report.py'},
                     {'name': 'Retain Scorecard execution status', 'if': 'always()',
                      'env': {'OUTCOME': '${{ steps.scorecard.outcome }}'},
-                     'run': 'status=OPERATIONAL_FAILURE\nif [[ "$OUTCOME" == success ]]; then status=COMPLETED; fi\njq -n --arg status "$status" \'{scanner_family:"OpenSSF Scorecard",status:$status,reason:"Repository checks against the selected source commit; unavailable individual checks remain in scanner evidence"}\' > scorecard-status.json'},
-                    {'uses': UPLOAD, 'if': 'always()', 'with': {'name': 'openssf-scorecard', 'path': 'openssf-scorecard.sarif\nscorecard-status.json', 'retention-days': 7}}]
+                     'run': 'if [[ "$OUTCOME" != success ]]; then\n  jq -n \'{scanner_family:"OpenSSF Scorecard",status:"OPERATIONAL_FAILURE",reason:"Native Scorecard execution or source identity validation failed"}\' > scorecard-status.json\nfi'},
+                    {'uses': UPLOAD, 'if': 'always()', 'with': {'name': 'openssf-scorecard', 'path': 'openssf-scorecard.sarif\nscorecard-status.json\nscorecard-native.json', 'retention-days': 7}}]
             job['steps'] = steps
             jobs[f'scanner-{number}-{name}'] = job
     jobs['report'] = {'needs': list(jobs), 'if': "${{ always() && needs.identity.result == 'success' }}",

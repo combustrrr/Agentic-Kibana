@@ -11285,3 +11285,9 @@
 - Validation: 83 service/hosted tests passed. Reassembled the first live branch evidence without rescanning: 21,435 canonical findings from 22,160 observations, explicitly partial.
 - Blockers: Sonar analysis succeeds but native export returns HTTP 403; upstream secret-protection posture needs additional read permission. Snyk dependency repair and corrected live publication require another live run. No vendor subscriptions purchased.
 - Next: Publish repaired orchestration, verify branch/PR reports reach Pages, and record remaining channel-specific external blockers.
+
+### 2026-09-07 - codex - Live channel limits and recovery validation
+- Did: Browser-verified the public site with 26 active targets and no JavaScript errors. Added periodic browser refresh and queue counts, exact-run reconciliation independent of completion notifications, and source-only report asset sharing.
+- Found: Snyk dependency resolution now executes without source package installation, but the vendor rejects tests at the organization's monthly quota. Scorecard's CLI SARIF formatter can return empty output with exit zero; replaced it with validated native JSON and explicit per-check availability.
+- Validation: 85 hosted/service tests pass; workflow policy passes. Native Scorecard adapter tests reject wrong source revisions and preserve unavailable checks. Sonar export/posture permissions and Snyk entitlement remain named external blockers.
+- Next: Verify corrected producer reports reach the public site and complete rollout checks.

@@ -26,7 +26,8 @@
       "scripts/code_analysis/source_identity.py",
       "scripts/code_analysis/run_profile.py",
       "scripts/code_analysis/snyk_metadata.py",
-      "scripts/code_analysis/snyk_scan.py"
+      "scripts/code_analysis/snyk_scan.py",
+      "scripts/code_analysis/scorecard_report.py"
     ],
     "presentation": [
       "scripts/code_analysis/bound_sarif.py",
