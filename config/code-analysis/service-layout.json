@@ -52,7 +52,8 @@
       ".github/workflows/11-source-analysis.yml",
       "config/code-analysis/dashboard-pages.yml",
       "analysis-launcher/worker.mjs",
-      "analysis-launcher/wrangler.jsonc"
+      "analysis-launcher/wrangler.jsonc",
+      "analysis-launcher/register_github_app.py"
     ],
     "verification": [
       "scripts/code_analysis/audit_workflows.py",

@@ -87,5 +87,5 @@
     "xenon"
   ],
   "scanner_extensions": [],
-  "launch_endpoint": null
+  "launch_endpoint": "https://code-analysis-launcher.icsarthak9.workers.dev"
 }

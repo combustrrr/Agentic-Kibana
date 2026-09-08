@@ -289,6 +289,6 @@ The existing current-only reports, two-analysis limit, scanner boundaries and pu
 remain authoritative. Public browsing remains anonymous; launching requires GitHub.
 The earlier no-login constraint now applies only to viewing results.
 
-The implementation is disabled until App/Worker setup supplies a launch endpoint.
-See [authenticated launch setup and acceptance](AUTHENTICATED_LAUNCHING.md). Local tests
-do not establish a working live OAuth installation or resolve vendor scanner blockers.
+The current instance points at its deployed Cloudflare Worker and private GitHub App.
+See [authenticated launch setup and acceptance](AUTHENTICATED_LAUNCHING.md). A successful
+OAuth launch does not by itself establish scanner completion or resolve vendor blockers.

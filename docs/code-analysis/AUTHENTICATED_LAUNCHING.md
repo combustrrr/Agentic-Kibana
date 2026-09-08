@@ -27,7 +27,12 @@ commands. Use the [integration guide](INTEGRATIONS.md) to wire another instance.
 ## Administrator setup
 
 Direct launching is disabled while `launch_endpoint` in `config/code-analysis/service.json`
-is null. The GitHub Actions handoff remains usable. No credentials belong in that file.
+is null. The GitHub Actions handoff remains usable. The endpoint is public configuration;
+no credentials belong in that file.
+
+The current Kavach instance uses
+`https://code-analysis-launcher.icsarthak9.workers.dev`. Its private GitHub App is
+installed only on `combustrrr/Agentic-Kibana`; viewing reports remains public.
 
 1. In your Cloudflare account, enable Workers and choose the Worker URL. Set the
    non-secret repository identifiers and dashboard origin in
@@ -38,6 +43,17 @@ is null. The GitHub Actions handoff remains usable. No credentials belong in tha
    Disable webhooks. Request repository **Actions: read and write**, **Contents: read**,
    **Pull requests: read**, and the mandatory **Metadata: read**. Request no content
    writing, organization administration, or publishing permissions.
+
+   The bundled manifest helper performs this registration without printing or saving
+   the returned client secret. It opens GitHub for approval, writes the non-secret
+   client ID to Wrangler configuration, stores the secret directly in Cloudflare, and
+   opens the installation page:
+
+   ```shell
+   python register_github_app.py \
+     --worker-origin https://YOUR-WORKER.workers.dev \
+     --dashboard-url https://OWNER.github.io/code-analysis-dashboard/
+   ```
 3. Install the App only on the analysis fork. Copy its client ID into the Worker vars
    and generate a client secret. Keep expiring user tokens enabled.
 4. From `analysis-launcher/`, configure Worker secrets using Wrangler's interactive

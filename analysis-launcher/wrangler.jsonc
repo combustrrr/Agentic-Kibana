@@ -8,8 +8,16 @@
     "SOURCE_REPOSITORY": "ARYDESTROYER/Kavach-AgenticSOC",
     "ANALYSIS_REPOSITORY": "combustrrr/Agentic-Kibana",
     "DASHBOARD_ORIGIN": "https://combustrrr.github.io",
-    "GITHUB_CLIENT_ID": ""
+    "GITHUB_CLIENT_ID": "Iv23lixjTGgPaq9Jfp6R"
   },
-  "secrets": { "required": ["GITHUB_CLIENT_SECRET", "SESSION_KEY"] },
-  "observability": { "enabled": false }
+  "secrets": {
+    "required": [
+      "GITHUB_CLIENT_SECRET",
+      "SESSION_KEY"
+    ]
+  },
+  "observability": {
+    "enabled": false
+  },
+  "preview_urls": false
 }

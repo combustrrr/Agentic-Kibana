@@ -11442,3 +11442,8 @@
 ### 2026-09-08 - Authenticated launch deployment: implementation ready
 - Source validation: 105 service tests, 8 Worker tests, 9 browser tests, production UI build, workflow policy, 92-page docs check, and Wrangler dry-run packaging passed.
 - launch_endpoint remains null: live direct launching requires Cloudflare credentials and a registered/installed GitHub App. Existing Actions handoff stays available. Upstream remains read-only.
+
+### 2026-09-08 - Cloudflare and GitHub App activation
+- Deployed code-analysis-launcher.icsarthak9.workers.dev with encrypted sessions, preview URLs disabled, and the private code-analysis-launcher GitHub App installed on the analysis fork.
+- GitHub App secret was transferred directly to Cloudflare. Live OAuth redirect smoke check passed with PKCE and exact callback. Published dashboard configuration now enables direct launch.
+
