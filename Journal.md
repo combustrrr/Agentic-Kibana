@@ -11470,3 +11470,9 @@
 - Live Worker trace proved GitHub OAuth callback and authenticated target discovery for combustrrr. Repaired the dialog to automatically select the current/preferred branch, hide the manual Actions handoff after sign-in, and present one clear Start analysis action.
 - Production UI build passed. Existing browser suite reached 8/9 before an Ant Design test-selector mismatch; the corrected focused authenticated-launch test then passed. No production behavior failed.
 
+
+### 2026-09-08 - Authenticated launch live acceptance: session end
+- User signed in as combustrrr from the published dashboard. Worker trace confirmed OAuth login/callback, authenticated target discovery, and POST /api/launch; no token appeared in logs.
+- Dashboard request 34258530087 completed trusted discovery and queued exact-source producer 34258552728 for upstream Testing at f96fb513efb5d7c9ef12d463fbc0ff31bfaffbd5. Identity passed; 22 jobs completed and the upstream pytest coverage step remained in progress at handoff.
+- Published UX repair ce0b191 automatically selects the current/preferred branch after sign-in and hides the manual Actions handoff. Direct launching is operational for this configured instance. Another repository uses the same code with its own service config, scanner profile, analysis host and App installation.
+
