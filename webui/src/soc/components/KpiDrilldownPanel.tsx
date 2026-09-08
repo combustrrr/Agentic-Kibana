@@ -117,6 +117,7 @@ import {
 import { LoadingState } from '@/design-system';
 import { SEVERITY_BAND_ORDER, SeverityBadge, StatusBadge, severityBand } from './badges';
 import { EmptyState } from './EmptyState';
+import type { KpiBreakdownRow } from './KpiTile';
 import { LoadError } from './LoadError';
 import { MetricTrendBody, type MetricTrendSeries } from './MetricHoverTrend';
 
@@ -272,6 +273,24 @@ export interface KpiDrilldownSpec {
    * on that window, because outside it the tally answers a different question.
    */
   severityHistogram?: Record<string, number> | null;
+  /**
+   * A WHOLE-WINDOW partition of the tile's numeral, passed through from the page exactly
+   * as it was built — never re-derived from the rows this panel read, which would silently
+   * produce a page-scoped split that no longer sums to the numeral it partitions.
+   *
+   * Whole partition or none: a band folded away over-states its neighbour, so a residual
+   * stays visible even at zero and an unreported band is absent rather than zeroed. The
+   * page owns those rules; this panel only renders what it is handed, and renders nothing
+   * at all when the page withholds the partition (a stale window, a split that does not
+   * reconcile, an unreadable store).
+   *
+   * NOT YET GENERIC. The rendered caption is fixed close-attribution copy ("Who closed
+   * them…") and refers to "the numeral above", which is the pressed chip in the metric
+   * switcher — a band that only renders when `metrics.length > 1` and `onSelectMetric` are
+   * both supplied. A second caller needs its own caption, and a numeral to point at,
+   * before either sentence is true for it.
+   */
+  partition?: readonly KpiBreakdownRow[];
   /** The tile's honest server trend, restated here so touch/keyboard can reach it. */
   trend?: MetricTrendSeries;
   /** The full-list drill-through, when one exists for this population. */
@@ -1619,6 +1638,42 @@ export function KpiDrilldownPanel({
         aria-label={`${spec.title} cases — scrollable evidence`}
         className="min-h-0 min-w-0 flex-1 overflow-auto px-5 pb-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
+      {/* The numeral's WHOLE-WINDOW partition, FIRST in the scroller because a whole-window
+          rollup has to be read before the page-scoped stat cards below it — those are
+          computed over the rows the table lists and carry a caption that says so, and a
+          server rollup under that caption would be a fresh mislabel. (The numeral it
+          partitions sits in the pinned switcher band above and never scrolls away, so
+          co-visibility is not what decides the position.)
+
+          The `dt`/`dd` classes are the ones the tile partition used before it moved here;
+          the wrapper is sized for this panel, not for a 300px strip cell. */}
+      {spec.partition && spec.partition.length ? (
+        <div data-testid="kpi-drilldown-partition-block" className="sticky left-0 mb-3 mt-3">
+          <p className="mb-1.5 text-2xs text-muted-foreground">
+            Who closed them, over the whole window — the server rollup behind the numeral
+            above, not the cases listed below. The bands sum to that numeral.
+          </p>
+          {/* `max-w-sm` is load-bearing, not decoration. This panel is as wide as the
+              dashboard it explains, and an uncapped two-column list puts each band's label
+              at the far left and its value at the far right — ~1500px apart at the widest
+              cap, which reads as two unrelated columns rather than as a partition whose
+              rows sum to the numeral above. Capped, the pair stays one line. */}
+          <dl
+            data-testid="kpi-drilldown-partition"
+            className="grid min-w-0 max-w-sm grid-cols-[minmax(0,1fr)_auto] gap-x-6 gap-y-1 text-xs"
+          >
+            {spec.partition.map((row) => (
+              <React.Fragment key={row.label}>
+                <dt className="min-w-0 truncate text-muted-foreground" title={row.title}>
+                  {row.label}
+                </dt>
+                <dd className="font-mono font-medium tabular-nums text-foreground">{row.value}</dd>
+              </React.Fragment>
+            ))}
+          </dl>
+        </div>
+      ) : null}
+
       {spec.trend ? (
         <div
           data-testid="kpi-drilldown-trend"
