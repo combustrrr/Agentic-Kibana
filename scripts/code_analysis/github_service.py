@@ -114,6 +114,32 @@ def resolve_selection(config: dict, selected: str, rows: list[dict]) -> dict:
     repo = config['source_repository']
     prefix = f'https://github.com/{repo}/'
     value = selected.strip()
+    if value.startswith('{'):
+        try:
+            selection = json.loads(value)
+        except (ValueError, TypeError) as exc:
+            raise ValueError('Invalid structured analysis selection') from exc
+        if (not isinstance(selection, dict) or selection.get('repository') != repo
+                or selection.get('kind') not in {'branch', 'pr', 'commit'}
+                or not isinstance(selection.get('ref'), str)):
+            raise ValueError('Analysis selection must identify the configured source repository')
+        kind, ref = selection['kind'], selection['ref']
+        if kind == 'branch':
+            matches = [r for r in rows if r['kind'] == 'branch' and r['branch'] == ref]
+            if len(matches) != 1:
+                raise ValueError('Selected branch is no longer active')
+            return matches[0]
+        if kind == 'pr':
+            if not re.fullmatch(r'[1-9][0-9]*', ref):
+                raise ValueError('Invalid PR number')
+            rows = [r for r in rows if r['kind'] == 'pr']
+            value = 'PR #' + ref
+        else:
+            if not re.fullmatch(r'[0-9a-fA-F]{40}', ref):
+                raise ValueError('Full commit SHA required')
+            # Bypass branch labels that happen to look like commit SHAs.
+            sha = api(f'repos/{repo}/commits/{ref}')['sha']
+            return target(repo, 'Selected commit', sha, kind='commit')
     if value.startswith(prefix):
         value = value[len(prefix):].split('#', 1)[0].rstrip('/')
         if value.startswith('commit/'):
@@ -221,7 +247,7 @@ def scan(config: dict, refresh_target: str | None = None) -> None:
             row.update(scan_run_id=dispatched['workflow_run_id'], run_attempt=1)
         row['status'] = 'scanning'
         running += 1
-    state.update(preferred_branch=config['preferred_branch'], analysis_repository=host,
+    state.update(launch_endpoint=config.get('launch_endpoint'), source_repository=config['source_repository'], preferred_branch=config['preferred_branch'], analysis_repository=host,
                  analysis_default_branch=branch)
     save_state(host, rel, state)
     print(json.dumps({'targets': len(state['targets']), 'running': running,
@@ -301,7 +327,7 @@ def publish(config: dict, output: Path) -> None:
     rel = release(repo, 'current-reports', create=True)
     previous = json.loads(rel['body'] or '{}')
     state = reconcile(previous, inventory(config, scan_state), now())
-    state.update(preferred_branch=config['preferred_branch'], analysis_repository=host,
+    state.update(launch_endpoint=config.get('launch_endpoint'), source_repository=config['source_repository'], preferred_branch=config['preferred_branch'], analysis_repository=host,
                  analysis_default_branch=scan_state.get('analysis_default_branch'))
     runs = {r['id']: r for r in scan_state['targets']}
     # Workflow completion notifications may be suppressed or delayed. Resolve the

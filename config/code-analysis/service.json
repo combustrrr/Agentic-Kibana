@@ -86,5 +86,6 @@
     "vulture",
     "xenon"
   ],
-  "scanner_extensions": []
+  "scanner_extensions": [],
+  "launch_endpoint": null
 }

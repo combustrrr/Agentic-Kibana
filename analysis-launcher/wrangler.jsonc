@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "code-analysis-launcher",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-09-08",
+  "workers_dev": true,
+  "vars": {
+    "SOURCE_REPOSITORY": "ARYDESTROYER/Kavach-AgenticSOC",
+    "ANALYSIS_REPOSITORY": "combustrrr/Agentic-Kibana",
+    "DASHBOARD_ORIGIN": "https://combustrrr.github.io",
+    "GITHUB_CLIENT_ID": ""
+  },
+  "secrets": { "required": ["GITHUB_CLIENT_SECRET", "SESSION_KEY"] },
+  "observability": { "enabled": false }
+}

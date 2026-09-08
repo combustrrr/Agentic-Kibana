@@ -61,3 +61,7 @@ WORK_TRACKER.md
 .vite/
 webui/.vite/
 **/vitest/results.json
+
+# Authenticated analysis launcher local state and secrets
+analysis-launcher/.wrangler/
+analysis-launcher/.dev.vars*

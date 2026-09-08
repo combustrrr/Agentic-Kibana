@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
 test('retained dataset preserves source identity, filters and issue provenance', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
@@ -104,16 +105,66 @@ test('mobile issue evidence opens accessibly and closes with Escape', async ({pa
 
 
 test('theme persists and analysis handoff exposes the trusted workflow', async ({page}) => {
+  await page.route('**/index.json', async route => { const data = JSON.parse(readFileSync('public/data/index.json','utf8')); data.analysis_default_branch = 'Testing'; await route.fulfill({json:data}); });
   await page.goto('/');
   await page.getByText('Light', {exact:true}).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme','light');
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme','light');
   await page.getByRole('button',{name:'Run analysis',exact:true}).click();
+  await page.getByText('Commit', {exact:true}).click();
   await page.getByLabel('Analysis target',{exact:true}).fill('a'.repeat(40));
   await expect(page.getByRole('link',{name:'Open Run analysis in GitHub'})).toHaveAttribute('href', /actions\/workflows\/10-analysis-discovery.yml$/);
   await expect(page.getByText('refresh_target',{exact:true})).toBeVisible();
   await page.keyboard.press('Escape');
   await page.getByRole('button',{name:'Refresh results',exact:true}).click();
   await expect(page.getByText(/Reports checked:/)).toBeVisible();
+});
+
+
+test('authenticated developer selects live source and directly starts analysis', async ({page, context}) => {
+  const source = 'combustrrr/Agentic-Kibana';
+  let submitted: any;
+  await page.route('**/index.json', async route => {
+    const data = JSON.parse(readFileSync('public/data/index.json','utf8'));
+    Object.assign(data, {launch_endpoint:'https://launcher.example', source_repository:source, analysis_default_branch:'Testing'});
+    await route.fulfill({json:data});
+  });
+  await context.route('https://launcher.example/**', async route => {
+    const url = new URL(route.request().url());
+    const headers = {'Access-Control-Allow-Origin':'http://127.0.0.1:4178', 'Access-Control-Allow-Headers':'Authorization, Content-Type', 'Access-Control-Allow-Methods':'GET, POST, OPTIONS'};
+    if (route.request().method() === 'OPTIONS') return route.fulfill({status:204, headers});
+    if (url.pathname === '/auth/login') return route.fulfill({contentType:'text/html', body:`<script>window.opener.postMessage({type:'analysis-auth',nonce:'${url.searchParams.get('nonce')}',token:'opaque-session',login:'developer'},'http://127.0.0.1:4178');window.close();</script>`});
+    if (url.pathname === '/api/targets') return route.fulfill({headers, json:{repository:source, analysis_repository:source, targets:[{id:'branch:latest',kind:'branch',branch:'latest',label:'latest',repository:source,source_repository:source,head_sha:'b'.repeat(40),checked_at:new Date().toISOString()}]}});
+    expect(route.request().headers().authorization).toBe('Bearer opaque-session');
+    submitted = route.request().postDataJSON();
+    return route.fulfill({status:202, headers, json:{status:'submitted',run_id:42,url:`https://github.com/${source}/actions/runs/42`}});
+  });
+  await page.goto('/');
+  await page.getByRole('button',{name:'Run analysis',exact:true}).click();
+  await expect(page.getByLabel('Analysis repository')).toBeVisible();
+  await page.getByRole('button',{name:'Sign in with GitHub to start analysis'}).click();
+  await expect(page.getByText('Signed in as developer')).toBeVisible();
+  await expect(page.getByRole('button',{name:'Start analysis',exact:true})).toBeDisabled();
+  await page.getByLabel('Available analysis targets').click();
+  await page.getByTitle('latest',{exact:true}).click();
+  await expect(page.getByText('b'.repeat(40),{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Start analysis',exact:true}).click();
+  await expect(page.getByText('Analysis request submitted',{exact:true})).toBeVisible();
+  expect(submitted).toEqual({repository:source,kind:'branch',ref:'latest'});
+  await expect(page.getByRole('link',{name:'Track request 42'})).toHaveAttribute('href',/actions\/runs\/42$/);
+  await expect(page.getByRole('button',{name:'Start analysis',exact:true})).toBeDisabled();
+  expect(await page.evaluate(() => JSON.stringify({...localStorage,...sessionStorage}))).not.toContain('opaque-session');
+});
+
+test('commit validation prevents an invalid launch and distinguishes PR input', async ({page}) => {
+  await page.goto('/');
+  await page.getByRole('button',{name:'Run analysis',exact:true}).click();
+  await page.getByText('Commit',{exact:true}).click();
+  await page.getByLabel('Analysis target',{exact:true}).fill('abc');
+  await expect(page.getByText('Enter the full 40-character commit SHA.')).toBeVisible();
+  await expect(page.getByRole('button',{name:'Open Run analysis in GitHub'})).toBeDisabled();
+  await page.getByText('Pull request',{exact:true}).click();
+  await page.getByLabel('Analysis target',{exact:true}).fill('-1');
+  await expect(page.getByText('Enter a positive PR number.')).toBeVisible();
 });

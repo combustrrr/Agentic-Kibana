@@ -22,7 +22,7 @@ def configure(template: dict, source: str, analysis: str, publishing: str, branc
         raise ValueError('Profile roots/manifests must be safe repository-relative paths')
     result = {**template, 'source_repository': source, 'analysis_repository': analysis,
               'publishing_repository': publishing, 'preferred_branch': branch, 'profile': profile,
-              'scanner_extensions': []}
+              'scanner_extensions': [], 'launch_endpoint': None}
     registry(result)
     return result
 
