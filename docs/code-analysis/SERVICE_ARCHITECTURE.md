@@ -171,6 +171,14 @@ scanner's evidence, publication recovery, and browser checks. Missing vendor ent
 or upstream posture permissions remain explicit blockers; they must not be renamed
 as deferrals. Operational status must reflect actual rollout and verification results.
 
+Every configured channel is a delivery requirement. Installation, dispatch, an advisory
+green job, or a published partial report does not establish that a channel works. Each
+channel needs a real exact-source run, usable native evidence (including verified zero
+findings), successful ingestion, and visible issue/status provenance. `NOT_APPLICABLE`
+requires an actual missing source input or unsupported target context; it cannot hide
+credentials, quota, licensing, execution, or ingestion failures. Additional requested
+channels must satisfy this same acceptance contract before being called operational.
+
 The dedicated public site is deployed at
 `https://combustrrr.github.io/code-analysis-dashboard/`. Verified Testing producer
 34147753825 analyzed upstream `8ecba4956d1b05c143b52f372e2e6a585bc00134`, publishing
@@ -235,3 +243,29 @@ The standalone browser tests consume the retained-report fixture under ignored
 The deployment workflow template lives in `config/code-analysis/dashboard-pages.yml`.
 GitHub Pages size/usage limits and scanner OSS entitlements must be checked at rollout;
 free standard public runners do not promise unlimited artifact or commercial-vendor use.
+
+The standalone dashboard uses Ant Design for navigation, target selection, severity
+statistics, issue/scanner tables, operational alerts, and the keyboard-accessible
+source drawer. Its shared theme and responsive styles live only in `analysis-ui/`.
+Issue routes remain shareable hash links; selecting a finding loads retained exact-
+revision evidence without running analysis. Scanner execution remains a separate view.
+
+The reference-inspired dark dashboard adds a compact identity header, overview
+severity distribution, directory counts, and distinct-scanner overlap. Directory
+counts are not normalized risk scores; scanner overlap is not a confidence estimate.
+Desktop issue browsing keeps retained source evidence beside a compact finding list;
+small screens use the accessible drawer. Scanner category/status filters and a
+Provenance view expose the existing report contract. PR delta, AST traces, automated
+fixes and cryptographic certification claims are not inferred from these views.
+
+The dashboard supports persistent light/dark appearance and a Run analysis dialog.
+The dialog hands a target to the trusted GitHub Actions workflow; it never stores a
+token or dispatches from the browser. Operators keep the workflow branch on the fork
+default and supply `refresh_target`: an active branch, PR number, full upstream commit
+SHA, or matching upstream GitHub URL. GitHub resolves exact identities before queueing.
+One manually selected commit or non-active PR is retained alongside active discovery
+targets; the next such selection replaces that slot. PR snapshots preserve fork source
+and base/head context. This adds explicit revision inspection without historical browsing.
+Reports refresh automatically every minute with uncached fetches, or on Refresh results.
+Publication reconciles about every ten minutes; source-head discovery remains hourly.
+These intervals are polling cadences, not a real-time completion guarantee.

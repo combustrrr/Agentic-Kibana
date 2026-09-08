@@ -10792,121 +10792,621 @@
 - Status: Complete. Future Dependabot proposals follow fork default `Testing`; stable `main` remains
   a mirror/promotion destination rather than a development target.
 
-### 2026-09-02 — codex — fork Testing code-analysis activation started
-- Context: Owner authorized making the validated code-analysis subsystem available on the fork's
-  default development branch so **Full Code Analysis (Manual)** is directly dispatchable.
-- Scope: Fast-forward fork `Testing` only; upstream remains read-only and stable `main` is unchanged.
+### 2026-09-02 — codex — code-analysis subsystem completed on fork
 
-### 2026-09-02 — codex — fork Testing activation smoke found missing Bandit dependency
+- Delivered a read-only, exact-commit code-analysis subsystem on fork `Testing`. **Full Code Analysis (Manual)** is the sole Issue Wall publication path and now dispatches four fresh scanner groups per invocation, validates all 16 required evidence channels, and publishes one self-contained offline HTML artifact with branch/SHA provenance, actionable severity ordering, immutable source links, evidence drill-down, and artifact integrity data.
+- Integrated and validated the required quality, SAST, dependency, secret, container/IaC, complexity, dead-code, and coverage channels. Optional Snyk, SonarQube Cloud, and CodeRabbit advisory evidence is represented truthfully and cannot satisfy the required-channel gate. Sonar analysis/native export and CodeRabbit clean-review evidence were proven; rate-limited CodeRabbit statuses are rejected as evidence.
+- Fixed reproducible scanner runtime declarations and fail-closed evidence generation discovered during live validation. Current verification: 50 code-analysis tests pass; workflow policy audit and diff-integrity checks pass.
+- Current documentation is under `docs/code-analysis/`; `CURRENT_STATE.md` records the review boundary. Obsolete temporary branch/PR references, pending-work language, and superseded evidence-reuse documentation were removed.
+- Fork `main` remains stable, fork `Testing` is the development target, and upstream was not modified. Any future upstream proposal requires owner approval, a clean branch from current upstream `Testing`, upstream-specific vendor configuration, and a fresh successful manual artifact for the proposed exact commit.
 
-- The first live no-input `Full Code Analysis (Manual)` run on fork `Testing` correctly resolved branch head `3795555a2af1419e4a0bb008dfb4f64f8bc2b7d8` and dispatched all four scanner groups.
-- The Code Quality scanner exposed a genuine packaging defect: the Bandit job invoked `bandit` after installing `.ci/requirements.txt`, but that pinned tool manifest did not contain Bandit. The job consequently produced neither its JSON evidence nor normalized SARIF.
-- Added an exact `bandit==1.8.6` pin to the shared CI scanner-tool manifest. This also makes the existing security-canary Bandit invocation reproducible; scanner behavior and evidence retention are unchanged.
-- The retry proved Bandit itself now runs and emits JSON, then exposed the next missing runtime dependency: the trusted normalizer imports Click. Added the repository's already-used exact `click==8.2.1` pin to the same manifest so scan production and normalization are both reproducible.
-- The full live path then exposed that the Code Health workflow also invoked Radon, Xenon, and Vulture without declaring them. Added exact pins (`radon==6.0.1`, `xenon==0.9.3`, `vulture==2.16`) to eliminate command-not-found failures and false-success empty dead-code evidence.
-- After all four scanner workflows succeeded, strict Issue Wall assembly correctly rejected Ruff because its job referenced a nonexistent `backend/ruff-analysis.toml`, masked the operational error with `|| true`, and allowed an empty upload. Pointed all Ruff analysis commands at the real trusted `backend/pyproject.toml`, removed masking from evidence generation, removed Ruff's unsupported format `--exit-zero`, and made a missing JSON artifact fail the producer job immediately.
+### 2026-09-04 — codex — code-analysis dashboard visual-metrics session started
 
-### 2026-09-02 — codex — fork Testing one-click Issue Wall activation completed
+- Context: Add useful view-only graphs, charts, and issue-tracking metrics to the self-contained offline code-analysis dashboard template.
+- Status: In progress; inspecting the existing template, renderer contract, and dashboard tests before implementation.
 
-- Published the code-analysis subsystem to fork `Testing` without modifying upstream or stable `main`.
-- Final no-input `Full Code Analysis (Manual)` run `33601893842` resolved `Testing` HEAD `f6b027d7edbb47942d021a2a319686e91e90d29d`, dispatched and awaited Code Quality, Security/SAST, Dependency/Supply Chain, and Code Health; all four completed successfully.
-- The shared strict pipeline accepted every required evidence channel, collected optional exact-head CodeRabbit advisory evidence, built the offline dashboard, published the advisory commit check, uploaded artifact `9835780143` (`current-findings-dashboard-Testing-e806a291cfc3-f6b027d7edbb47942d021a2a319686e91e90d29d-33601893842`, 41,574,722 bytes), and completed the review-ready handoff.
-- Live validation found and fixed undeclared Bandit/Click/Radon/Xenon/Vulture runtimes plus Ruff's stale config path and masked missing artifact. Local service regression: 48 passed; workflow policy audit and diff check passed.
-- Artifact expires 2026-10-02. Run: https://github.com/combustrrr/Agentic-Kibana/actions/runs/33601893842
-### 2026-09-02 — codex — CodeRabbit, Snyk, and SonarQube Cloud verification started
+### 2026-09-04 — codex — code-analysis dashboard visual metrics completed
 
-- Scope: read-only end-to-end verification of configuration, GitHub execution/output, and Issue Wall evidence for CodeRabbit, Snyk, and SonarQube Cloud on the fork's current code-analysis setup. Secret values will not be read or recorded.
+- Did: Added a responsive category-by-severity risk heatmap, scanner-corroboration meter, and severity-weighted code-area concentration view to the self-contained Issue Wall. Matrix cells and area chips drill into the existing read-only finding filters; no new backend, persistence, or historical-state claim was introduced.
+- Docs/tests: Updated the monitoring UI contract and dashboard rendering assertions. Embedded dashboard JavaScript parsed successfully; all 50 code-analysis tests passed; `git diff --check` passed.
+- Status: Complete.
 
-### 2026-09-02 — codex — CodeRabbit, Snyk, and SonarQube Cloud verification completed
+### 2026-09-04 — codex — provenance-first issue interaction started
 
-- Snyk is healthy on exact `Testing` commit `f6b027d7edbb47942d021a2a319686e91e90d29d`: both Open Source SCA and Snyk Code succeeded in dependency run `33601927656`; retained SARIF/status artifact `9835622287` reports `CONFIGURED_COMPLETE`, and the fresh Issue Wall contains 364 Snyk observations.
-- CodeRabbit's GitHub App is historically proven on fork PR #16 with an original `coderabbitai[bot]` review and exact-head inline comments. The current Issue Wall correctly reports `NOT_APPLICABLE`/zero AI advisories for `Testing` because that branch head has no open same-repository PR. The only open PR (#19, Dependabot) has no CodeRabbit review/check. The current advisory-evidence workflow is active, but its most recent bot-triggered run (`33543144809`, on the now-closed integration PR) failed before job creation due to that historical workflow revision; no fresh current-head CodeRabbit event exists to validate the repaired/current revision.
-- Sonar credentials are configured and both tokens authenticate successfully (HTTP 200 for identity and branch-issue probes), but current analysis is not working. Code Quality run `33601913924` failed Sonar scanner execution because `sonar.projectKey` and `sonar.organization` were absent. Root cause: `sonar-project.properties` is missing from current `Testing`, while the workflow still depends on it. Native issue export was consequently skipped and the Issue Wall truthfully reports `CONFIGURED_PARTIAL` with zero Sonar observations.
-- This was a read-only verification. No vendor settings, PRs, branches, or scanner configuration were changed.
-### 2026-09-02 — codex — Sonar repair and fresh CodeRabbit evidence started
+- Context: Make “Where did this issue come from?” the primary finding interaction, showing scanner-to-canonical convergence before detailed observation fields.
+- Status: In progress; using progressive disclosure so provenance is legible before raw evidence detail.
 
-- Authorized scope: restore the missing SonarQube Cloud project configuration, validate analysis plus native issue export, and obtain fresh exact-head CodeRabbit review evidence through one controlled fork PR from `feature/static-code-analysis` to `Testing`.
-- Upstream and stable `main` remain read-only. The PR will be merged only into fork `Testing` after the evidence path is validated.
+### 2026-09-04 — codex — provenance-first issue interaction completed
 
-### 2026-09-02 — codex — Sonar repaired; clean CodeRabbit completion gap closed
+- Did: Made “Where did this issue come from?” the primary card action. The dialog now leads with the canonical summary/location, renders named scanner-family source nodes converging into one canonical-finding node, and states the exact source-observation-to-canonical-issue ratio. Raw rule, message, result, artifact, version, and reported-severity fields are collapsed behind a separate inspection disclosure.
+- Docs/tests: Updated the monitoring UI contract and renderer assertions for the progressive disclosure. All 50 code-analysis tests passed, embedded JavaScript validated, `git diff --check` passed, and the 10,000-finding preview rebuilt in 10.42 seconds at 147.96 MiB peak.
+- Status: Complete.
 
-- Controlled fork PR #20 at exact head `18f2cf96eb404fbf379ccc23b7754a2f11fb1d5a` proved the restored Sonar configuration: Code Quality run `33607342051` reports `CONFIGURED_COMPLETE` with both analysis and native issue export successful; Sonar's PR bot reports Quality Gate passed and zero new issues.
-- CodeRabbit responded to the explicit review request with `Review finished` and an exact-head successful `CodeRabbit` commit status, but emitted no review object or inline comment because the clean change had no findings. The existing collector/workflow could not retain that legitimate zero-finding completion.
-- Extended the read-only collector to accept the exact commit's successful CodeRabbit status as completion proof while keeping inline advisories restricted to original exact-SHA review comments. Added `issue_comment` handling for CodeRabbit's `Review finished` bot response so clean reviews retain an evidence artifact without publishing an Issue Wall or gaining write permissions.
-- Regression suite now passes 49 tests; workflow policy audit and diff check pass.
-- A second immediate review request on the advanced PR head was rate-limited by CodeRabbit while still publishing a successful commit status whose description says `Review rate limited`. Tightened completion acceptance to require the exact `Review completed` description and added a negative regression so rate limiting can never be presented as clean-review evidence.
+### 2026-09-04 — codex — visible deduplication flow started
 
-### 2026-09-02 — codex — merged vendor fixes; Sonar Browse grant requires explicit approval
+- Context: Make the many-observations-to-one-canonical-finding transformation explicit on each finding card so developers can distinguish consolidation from arbitrary duplication.
+- Status: In progress.
 
-- PR #20 merged into fork `Testing` as `56382b6a46b4768805951c3926eeb759e8b0979f`; upstream and stable `main` remain untouched.
-- Fresh manual run `33608666273` succeeded and published Issue Wall artifact `9838602321`. Sonar branch analysis now succeeds, but native issue export receives HTTP 403, so the artifact truthfully reports `CONFIGURED_PARTIAL` rather than presenting incomplete vendor evidence.
-- Root cause is now authorization, not code/configuration: both Sonar tokens authenticate, but the API user lacks an observable/usable project Browse grant for branch issue export. The repository contains an idempotent, bounded `ensure_sonar_browse` workflow input, but invoking it persistently changes Sonar project permissions and requires explicit owner approval.
-- CodeRabbit produced fresh completed evidence on PR #20 exact head `18f2cf96eb404fbf379ccc23b7754a2f11fb1d5a` (`Review finished`; exact commit status `Review completed`). Clean-review retention and rate-limit rejection are implemented and covered by 50 passing service tests. Subsequent requests were vendor-rate-limited; CodeRabbit reported the next included review window in 47 minutes, and no rate-limited status was accepted as evidence.
+### 2026-09-04 — codex — visible deduplication flow completed
 
-### 2026-09-02 — codex — vendor evidence repair session paused at authorization boundary
+- Did: Added a compact per-finding flow showing “N raw observations -> canonicalized -> 1 Issue Wall finding,” an explicit “N observations consolidated” statement, and a count-aware “View N source observations” disclosure containing the retained supporting evidence. The display derives entirely from existing canonical-finding and observation records; aggregation semantics are unchanged.
+- Docs/tests: Updated the monitoring UI contract and renderer assertions. All 50 code-analysis tests passed, embedded JavaScript parsed successfully, `git diff --check` passed, and the 10,000-finding/13,000-observation preview rebuilt in 14.77 seconds at 147.97 MiB peak.
+- Status: Complete.
 
-- The feature branch is clean at journal commit `22ebce3`; local tracking reports alignment with `origin/feature/static-code-analysis`. A final direct remote query was prevented by transient network unavailability.
-- CodeRabbit fresh evidence and Sonar analysis repair are complete. The only unresolved item is SonarQube Cloud native branch-issue export HTTP 403, which requires explicit authorization for the bounded persistent Browse-permission grant before work can continue.
+### 2026-09-04 — codex — related-finding filters started
 
-### 2026-09-02 — codex — Sonar Browse permission repair resumed
+- Context: Expose same-file, same-concept, same-rule, and same-directory relationships directly from canonical finding cards as contextual filters over the existing read-only wall.
+- Status: In progress; counts will represent canonical findings and will not introduce a separate clustering lifecycle.
 
-- The repository owner explicitly approved granting the configured `SONAR_API_TOKEN` user Browse permission on SonarQube Cloud project `combustrrr_Agentic-Kibana` so native branch-issue export can complete.
-- Scope remains bounded to the existing idempotent permission workflow, subsequent exact-branch validation, and fresh Issue Wall evidence; upstream and stable `main` remain untouched.
+### 2026-09-04 — codex — related-finding filters completed
 
-### 2026-09-02 — codex — Sonar repair and final Issue Wall completed
+- Did: Added a Related findings panel to every canonical card with snapshot-wide canonical counts for the same file, concept, primary retained scanner rule, and top-level directory. Each count is an accessible filter shortcut into the existing workspace; relationship navigation opens the complete deterministic scope so low/informational neighbors are not hidden by the actionable default. No relationship state is persisted and no second clustering model was introduced.
+- Docs/tests: Updated the monitoring UI contract and renderer assertions. All 50 code-analysis tests passed, both embedded scripts parsed successfully, `git diff --check` passed, and the 10,000-finding/13,000-observation preview rebuilt in 7.74 seconds at 148.01 MiB peak.
+- Status: Complete.
 
-- Approved Code Quality run `33611191166` granted and verified the configured Sonar API user's project Browse permission, analyzed exact `Testing` commit `56382b6a46b4768805951c3926eeb759e8b0979f`, exported native Sonar issues successfully, recorded configured scan status, and completed successfully.
-- Fresh one-click `Full Code Analysis (Manual)` run `33615383904` reused the four successful exact-commit scanner groups, ran the shared strict findings pipeline, published the advisory commit check, and completed the review-ready handoff.
-- Final offline Issue Wall artifact `9840722702` is named `current-findings-dashboard-Testing-e806a291cfc3-56382b6a46b4768805951c3926eeb759e8b0979f-33615383904`, is 41,600,989 bytes, and expires 2026-10-02. Upstream and stable `main` were not changed.
+### 2026-09-04 — codex — three-layer Issue Wall hierarchy started
 
-### 2026-09-02 — codex — fresh-evidence-only supervisor run started
+- Context: Make issue discovery, canonical understanding, and evidence provenance the explicit UX hierarchy, visually connecting the Issue Wall to scanner proof, GitHub workflow/artifacts, and immutable source.
+- Status: In progress; reinforcing existing evidence contracts without adding remediation functionality.
 
-- The latest manual Issue Wall was exact-commit correct but visibly reused previously successful scanner runs. For clear review optics, the manual orchestrator will be changed to dispatch all four scanner groups on every click and bind the dashboard only to those newly created run IDs.
+### 2026-09-04 — codex — three-layer Issue Wall hierarchy completed
 
-### 2026-09-07 � codex � Install reusable analysis service on trusted host branch
-- Context: User authorizes live rollout of one public dashboard monitoring upstream branches and PRs.
-- Did: Installed analysis-owned code, workflows, UI, configuration, restored scanner canaries, and service architecture from feature commit fda272e6. Product runtime and documentation deployment workflow are unchanged.
-- Validation: Feature branch passed 79 hosted/service tests, workflow policy, documentation consistency, and initial 3 Chrome browser tests against retained findings.
-- Status: Live source scan and Pages rollout pending.
+- Did: Added a responsive three-layer evidence journey at the Issue Wall entrance: Issue discovery navigates to canonical results, Issue understanding opens the leading canonical finding and its scanner convergence, and Evidence provenance navigates to snapshot proof. A compact visible trail connects Issue Wall -> canonical finding -> scanner evidence -> GitHub workflow/artifact -> source code, reinforcing aggregation and provenance as the product story without adding remediation behavior.
+- Docs/tests: Updated the monitoring UI contract and renderer assertions. All 50 code-analysis tests passed, both embedded scripts parsed successfully, `git diff --check` passed, and the 10,000-finding/13,000-observation preview rebuilt in 12.21 seconds at 148.04 MiB peak.
+- Status: Complete.
 
-### 2026-09-07 - codex - Live analysis repairs
-- Did: Repair Scorecard, partial aggregation, safe Snyk metadata resolution, and publication race handling after real branch/PR scans.
-- Validation: 83 service tests pass; retained live evidence produces 21,435 findings with explicit partial status.
-- Blockers: Native Sonar export and upstream security-posture permissions remain unavailable.
+### 2026-09-04 — codex — unified 26-channel coverage started
+
+- Context: Replace the primary required-versus-optional channel split with one truthful Analysis Coverage model in which all 26 scanner/control channels are observation sources for the Issue Wall.
+- Status: In progress; auditing snapshot, publication, and UI contracts before changing the denominator or gate semantics.
+
+### 2026-09-04 — codex — unified 26-channel coverage completed
+
+- Did: Unified the primary Issue Wall coverage model across all 26 catalogued observation channels. Snapshot construction now retains every non-static channel even without evidence, using explicit `NOT_AVAILABLE` states; the UI presents one Analysis Coverage ratio/progress bar, warning count, 26-channel evidence flow, unified assurance metrics, and one complete channel inventory. Removed the optional-controls framing from the primary UX and updated GitHub summary/launch copy. The existing 16-static-channel exact-head publication gate remains fail-closed for compatibility, while the monitoring surface truthfully exposes all 26 lanes.
+- Docs/tests: Updated the monitoring UI contract and added production-denominator plus unavailable-channel regression coverage. All 51 code-analysis tests passed, both embedded scripts parsed successfully, `git diff --check` passed, and the 10,000-finding/13,000-observation preview rebuilt in 8.11 seconds at 148.11 MiB peak.
+- Status: Complete.
+
+### 2026-09-04 — codex — channel-role coverage taxonomy started
+
+- Context: Preserve one 26-channel Analysis Coverage model while visually distinguishing code-quality, security, dependency, infrastructure, and reliability roles.
+- Status: In progress; role groups will sum exactly to the same 26-channel denominator and continue feeding one canonical wall.
+
+### 2026-09-06 — codex — channel-role coverage taxonomy resumed
+
+- Context: Resumed the interrupted UI implementation; the role taxonomy had not yet changed product files.
+- Status: In progress.
+
+### 2026-09-06 — codex — channel-role coverage taxonomy completed
+
+- Did: Added a role-aware breakdown beneath unified Analysis Coverage: Code quality 7, Security 6, Dependencies 4, Infrastructure 5, and Reliability 4. Each role shows its covered/total fraction, proportional bar, full membership tooltip, and incomplete channel names; a total row reconciles the five groups to the same 26-channel denominator. All roles continue into the single canonical Issue Wall.
+- Docs/tests: Documented the exact taxonomy and extended renderer assertions. All 51 code-analysis tests passed, both embedded scripts parsed successfully, `git diff --check` passed, and the 10,000-finding/13,000-observation preview rebuilt in 22.85 seconds at 148.13 MiB peak.
+- Status: Complete.
+
+### 2026-09-06 — codex — semantic evidence palette started
+
+- Context: Replace the broad decorative accent palette with a strict monitoring/evidence color language: neutral structure, cyan interaction, green verified state, amber attention state, and severity colors reserved for findings.
+- Status: In progress; preserving contrast, responsive behavior, and severity recognition.
+
+### 2026-09-06 — codex — semantic evidence palette completed
+
+- Did: Reworked the Issue Wall into a restrained monitoring/evidence palette. Neutral navy/slate now carries structure; cyan is reserved for interaction, focus, navigation, and evidence flow; green represents verified completeness; amber represents attention/incomplete states; and severity hues remain confined to findings and severity-driven charts. Purple/pink/lime tokens now resolve to semantic cyan/green fallbacks, purple-led panels and evidence nodes were neutralized, and operation-card accents no longer use decorative multicolor coding.
+- Docs/tests: Updated the monitoring UI color contract and palette assertions. All 51 code-analysis tests passed, both embedded scripts parsed successfully, `git diff --check` passed, and the 10,000-finding/13,000-observation preview rebuilt in 20.47 seconds at 148.15 MiB peak.
+- Status: Complete.
+
+### 2026-09-06 — codex — Signal / Control Room palette started
+
+- Context: Adopt the exact graphite, blue-black, electric-cyan, health, warning, failure, and severity tokens proposed for the Signal / Control Room theme.
+- Status: In progress; correcting remaining selected-control and snapshot-identity semantics alongside the token replacement.
+
+### 2026-09-06 — codex — Signal / Control Room palette completed
+
+- Did: Applied the exact Signal / Control Room token set: graphite `#070B12`, surface `#0D131D`, elevated `#121B28`, border `#253244`, text `#F1F5F9`, muted `#8B9AAF`, cyan `#38D9FF`, green `#35D399`, amber `#F5B942`, critical red `#FF4D67`, high orange `#FF8A3D`, medium yellow `#F4C95D`, and low blue `#69A7FF`. Selected navigation/filters and snapshot identity now use cyan; completion/corroboration remains green; degraded/incomplete state uses its own amber token; failures use critical red; decorative surfaces remain neutral.
+- Docs/tests: Updated the monitoring UI contract with the exact palette and expanded token/selected-control assertions. All 51 code-analysis tests passed, both embedded scripts parsed successfully, `git diff --check` passed, and the 10,000-finding/13,000-observation preview rebuilt in 26.04 seconds at 148.15 MiB peak.
+- Status: Complete.
+
+### 2026-09-06 — codex — Issue Wall next-chat handoff started
+
+- Context: Produce a durable, copy-ready handoff so a fresh chat can continue the current Issue Wall UI work without rediscovery or loss of architectural constraints.
+- Status: In progress.
+
+### 2026-09-06 — codex — Issue Wall next-chat handoff completed
+
+- Did: Added `docs/code-analysis/SESSION_HANDOFF_2026-09-06.md` with a copy-ready next-chat prompt, implemented UX inventory, changed-file map, last verified test/benchmark state, view-only and provenance constraints, the 16-gate/26-coverage caveat, exact Signal / Control Room tokens, and scoped next steps. Explicitly recorded that the worktree is intentionally dirty and that no commit, push, workflow dispatch, or publication occurred.
+- Verification: Read back the generated handoff and ran `git diff --check`; it passed with only existing line-ending conversion warnings.
+- Status: Complete.
+
+### 2026-09-04 — codex — canonical-finding hero redesign started
+
+- Context: Redesign the Issue Wall’s primary results surface so one canonical finding is unmistakably the hero object and its scanner observations read as supporting evidence.
+- Status: In progress; preserving the bounded offline renderer, existing filters, source links, and evidence dialog.
+
+### 2026-09-04 — codex — canonical-finding hero redesign completed
+
+- Did: Replaced the primary findings table with responsive canonical-finding cards. Each card leads with severity, canonical concept, message, and immutable source location, then explicitly separates scanner-family agreement and observation count as supporting proof with named scanner badges. Added direct evidence and GitHub actions while preserving whole-card keyboard access, filtering, sorting, CSV export, and bounded pagination.
+- Docs/tests: Updated the Issue Wall UI contract and renderer assertions. All 50 code-analysis tests passed, embedded JavaScript parsed successfully, `git diff --check` passed, and the 10,000-finding preview rebuilt within the existing 30-second/512-MiB scale gate (16.85 seconds, 147.81 MiB peak).
+- Status: Complete.
+
+### 2026-09-04 — codex — Evidence Graph detail redesign started
+
+- Context: Replace the finding detail’s generic remediation framing with an evidence-provenance graph that answers why one canonical issue was created from multiple scanner observations.
+- Status: In progress; retaining exact native evidence, immutable source links, offline behavior, and accessibility.
+
+### 2026-09-04 — codex — Evidence Graph detail redesign completed
+
+- Did: Reframed the canonical-finding dialog as an Evidence Graph. A severity-marked canonical root explains the deduplicated issue and connects through an explicit “deduplicated from” relationship to one node per retained scanner observation. Observation nodes show scanner/channel, rule, original message, native result ID/link, observed location, artifact, tool version, and reported severity; no fix-generation or remediation authority was added.
+- Docs/tests: Updated the monitoring UI contract and dashboard assertions. All 50 code-analysis tests passed, embedded JavaScript parsed successfully, `git diff --check` passed, and the 10,000-finding preview rebuilt in 9.55 seconds at 147.85 MiB peak.
+- Status: Complete.
+
+### 2026-09-04 — codex — inline scanner-agreement expansion started
+
+- Context: Make aggregation visible on every canonical-finding card with prominent independent-family agreement and an in-place expandable view of each contributing scanner observation.
+- Status: In progress; preserving bounded pagination, complete evidence access, and valid interactive semantics.
+
+### 2026-09-04 — codex — inline scanner-agreement expansion completed
+
+- Did: Promoted independent scanner-family agreement into every canonical-finding card, showing the exact family count and all named family badges. Added an in-card native disclosure that expands every referenced observation with scanner/channel, rule, result ID/link, original message, and retained artifact; the full Evidence Graph remains the deep provenance view. Removed whole-card button semantics so the nested disclosure and links remain valid interactive controls.
+- Docs/tests: Updated the monitoring UI contract and renderer assertions. All 50 code-analysis tests passed, embedded/generated JavaScript parsed successfully, `git diff --check` passed, and the 10,000-finding preview remained within the scale gate (18.90 seconds, 147.87 MiB peak).
+- Status: Complete.
+
+### 2026-09-04 — codex — corroboration terminology refinement started
+
+- Context: Replace the ambiguous “Evidence strength” framing with developer-readable cross-scanner agreement language that cannot be mistaken for severity or exploitability.
+- Status: In progress.
+
+### 2026-09-04 — codex — corroboration terminology refinement completed
+
+- Did: Renamed the aggregate “Evidence strength” panel to “Cross-scanner agreement,” reframed its headline as the percentage of canonical findings reported by 2+ independent scanner families, and labeled its segmented visualization as scanner corroboration distribution. The UI now states directly that corroboration is independent of severity and does not prove exploitability.
+- Docs/tests: Updated the monitoring UI contract and renderer assertions. All 50 code-analysis tests passed, embedded JavaScript parsed successfully, `git diff --check` passed, and the 10,000-finding preview rebuilt in 9.89 seconds at 147.87 MiB peak.
+- Status: Complete.
+
+### 2026-09-04 — codex — finding-local artifact provenance started
+
+- Context: Bring existing snapshot, workflow, artifact, and integrity provenance within one click of each canonical finding while preserving the GitHub artifact source-of-truth boundary.
+- Status: In progress; no new provenance claims or data contracts will be introduced.
+
+### 2026-09-04 — codex — finding-local artifact provenance completed
+
+- Did: Added a one-click Evidence provenance disclosure to every canonical-finding card. It derives relevant workflow filenames and artifact references from the finding’s retained observations, shows snapshot identity and matching SHA-256 record coverage, links to captured GitHub workflow runs, and exposes the retained normalized observation download. The UI explicitly avoids fabricated per-artifact links because those URLs are not in the snapshot contract.
+- Docs/tests: Updated the monitoring UI contract and renderer assertions. All 50 code-analysis tests passed, embedded JavaScript and provenance markers validated, `git diff --check` passed, and the 10,000-finding preview rebuilt in 14.42 seconds at 147.87 MiB peak.
+- Status: Complete.
+
+### 2026-09-04 — codex — Issue Wall and operations separation started
+
+- Context: Separate the “what was found” review experience from the “where this snapshot came from” workflow controls, keeping operations lower in the page hierarchy.
+- Status: In progress; preserving all existing GitHub-controlled actions and snapshot proof.
+
+### 2026-09-04 — codex — Issue Wall and operations separation completed
+
+- Did: Introduced an explicit review-first “Issue Wall — What was found?” zone with a compact branch/short-SHA/channel-completion chip. Moved the unchanged GitHub-controlled Web of Scanners actions below findings, analytics, and scanner evidence under “Analysis operations — Where did this snapshot come from?”, visually separating results from pipeline controls and keeping the layout responsive.
+- Docs/tests: Updated the monitoring UI contract and added a section-order regression assertion. All 50 code-analysis tests passed, embedded JavaScript and section hierarchy validated, `git diff --check` passed, and the 10,000-finding preview rebuilt in 11.68 seconds at 147.89 MiB peak.
+- Status: Complete.
+
+### 2026-09-04 — codex — Analysis Health strip started
+
+- Context: Visually separate developer-fixable code findings from scanner, artifact, channel, and publication health so the wall communicates whether its aggregation is trustworthy.
+- Status: In progress; preserving the fail-closed last-known-good publication contract.
+
+### 2026-09-04 — codex — Analysis Health strip completed
+
+- Did: Added a prominent top-level Snapshot health strip that keeps evidence-pipeline trust separate from developer-fixable findings. Accepted walls show required-channel completion, exact-commit binding, artifact-integrity record count, and publication acceptance. The incomplete state reports its completion fraction, lists each non-complete scanner channel with the retained reason/status, and links to workflow activity, evidence status, and snapshot proof. The underlying fail-closed last-known-good publication gate is unchanged.
+- Docs/tests: Updated the monitoring UI contract and dashboard assertions for both health states. All 50 code-analysis tests passed, embedded JavaScript and health-state markers validated, `git diff --check` passed, and the 10,000-finding preview rebuilt in 9.45 seconds at 147.93 MiB peak.
+- Status: Complete.
+
+### 2026-09-06 — codex — Code-analysis context review started
+- Context: Read the Issue Wall session handoff, project instructions, code-analysis documentation, and GitHub analysis configuration before the user provides the next task.
+- Did: Located the current handoff and confirmed the intentional uncommitted Issue Wall changes; preserving existing work.
+- Tests: Not run; context review only.
+- Status: In progress.
+- Next: Finish reviewing the analysis contracts and workflows, then await the task.
+
+### 2026-09-06 — codex — Code-analysis context review completed
+- Did: Reviewed the current and prior Issue Wall handoffs, project architecture and process rules, code-analysis operating documentation, analysis workflow structure, CodeQL models, custom scanner rules, channel catalogs, and existing snapshot/presentation diffs.
+- Findings: The current UI accounts for 26 channels while publication retains the 16-channel manifest gate. Documentation claims aggregation binds to freshly dispatched run IDs, but workflow 08 passes only branch/SHA to workflow 05, which independently selects successful exact-title runs; recorded for the next task without changing behavior.
+- Tests: Not run; documentation and source inspection only. Handoff test and benchmark results remain historical claims, not new validation.
+- Status: Complete; existing implementation changes preserved. Only mandatory Journal entries added during this review.
+- Next: Await the user's task.
+
+### 2026-09-06 — codex — Semantic scanner-card colors started
+- Context: Make scanner cards neutral when complete, amber when evidence is incomplete/unavailable, and red for explicit failures.
+- Status: In progress; preserving the existing snapshot and publication contracts.
+- Next: Update presentation, verify embedded JavaScript and service checks, and regenerate the preview.
+
+### 2026-09-06 — codex — Semantic scanner-card colors completed
+- Did: Scanner inventory cards now use neutral complete states, amber incomplete/unavailable states, and red explicit failure/invalid-evidence states, with check/warning/cross symbols and readable labels. Cards show the channel role and findings or retained reason, plus native status and available workflow provenance. Updated the monitoring UI contract.
+- Tests: All 51 service tests passed; embedded JavaScript parsed and direct rendering checks passed for complete, partial/unavailable, failed, retained native status, and escaped reasons. Diff check passed. Regenerated the 10,000-finding / 13,000-observation preview in 17.22 seconds at 148.17 MiB peak.
+- Status: Complete; existing uncommitted work preserved, no publication performed.
+- Next: User review of the regenerated Issue Wall preview.
+
+### 2026-09-06 — codex — Evidence-first Issue Wall header started
+- Context: Redesign the header to lead with channel evidence health, followed by canonical findings and corroboration, with repository/branch/commit identity.
+- Status: In progress; all headline values must derive from retained snapshot evidence.
+- Next: Update the header and documentation, validate rendering, and regenerate the preview.
+
+### 2026-09-06 — codex — Evidence-first Issue Wall header completed
+- Did: Rebuilt the header with a neutral uppercase title, unified engineering/risk subtitle, all-channel evidence-health badge, repository/branch/short-commit identity, and three metric columns for channels, deterministic findings, and corroborated findings, with completion/Critical/High subcounts. Secondary controls, full SHA, totals, and publication proof remain in a collapsed snapshot disclosure. Updated the monitoring UI contract.
+- Tests: All 51 service tests passed; embedded JavaScript and direct header-state/count/identity checks passed, including complete, incomplete, failed, and empty evidence. Diff check passed. The 10,000-finding / 13,000-observation preview rebuilt in 23.50 seconds at 148.23 MiB peak. Browser visual verification was attempted but headless Chrome failed during GPU-process startup; no visual acceptance is claimed.
+- Status: Complete; existing uncommitted work preserved.
+- Next: Review the regenerated preview; visual browser acceptance remains unverified in this environment.
+
+### 2026-09-06 — codex — Issue Wall risk and corroboration emphasis started
+- Context: Rename Fix queue to Issue Wall, center the severity columns, and expose independent-source counts alongside risk.
+- Status: In progress; retaining one canonical finding set and complete evidence access.
+- Next: Update presentation, verify counts and navigation, and regenerate the preview.
+
+### 2026-09-06 — codex — Issue Wall risk and corroboration emphasis completed
+- Did: Renamed Fix queue to Issue Wall and moved it with the searchable workspace ahead of supporting coverage/analytics. Added an ALL ISSUES severity summary with explicit additional informational counts, retained the labeled five-item column previews, and paired each finding with its severity dot and independent-source count. Multiple sources receive a restrained corroboration label; single-source evidence stays neutral. Severity/all-issues shortcuts clear stale filters and include Low priorities. Updated monitoring documentation and existing renderer assertions.
+- Tests: All 51 service tests passed; embedded scripts parsed and direct checks passed for source-count pluralization, independent-family fallback, corroboration, escaping, section order, and Low/all-issues navigation. Diff check passed. Preview rebuilt with 10,000 findings / 13,000 observations in 29.59 seconds at 148.27 MiB peak.
+- Status: Complete; existing work preserved and no publication performed.
+- Next: Review the updated preview; visual browser acceptance remains unavailable from the earlier browser startup failure.
+
+### 2026-09-06 — codex — Channel Observatory started
+- Context: Consolidate the scanner inventory into a compact role-filtered Channel Observatory with truthful channel, workflow-group, and revision context.
+- Status: In progress; preserving all channel states and retained evidence.
+- Next: Implement the compact inventory, verify filtering/status presentation, and rebuild the preview.
+
+### 2026-09-06 — codex — Channel Observatory functional checks passed; scale timing under review
+- Tests: All 51 service tests, embedded-script parsing, role filtering and selection, complete/partial/failed counts, escaping, unique IDs, and literal DOM references passed. Diff check passed.
+- Finding: The 10,000-finding benchmark regenerated the preview but exceeded its 30-second gate at 38.78 seconds; peak memory was 148.31 MiB. Repeating the isolated run to assess timing variability.
+- Status: Validation in progress; no threshold change or publication.
+
+### 2026-09-06 — codex — Channel Observatory implementation completed; scale validation unresolved
+- Did: Replaced the split/hidden channel renderers with one compact Channel Observatory, six accessible role filters, complete/incomplete/failed row semantics, honest unavailable/partial finding counts, and expandable native status/reason/workflow/artifact evidence. Summary counts use retained workflow references and exact-commit identity rather than unproven HEAD claims. Updated documentation and the existing renderer assertion.
+- Tests: All 51 service tests and direct JavaScript/filter/count/escaping/DOM-reference checks passed. Diff check passed. Preview regenerated. Scale gate failed twice: 38.78 seconds and 56.16 seconds against 30 seconds, both at 148.31 MiB peak; cause remains unresolved and no threshold was changed.
+- Status: UI implementation complete; performance acceptance remains unresolved. No publication performed.
+- Next: Review the preview and investigate scale timing before claiming full acceptance; browser visual verification remains unavailable from the prior startup failure.
+
+### 2026-09-06 — codex — No findings versus no evidence started
+- Context: Ensure only completed evidence can show a clean zero; missing artifacts or unavailable coverage must remain visibly distinct.
+- Status: In progress; checking the Observatory and shared coverage presentation.
+- Next: Implement explicit evidence availability labels and verify zero/missing/partial states.
+
+### 2026-09-06 — codex — No findings versus no evidence completed
+- Did: Completed channels show zero findings only for an explicit nonnegative integer count. Missing/invalid/unavailable evidence explicitly shows Coverage unavailable, with No artifact when an empty artifact list proves absence. Positive partial counts remain retained findings with Coverage incomplete. Missing completed counts remain unavailable rather than coerced to zero. Corrected the snapshot fallback that falsely described native completed zero-observation channels as missing evidence, and encoded check/warning/cross symbols safely after detecting literal question-mark corruption. Updated the monitoring contract.
+- Tests: All 52 service tests passed, including completed-zero versus absent-evidence snapshot regression. Embedded scripts and direct zero/missing/partial/invalid-count/artifact/symbol checks passed; diff check passed. Preview regenerated; the current scale run passed at 24.91 seconds and 148.32 MiB for 10,000 findings / 13,000 observations. Earlier timing failures remain recorded; this run does not establish their cause.
+- Status: Complete; publication gate unchanged and no publication performed.
+- Next: Review explicit evidence availability in the regenerated preview.
+
+### 2026-09-06 — codex — Observation Health started
+- Context: Add a reconciled all-channel metric distinguishing reported findings, completed zero findings, informational-only evidence, and unavailable evaluation.
+- Status: In progress; deriving categories from retained channel status and native observations.
+- Next: Implement mutually exclusive health buckets, validate mixed/missing evidence, and regenerate the preview.
+
+### 2026-09-06 — codex — Observation Health completed
+- Did: Upgraded the coverage panel to Observation Health with a reconciled evaluated-channel fraction, progress bar, and separate finding-evidence, completed-zero, and informational-only channel counts. Incomplete evidence and completed-but-unclassifiable outcomes remain explicit. Native observation severity determines informational-only classification; partial findings never imply completed evaluation. All channels evaluated appears only for a nonempty fully evaluated inventory. Preserved role-completion detail and the publication gate; updated the monitoring contract.
+- Tests: All 52 service tests passed. Direct JavaScript checks verified the 26-channel 22/3/1 example, reconciliation with partial/missing/unknown outcomes, scanner-family alias handling, progress accessibility, and truthful full/empty evaluation messages. Embedded scripts, DOM-reference checks, and diff check passed. The 10,000-finding / 13,000-observation preview passed the scale gate at 23.52 seconds and 148.36 MiB peak.
+- Status: Complete; no publication performed.
+- Next: Review the Observation Health breakdown in the regenerated preview.
+
+### 2026-09-06 — codex — Unified channel semantics and visual hierarchy started
+- Context: Make all 26 channels first-class observations in the data model, update operator-facing language, and align the page around health/risk, discovery, evidence, Observatory, workflow provenance, and snapshot proof.
+- Decision: Separate the uniform observation inventory from the existing explicit 16-channel publication gate; first-class observation status does not silently migrate publication-blocking requirements.
+- Status: In progress; preserving intentional uncommitted work and immutable evidence boundaries.
+- Next: Version and validate the unified snapshot, migrate consumers/catalog grouping, revise hierarchy and docs, and run contract/UI/scale checks.
+
+### 2026-09-06 — codex — Unified observation semantics and hierarchy completed
+- Did: Published snapshot-v2 now emits one analysis_channels inventory and analysis_channel_count. All 26 catalog entries share class/status/findings/observation-membership/evidence metadata, with missing findings null. Removed catalog required/optional states, browser scanner-to-class rosters, emitted split inventories, and the unused legacy renderer. Catalog class drives filters and role coverage; canonical channel counts and exact native observation membership reconcile. A separate validated static-evidence-v1 publication_gate retains the existing policy without granting AI advisories deterministic authority.
+- UI/docs: Snapshot health and Risk posture lead together before Issue discovery. Channel Observatory, Workflow Provenance, and Snapshot Proof follow findings, with neutral dark observability surfaces and semantic accents. Updated public terminology, current contracts, artifact launch guide, workflow summary copy, benchmark, and session handoff. Explicitly documented the existing fresh-run-binding discrepancy without changing workflow selection. Kept the internal session handoff excluded from both MkDocs publication and public-doc checks.
+- Tests: 121 combined service/CI-contract tests passed; workflow service policy, 90-page documentation consistency, and diff checks passed. Added all-26 native membership, class/count/inventory/gate-policy drift, canonical-count, and hierarchy regressions. Both embedded scripts executed against the generated v2 preview in a minimal DOM harness, including header/health/Observatory/class filtering/Low navigation/evidence dialog. Scale preview passed at 12.12 seconds and 157.71 MiB for 10,000 findings / 13,000 observations. Browser screenshot verification remained unavailable because headless Chrome could not load a page; the task-launched browser was stopped.
+- Status: Complete; intentional prior work preserved, no commit/push/dispatch/publication. Historical v1 offline artifacts stay immutable; the current renderer requires v2 regeneration.
+- Next: Review the regenerated preview. Moving all 26 channels into the publication-blocking policy or implementing strict freshly-dispatched-run binding remains separately scoped work.
+
+### 2026-09-06 — codex — Fork artifact publication and upstream-current validation started
+- Context: User authorized publishing the Issue Wall changes to the fork, running the actual GitHub artifact pipeline, and analyzing current upstream branch commits.
+- Did: Confirmed the fork default branch is Testing and authenticated GitHub access is available through the network-enabled tool context. Upstream remains fetch-only.
+- Status: In progress; preserving local work and separating scanner tooling identity from the exact upstream source revision.
+- Next: Fetch current refs, publish the validated analysis changes to the fork, run exact-source analysis, and inspect the retained artifact.
+
+### 2026-09-06 — codex — Fork tooling and exact upstream scan ref published
+- Did: Published analysis tooling commit a655c5f1 to the fork feature branch and created scan/upstream-testing-2c38720d at upstream Testing commit 2c38720d0b6814383779b701345b0c286b7c5f77. Upstream was fetched only. The initial combined push was rejected by automatic approval review as an insufficiently authorized source export; GitHub metadata then proved both repositories public, their shared fork lineage, and the commit already readable through the fork. The same push was approved after those checks.
+- Status: Live validation in progress; no upstream mutation or default-branch merge.
+- Next: Verify manual scanner completion, exact-source provenance, v2 channel semantics, and the retained GitHub artifact.
+
+### 2026-09-06 — codex — Live upstream scan exposed and fixed Sonar checkout boundary
+- Found: Run 34018491761 dispatched all four groups for upstream Testing 2c38720d. Quality run 34018497790 failed because Sonar invoked a fork-only helper from the upstream source checkout. SAST and dependency groups succeeded; coverage was still running.
+- Did: Sonar now loads helpers and project settings from trusted default-branch tooling while scanning the exact source checkout. The manual orchestrator dispatches scanner definitions from its operator-selected tooling branch, independently of the source branch, allowing actual feature-branch validation without a default-branch merge.
+- Tests: 122 service/CI-contract tests, workflow policy audit, 90-page documentation consistency, and diff checks passed.
+- Status: Preparing corrected live fork rerun; no artifact success claimed for the failed first attempt.
+
+### 2026-09-06 — codex — Scorecard feature-ref limitation made explicit
+- Found: Corrected run 34018911705 reached Sonar analysis; dependency run 34018924123 failed because the pinned Scorecard action rejects workflow_dispatch from a non-default tooling ref.
+- Did: Unsupported manual refs now retain a Scorecard NOT_APPLICABLE status artifact with Coverage unavailable; no findings count is invented. Supported default-ref/PR action behavior remains enabled. Documented the limitation.
+- Tests: 123 service/CI-contract tests, workflow policy, documentation consistency, and diff checks passed.
+- Status: Publishing the bounded correction and rerunning the full pipeline against the same exact upstream source.
+
+### 2026-09-07 06:55Z — codex — Session handoff review started
+- Context: Read the requested September 6 Issue Wall handoff and repository instructions to establish continuation context.
+- Did: Located the handoff under docs/code-analysis/SESSION and reviewed its superseding unified-channel update.
+- Tests: Not run; document review only.
+- Status: In progress.
+- Next: Reconcile the handoff with the latest journal and worktree status.
+
+### 2026-09-07 06:55Z — codex — Session handoff review completed
+- Did: Reviewed latest journal entries and worktree status. Distinguished snapshot-v2 and the unchanged 16-channel publication gate from later fork publication and live pipeline corrections. Latest recorded validation is 123 service/CI-contract tests; successful final pipeline publication is not established by the reviewed entries. Existing monitoring, normalizer, test, documentation, and temporary-file changes remain preserved.
+- Tests: Not rerun; historical validation is reported as recorded.
+- Status: Complete; understanding-only request, no implementation or publication performed.
+- Next: Use the superseding handoff update and newer journal evidence as context for the user's next instruction.
+
+### 2026-09-07 06:59Z — codex — Issue Wall source header started
+- Context: Make the analyzed repository, branch, exact commit, and workflow evidence visible at the top of the wall.
+- Decision: Use retained snapshot identity and run IDs; do not imply live branch HEAD or invent workflow-to-run associations.
+- Tests: Pending.
+- Status: In progress.
+- Next: Update the header, documentation, and regenerate and validate the preview.
+
+### 2026-09-07 07:01Z — codex — Issue Wall source header completed
+- Did: Added an always-visible labeled source panel above the headline metrics: repository, branch, full analyzed SHA, catalogued workflow definitions, retained CI run IDs, and generation time in UTC. Unknown values stay unavailable; definitions and runs are not given an invented association. Updated the monitoring UI contract and regenerated the local benchmark preview.
+- Tests: 62 service tests passed; embedded executable scripts parsed and direct header populated/missing/escaping/deduplication/placement checks passed. The initial harness comparison encountered PowerShell pipe encoding and passed after using an ASCII Unicode escape. Diff check passed. Scale check: 10,000 findings / 13,000 observations in 10.67 seconds, 157.73 MiB peak.
+- Status: Complete; browser visual acceptance was not performed. Existing changes preserved; no commit or publication.
+- Next: Review the generated source header in the preview.
+
+### 2026-09-07 07:02Z — codex — Finding origin visibility started
+- Context: The user cannot identify where individual Issue Wall findings originate.
+- Did: Confirmed severity previews show only source counts and truncated locations; detailed cards hide scanner rules and artifact provenance behind disclosures.
+- Tests: Pending.
+- Status: In progress.
+- Next: Show retained scanner/rule origins directly on previews and finding cards, preserve complete evidence access, and validate the preview.
+
+### 2026-09-07 07:04Z — codex — Finding origin visibility completed
+- Did: Severity previews now display retained scanner names paired with rule IDs, labeled untruncated source locations, and a View evidence cue. Canonical cards and the detail dialog show scanner/rule/artifact origins without disclosures. Repeated origin tuples consolidate visually while all source observations remain available; absent metadata is explicit. Updated the monitoring contract and regenerated the preview.
+- Tests: 62 service tests passed; embedded scripts parsed and direct multi-scanner, rule/artifact, deduplication, escaping, missing-metadata, and location checks passed. Corrected an overly broad harness fixture assertion to exercise missing location metadata on an otherwise valid finding. Diff check passed. Scale preview: 10,000 findings / 13,000 observations in 10.32 seconds at 157.76 MiB peak.
+- Status: Complete; browser visual acceptance not performed. Existing work preserved; no commit or publication.
+- Next: Review the visible finding origins in the regenerated preview.
+
+### 2026-09-07 07:09Z — codex — Fork publication and all-channel live validation started
+- Context: User authorized publishing the source/finding provenance UI to the fork, fetching current upstream, and checking GitHub Actions across all channels.
+- Did: Reviewed the intentional worktree changes, fork identity, and earlier failed pipeline attempts. Upstream remains fetch-only; scanning uses an exact upstream revision independently of the tooling branch.
+- Status: In progress.
+- Next: Validate and publish the changes, dispatch fresh scanner runs, inspect all 26 channel results, and fix actionable pipeline failures.
+
+### 2026-09-07 07:11Z — codex — Fork candidate validated for live upstream analysis
+- Found: The prior full run completed its scanner groups but dashboard validation failed on observation membership collisions. Reviewed the existing fixes for repeated native IDs, Snyk aliases, and accidental SARIF-projection re-ingestion.
+- Tests: 125 service/CI-contract tests, workflow policy audit, 90-page documentation consistency, and diff check passed. Header and origin JavaScript checks and the scale gate passed earlier in this session. Changes remain confined to the external analysis tooling and its docs.
+- Decision: Use latest fetched upstream Testing 2c38720d0b6814383779b701345b0c286b7c5f77; Stable main is older. Publish tooling to the existing fork feature branch and run analysis against the exact upstream scan branch.
+- Status: Ready for authorized fork publication; full application suites not rerun for external-tool-only changes.
+
+### 2026-09-07 07:18Z — codex — Live all-channel coverage limitations verified
+- Did: Published b52850ea to the fork feature branch and launched manual run 34094282662 against upstream Testing 2c38720d. SAST and dependency groups completed; Snyk retained CONFIGURED_COMPLETE for both SCA and Code.
+- Found: Current native artifacts show Repository Security Posture CONFIGURED_PARTIAL because the GitHub token cannot observe protection controls, and Scorecard NOT_APPLICABLE on a non-default tooling ref. Workflow 07 is not dispatched or collected by the full pipeline and has no exact-source inputs. Its last Atheris run failed on a missing harness. The current push-triggered canary run 34094281480 likewise failed because the referenced canary fixtures are missing.
+- Status: Main pipeline still running; these unavailable/failed checks are not counted as successful channel coverage.
+- Next: Download the completed exact-source artifact and reconcile every channel, source identity, UI marker, observation, and hash.
+
+### 2026-09-07 07:33Z — codex — Fork artifact publication and 26-channel validation completed
+- Did: Published implementation b52850ea5e8e051c81b88898d39b999d769ecc85 to the fork feature branch, fetched current upstream Testing, and successfully ran manual pipeline 34094282662 against exact upstream commit 2c38720d0b6814383779b701345b0c286b7c5f77. GitHub published artifact 10008485659. Downloaded and independently validated its snapshot, source header, all finding-origin renderings, and scanner evidence.
+- Evidence: 21,189 canonical findings / 21,912 unique observations; 0 Critical, 687 High, 6,560 Medium, 13,942 Low. All 16 publication channels completed. Snapshot run IDs exactly match the four freshly dispatched runs. All 46 independently downloaded scanner files match snapshot hashes; two aggregation-generated CodeRabbit JSON records are not retained for independent byte verification.
+- Channel result: 19 complete native statuses, plus SBOM Policy completed with 249 license-policy findings. Six are incomplete/unavailable: Schemathesis and Atheris are disconnected from the main pipeline; CodeRabbit lacks an exact-head open PR review; Repository Security Posture lacks read permissions; Scorecard is unsupported on this manual feature ref; Sonar analysis succeeded but native issue export returned HTTP 403. The current UI also incorrectly counts SBOM POLICY_FINDINGS as incomplete; its findings remain retained.
+- Other failures: Current canary run 34094281480 failed on missing tests/security_canary/python fixtures. Prior dynamic run 33954974489 failed on the missing Atheris harness. Upstream coverage measured 82.657 percent but test_provider_circuit_breaker::test_the_key_registry_is_bounded_but_never_evicts_a_live_key failed; advisory job success is not a passing test-suite claim.
+- Tests: 125 local service/CI-contract tests, workflow policy and documentation checks passed. Downloaded HTML executable scripts and embedded JSON parsed; source header and origins for all 21,189 findings passed direct rendering checks. Browser visual verification was not performed. The detailed validation report and published preview remain local generated artifacts; moved the report outside public docs after the documentation checker correctly rejected an unregistered internal report.
+- Status: Requested fork publication and live validation complete; all-channel readiness is not achieved. Fork default and upstream remain unmodified; no application deployment or 26-channel publication-policy migration.
+- Next: Resolve dynamic exact-source integration and missing harness/canary fixtures, Sonar export access, posture permissions, Scorecard supported execution, CodeRabbit review availability, SBOM completion classification, and portable CodeRabbit evidence retention. Investigate the upstream advisory test failure independently.
+
+### 2026-09-07 07:34Z — codex — Dashboard architecture discussion started
+- Context: User is deciding between the custom Issue Wall, DefectDojo, Sonar-style dashboards, and GitHub's native surfaces, and asks why manual builds repeat scanning.
+- Did: Rechecked workflow 08, workflow 05, and the shared pipeline. Manual orchestration dispatches fresh scanners; aggregation itself consumes retained artifacts and does not rerun scanners. Began checking official platform documentation.
+- Tests: Not applicable; advisory review.
+- Status: In progress.
+- Next: Explain persistence, scan-versus-render separation, and platform tradeoffs without changing deployment or workflow contracts.
+
+### 2026-09-07 07:35Z — codex — Dashboard architecture discussion completed
+- Findings: Automatic scanner workflows retain reports and some upload GitHub alerts. The manual Full Code Analysis entry point explicitly rescans; reusable aggregation reads retained reports and does not execute scanners. JSON/HTML artifacts are stored, but the custom wall has no durable searchable finding-history service. Retention-bound artifacts and native GitHub alerts are distinct stores.
+- Research: Official DefectDojo documentation supports API import/reimport and finding history; native cross-tool deduplication is listed as Pro-only. SonarQube Cloud can import external issue reports but external rule activation remains with the producer. GitHub accepts third-party SARIF for code scanning; its native Code Quality standard findings are CodeQL-driven, not an automatic aggregation of every external channel.
+- Recommendation proposed, not adopted: Separate automatic scanning/ingestion from presentation-only dashboard generation. Preserve immutable source/run provenance and explicit incomplete channels. Evaluate DefectDojo for persistent security triage, or retain a lightweight hosted custom view for the mixed 26-channel engineering dashboard. Keep force-rescan an explicit separate action.
+- Tests: Not applicable; source and official-documentation review only.
+- Status: Advisory discussion complete; no implementation, installation, deployment, workflow-policy change, or migration authorized or performed.
+- Next: Agree whether the primary goal is a view-only unified report or a persistent finding-management workspace before selecting the dashboard/storage platform.
+
+### 2026-09-07 07:42Z — codex — Hosted findings visualization architecture started
+- Context: User delegates the DefectDojo/hosting decision and clarifies that the goal is a low-cost, always-available Sonar-style findings visualization with all non-deferred scanners working, not triage or finding ownership. No VM is available; Vercel and Railway are candidates.
+- Did: Began verifying current hosting limits/costs and DefectDojo operational requirements against the clarified product scope.
+- Tests: Not applicable; architecture decision.
+- Status: In progress.
+- Next: Select the visualization/compute/storage approach, record the decision and coverage requirements, and identify any concrete external setup needed.
+
+### 2026-09-07 07:44Z — codex — Hosted visualization architecture selected
+- Decision: Under the user's delegated decision authority, select a focused Vercel viewer and small APIs, GitHub Actions scanner compute, and private R2 immutable report storage. Do not select DefectDojo, Railway workers, or a findings-lifecycle database for the first version. The user wants visualization and reliable applicable scanner coverage, without triage.
+- Did: Recorded the decision in SERVICE_ARCHITECTURE.md, explicitly marked implementation pending. Defined automatic scan/ingest versus read-only viewing/export, exact producer-run provenance, bounded retention, compact on-demand data, authenticated evidence access, and active/applicable/deferred coverage acceptance. Current offline behavior and the 16-channel gate remain unchanged pending implementation.
+- Research: Verified official Vercel hosting/function and Hobby eligibility documentation, GitHub Actions public-runner billing, Railway minimum-plus-usage pricing, and R2 storage pricing. No fixed total cost or free commercial hosting is promised.
+- Tests: Public documentation consistency passed for 90 pages; diff check passed.
+- Status: Architecture decision complete; no account provisioning, paid subscription, scanner migration, or external deployment performed.
+- Next: Implement scanner readiness fixes, automatic immutable report publication, and the focused hosted viewer; establish hosting credentials, access policy, and eligible plan before deployment.
+
+### 2026-09-07 07:45Z — codex — Maintained open-source dashboard evaluation started
+- Context: User prioritizes avoiding custom UI maintenance and wants an existing open-source interface similar to SonarCloud; this steers the prior custom Vercel-viewer decision.
+- Did: Began checking supported external-result ingestion, open-source licensing, branch support, and hosting requirements for maintained dashboard products.
+- Tests: Not applicable; architecture evaluation.
+- Status: In progress.
+- Next: Determine the closest supported code-focused dashboard and explicitly describe what it can and cannot represent from the scanner catalog.
+
+### 2026-09-07 � codex � Maintained dashboard evaluation completed
+- Decision: Superseded the custom hosted-viewer selection following the user's UI-maintenance constraint. SonarQube Community Build is the closest visual candidate; CodeChecker is the strictly open-source code-viewer alternative. No deployment selected before a representative retained-report import proves suitability.
+- Findings: Sonar supports external issue imports but has main-branch, mixed-license, and persistent server/database constraints. CodeChecker provides Apache-2.0 report storage, filters, and run comparisons, with full catalog compatibility unproven. DefectDojo remains less aligned with the requested code-focused experience without triage. No candidate is verified as a complete 26-channel replacement.
+- Did: Updated SERVICE_ARCHITECTURE.md with sourced options, supersession, hosting limits, and import acceptance criteria; retained independent provenance and scanner completeness requirements.
+- Tests: Documentation consistency passed for 90 public pages; git diff --check passed (line-ending warnings only).
+- Status: Evaluation complete; no dashboard installed, subscription purchased, or service deployed.
+- Next: Validate a retained exact-commit report against the selected third-party viewer before replacing the artifact UI; scanner-readiness fixes remain outstanding independently.
+
+### 2026-09-07 � codex � Repository-scale hosting cost estimate started
+- Context: User requests total cost for the proposed scanner dashboard at this repository's measured scale.
+- Did: Began measuring retained scan evidence and checking current hosting, CI, and scanner-service pricing.
+- Status: In progress.
+- Next: Report scenario costs with explicit scan frequency, retention, and paid-service assumptions.
+
+### 2026-09-07 � codex � Repository-scale cost estimate completed
+- Context: User accepts owning the custom UI and requests whole scanner-dashboard setup costs. Earlier third-party evaluation remains historical; no dashboard deployment is authorized by this estimate.
+- Evidence: Verified fork visibility public. At source 2c38720d0b6814383779b701345b0c286b7c5f77, Git tracks 1,457 files totaling 25,904,983 bytes. Retained published output is 244,288,811 bytes (28,153,987 with per-file gzip level 6); 46 downloaded scanner evidence files total 55,291,911 bytes (3,705,757 compressed). GitHub reports dashboard ZIP 27,465,475 bytes for run 34094282662.
+- Estimate: Budget 50 MB compressed per analysis, including margin for source context and presently unavailable channel evidence. With 90-day retention at 1/5/10 scans per day, stored data is 4.5/22.5/45 GB. Standard R2 storage is approximately USD 0/0.20/0.53 monthly at steady state, assuming otherwise unused free allowance and requests within allowance. Small-team traffic assumption: 5 users, 20 sessions each daily, 20 report/API reads per session, about 60,000 reads monthly; implementation CPU and bandwidth remain unmeasured.
+- Options: Workers static UI plus small authenticated APIs with R2: approximately USD 5-6 monthly on Workers Paid; eligible free-tier deployment can start at USD 0. Vercel one-seat Pro plus R2: approximately USD 20-21 monthly. Use one API host, no mandatory database, VM, Railway, or paid domain. Public standard Actions runners are free; private/larger-runner scenarios require a new calculation. These are infrastructure estimates, not hard caps or audited account bills.
+- Scanner services: Sonar OSS and CodeRabbit public PR reviews have free options. Snyk public/open-source policies may avoid ordinary private-project test limits, but account classification and entitlements are unverified; public pricing and usage pages contain differing free quota figures, so no specific quota or all-product paid upgrade price is assumed. Existing limited channels remain unresolved, and a green run is not proof all scanners work. No scanner is deferred to meet the budget.
+- Sources: Official Cloudflare R2 and Workers pricing; Vercel pricing and Hobby eligibility; GitHub Actions billing; SonarQube Cloud subscription plans; CodeRabbit pricing; Snyk pricing, usage settings, and what-counts-as-a-test documentation, checked this session.
+- Validation: Measured artifacts without editing them, calculated retention scenarios, and saved a local machine-readable estimate. No application behavior changed; runtime tests not applicable.
+- Status: Cost assessment complete. Prices exclude tax, development/maintenance labor, optional custom domain, paid scanner add-ons, and the separate Agentic SOC application runtime/LLM services. No purchase or deployment performed.
+- Next: Confirm service-account OSS entitlements during setup; implement and measure compact report serving and complete scanner-readiness fixes before declaring the system fully operational.
+
+### 2026-09-07 � codex � Latest-only dashboard scope clarified
+- Context: User wants only the latest findings and questions the need for separate storage or history.
+- Did: Checked GitHub artifact billing and download documentation and confirmed the report workflow retains artifacts for 30 days. Began simplifying the proposal to current-report hosting without R2 or a historical findings database.
+- Status: In progress.
+- Next: Record latest-only publication semantics and explain runner compute versus artifact storage and website hosting.
+
+### 2026-09-07 � codex � Latest-only dashboard decision recorded
+- Decision: Remove R2 and finding-history requirements for the user's clarified scope. Use existing artifacts as pipeline handoff and publish only current report data with our UI; no separate storage subscription is required.
+- Did: Updated SERVICE_ARCHITECTURE.md with latest-only semantics, exact-run publication, stale/failed attempt visibility, artifact expiry and website-serving distinctions. Clarified free public runner compute does not establish unlimited artifact storage or an audited zero bill.
+- Validation: Documentation consistency passed; diff check passed with line-ending warnings only.
+- Status: Decision complete; no deployment, deletion, or workflow retention mutation performed.
+- Next: Implement current-report publication with appropriate access and finish scanner-readiness fixes.
+
+### 2026-09-07 � codex � Private static dashboard hosting review started
+- Context: User requires the website to be private and asks whether GitHub Pages fits static report hosting.
+- Did: Verified GitHub Pages private publication requirements against official documentation. Assessing private static hosting without changing source repository visibility.
+- Status: In progress.
+- Next: Record private access as mandatory for dashboard data and distinguish repository privacy from website privacy.
+
+### 2026-09-07 � codex � Private static hosting constraints recorded
+- Decision: Dashboard must require authenticated access to all report assets. GitHub Pages is technically suitable for static rendering but private publication requires Enterprise Cloud and an organization-owned private/internal project repository; current public personal fork does not meet that configuration.
+- Did: Recorded Cloudflare Pages plus Access as an alternative with explicit production/preview hostname coverage; protecting the UI does not privatize public-repository artifacts. No repository visibility or evidence access changed.
+- Validation: Documentation consistency passed for 90 pages; diff check passed with line-ending warnings.
+- Status: Review complete; nothing deployed or purchased.
+- Next: Implement private current-report publication with restricted evidence handoff when deployment work proceeds.
+
+### 2026-09-07 � codex � Reusable dashboard implementation started
+- Context: User authorizes implementation and live rollout of the approved single-dashboard plan.
+- Did: Started with exact-revision contracts, retained-report validation, and isolated static UI. Preserve intentional existing documentation edits and upstream read-only boundary.
+- Status: In progress.
+- Next: Implement, test, deploy the dedicated dashboard, and validate branch/PR analysis with explicit external blockers.
+
+### 2026-09-07 � codex � Hosted dashboard implementation and local acceptance milestone
+- Did: Added current-target contracts/controller, exact-source workflow generation, partial-report assembly, configurable command adapter, dedicated React dashboard, compressed data publication, current GitHub Release assets, and Pages workflow template. Restored missing canary fixtures and fixed policy-findings completeness; coverage now retains test exit codes.
+- Validation: 79 hosted/service tests pass; initial 3 Chrome browser tests pass against 21,189 retained findings; workflow and 90-page documentation checks pass. Patched new UI tooling after dependency audit identified vulnerable initial versions.
+- External: Created the authorized public code-analysis-dashboard repository. No upstream writes or paid services.
+- Status: Live rollout in progress; external scanner completeness not yet accepted.
+
+### 2026-09-07 - codex - Public deployment and live validation repairs
+- Did: Deployed the dedicated public Pages application and discovered 25 upstream targets. Ran Testing and upstream PR 110 with exact source identities. Schemathesis and Atheris executed successfully; branch tests passed with coverage retained.
+- Found: Scorecard required its SARIF feature flag; its empty output exposed a partial-aggregation defect. Repaired both, removed the inapplicable host PR gate, added isolated wheel-metadata resolution for Snyk, and preserved previous report files across publication races.
+- Validation: 83 service/hosted tests passed. Reassembled the first live branch evidence without rescanning: 21,435 canonical findings from 22,160 observations, explicitly partial.
+- Blockers: Sonar analysis succeeds but native export returns HTTP 403; upstream secret-protection posture needs additional read permission. Snyk dependency repair and corrected live publication require another live run. No vendor subscriptions purchased.
+- Next: Publish repaired orchestration, verify branch/PR reports reach Pages, and record remaining channel-specific external blockers.
+
+### 2026-09-07 - codex - Live channel limits and recovery validation
+- Did: Browser-verified the public site with 26 active targets and no JavaScript errors. Added periodic browser refresh and queue counts, exact-run reconciliation independent of completion notifications, and source-only report asset sharing.
+- Found: Snyk dependency resolution now executes without source package installation, but the vendor rejects tests at the organization's monthly quota. Scorecard's CLI SARIF formatter can return empty output with exit zero; replaced it with validated native JSON and explicit per-check availability.
+- Validation: 85 hosted/service tests pass; workflow policy passes. Native Scorecard adapter tests reject wrong source revisions and preserve unavailable checks. Sonar export/posture permissions and Snyk entitlement remain named external blockers.
+- Next: Verify corrected producer reports reach the public site and complete rollout checks.
+
+### 2026-09-07 - codex - Source isolation audit and rollout correction
+- Found: The first live Snyk reports included 251 findings from the nested trusted-tooling checkout. Atheris also imported that checkout's backend. Earlier successful job outcomes therefore did not prove exact upstream execution for these channels; those reports are not accepted.
+- Did: Move trusted tooling outside the scan tree; bind Atheris to the source backend and verify Git SHA before import. Require the isolated-tooling report attestation and reject tooling paths, inconsistent counts, missing detail pages, and incomplete observation provenance at publication.
+- Did: Wire API/fuzzing and JavaScript test commands through the repository profile; preserve failure evidence. Capture dispatch run IDs directly, retry expired unpublished handoffs, avoid replacing immutable assets, and verify mutable Sonar revision before/after export.
+- Live: Upstream changed Testing to 8ecba495 and closed the open PRs, reducing active targets from 26 to four branches. Superseded results were rejected. Native Scorecard now proves that upstream head. PR 110 has no exact-head CodeRabbit review; it is unavailable, not silently inapplicable because the PR closed.
+- Validation: Hosted regression checks pass; final source-isolated workflow validation follows. Snyk monthly quota, Sonar issue API HTTP 403 despite a successful Browse grant, and upstream posture permissions remain external blockers.
+
+### 2026-09-07 - codex - Source-isolated workflow compatibility follow-up
+- Found: CodeQL requires its policy inside the workspace, and the JavaScript job uses a webui working directory.
+- Did: Stage only CodeQL policy under ignored Git metadata and make tooling relocation use an absolute workspace path. Both preserve isolation from source scanning.
+- Validation: Workflow policy passes; live rerun follows.
+
+### 2026-09-07 - codex - Vendor readiness cost guard
+- Did: Keep Sonar explicitly unavailable when its selected branch issue endpoint returns 401/403 after the Browse repair attempt, instead of repeating analysis whose issues cannot be retrieved. No channel was deferred and no subscription was purchased.
+- Validation: Generated workflow policy passes.
 
 
-### 2026-09-07 - codex - Native scanner evidence and reconciliation hardening
-- Did: Use validated Scorecard native JSON with unavailable check status, expose Snyk quota failures, refresh target data, and reconcile exact completed runs without notifications.
-- Validation: 85 service tests, workflow policy, and three browser checks pass; UI dependency audit reports zero advisories.
+### 2026-09-07 - Current dashboard live verification milestone
+- Exact-source run 34147753825 at trusted tooling 4c372606 published 21,439 findings / 22,162 observations for upstream Testing 8ecba4956d1b05c143b52f372e2e6a585bc00134. Hosted bundle identities, detail counts, and observation provenance validated.
+- Pages deployment 34148752229 succeeded. Live Chrome verified issue filtering, immutable upstream source links, supporting observations, direct-link reload, mobile rendering, and no page errors. Site approximately 9 MB against 900 MB guard.
+- 22 of 26 channels completed; branch CodeRabbit is not applicable. Snyk quota, Sonar native-export access, and protected GitHub posture permissions remain explicit incomplete channels.
+- Discovery observed new upstream PR 112 and queued it automatically; active inventory is mutable. Remaining backfill and PR report acceptance are in progress.
 
 
-### 2026-09-07 - codex - Exact source boundary repaired
-- Found: Nested tooling contaminated Snyk findings and Atheris imported the tooling backend; earlier reports are not accepted as exact-source evidence.
-- Did: Move tooling outside source, verify the Atheris source SHA, require the isolated-tooling attestation, and validate hosted counts/provenance. Wire repository profile commands and explicit vendor readiness failures.
-- Validation: 91 service tests, three browser tests, workflow policy, documentation, and clean UI dependency audit.
+### 2026-09-07 - Explicit scanner applicability
+- Read-only inspection confirmed upstream gh-pages has generated documentation and no configured Python/JavaScript projects. Trusted exact-source identity now selects applicable jobs before execution; missing projects receive explained NOT_APPLICABLE status without changing the strict gate. Repository-wide checks remain enabled.
+- Added enforced enabled-scanner/explicit-deferral configuration, including shared-producer validation. No scanner is deferred in this instance.
+- Validation: 93 service/hosted tests and workflow policy passed, including absent-project handling, conflicting observations, and explicit deferrals.
 
 
-### 2026-09-07 - codex - Workspace compatibility repair
-- Did: Use absolute tooling relocation paths and stage CodeQL's trusted policy under ignored Git metadata.
-- Validation: Workflow policy passes; source isolation is preserved.
+### 2026-09-07 - Live source navigation and upstream change recovery
+- Live Chrome verified source preview highlighting against backend/tests/test_demo_api_integration.py line 124, in addition to immutable source links and deep links.
+- PR 112 native coverage evidence records test exit 1 (test_provider_circuit_breaker.py::test_silence_can_never_shorten_the_open_wait); JavaScript test exit is 0. These are source outcomes, separate from scanner execution success.
+- Superseded tooling runs 34148777865 and 34148906644 were cancelled after retaining their completed native evidence; their remaining vendor work was obsolete.
+- Upstream merged/closed PR 112 and advanced Testing to 1ca36a60daa34db0d8f860453dcc2f5555117baa. Complete discovery removed the closed PR and started exact-source run 34149863388 with tooling 23e2cde1f1a6ee9150b293d74e961f4e74eb7922. No closed-PR report is relabeled current. Live PR publication acceptance remains pending an open target.
 
 
-### 2026-09-07 - codex - Sonar export readiness guard
-- Did: Report unauthorized branch export explicitly and skip repeated unusable vendor analysis. No deferral or purchase.
+### 2026-09-07 - Current report and targeted retry validation
+- Current Testing run 34149863388 at source 1ca36a60daa34db0d8f860453dcc2f5555117baa produced a valid 21,439-finding / 22,162-observation report; Python and JavaScript test exits are both 0 for this run.
+- gh-pages run 34150667031 produced 31 findings / 32 observations with explicit absent-project statuses. Hadolint alone attempted absent Dockerfiles; added the missing applicability exclusion.
+- Added Actions refresh_target input for one explicit branch/PR retry after vendor access or review availability changes, preserving the bounded queue and other targets. Exact-head CodeRabbit read for closed PR 112 reports NOT_AVAILABLE, without triggering a review or posting comments.
+- Validation: 94 service/hosted tests and workflow policy passed.
 
 
-
-### 2026-09-07 - Exact-source applicability rollout
-- Added explicit enabled-scanner/deferral validation and source-tree applicability before scanner dispatch. Generated documentation branches skip absent project-specific checks with explained status; repository-wide checks remain active. Strict gate unchanged.
-- Testing run 34147753825 published 21,439 findings with verified live source navigation. Validation: 93 tests, workflow policy, and 90-page documentation checks passed.
-
-
-### 2026-09-07 - Bounded explicit scanner retry
-- Added refresh_target to discovery for one branch/PR retry without an upstream commit, preserving the two-source limit and active collection. Hadolint skips sources without configured shipping Dockerfiles.
-- Validation: 94 tests, workflow policy, and documentation checks passed. Current Testing 1ca36a60 report has 21,439 findings and both test exits 0; gh-pages partial report assembly verified.
+### 2026-09-07 - Final input applicability and single automatic scan path
+- Live gh-pages run 34151110674 passed, with Hadolint explicitly inapplicable and 31 findings / 32 observations retained. Further native inspection showed OSV has no configured manifests and Actions security has no workflow definitions on this generated branch; added precise no-input classifications. Repository posture remains active and native Scorecard unavailable checks remain explicit.
+- Legacy scanner entry points 01-04 and 07 are now manual-only. Automatic source analysis uses discovery 10 and exact-source 11, avoiding duplicate tooling-fork scans, vendor quota consumption, and competing automatic Sonar analyses. Product CI and the upstream repository remain unchanged.
+- Validation: 94 service/hosted tests, workflow policy, and 90-page documentation checks passed. The final full-code branch runs are allowed to finish before deploying this last applicability-only refinement.
 
 
-### 2026-09-08 - Single automatic scan path rollout
-- All four active upstream branch heads have durable current reports. Main run 34151327640 produced 14,282 findings / 14,793 observations with passing tests; Testing run 34151329431 produced 21,439 findings / 22,162 observations. Pages deployment 34152215991 succeeded.
-- Legacy scanner workflows 01-04 and 07 are manual-only; discovery 10 and exact-source 11 own automatic analysis. Added no-input OSV and workflow-security classifications for generated documentation branches while preserving repository posture and native Scorecard limitations.
-- Validation: 94 tests, workflow policy, and documentation checks passed. Vendor quota/export/posture access and unavailable exact-head CodeRabbit review remain operational blockers, not deferrals.
+### 2026-09-08 - Reusable dashboard implementation session end
+- Deployed analysis host Testing revision fda860e182da1a6e80f72573bc44d15e8f4e7a38 and dedicated publisher revision 4d0d892. Final Pages run 34152673819 succeeded at https://combustrrr.github.io/code-analysis-dashboard/.
+- Live Chrome verified all four active branch heads match their retained analyzed SHAs, each exposing all 26 channel rows with no page errors. Testing has 21,439 findings; main has 14,282. Final gh-pages producer 34152474322 has 31 findings / 32 observations, with precise no-input classifications. Published site size is 23,785,089 bytes against the 900,000,000-byte guard.
+- Verification: 94 service/hosted tests, workflow policy, 90 public documentation pages, three browser tests on the retained 21,189-finding fixture, and live filtering/source-line highlighting/deep-link/mobile/current-head checks passed. Publication reused its matching UI cache without rebuilding or rescanning. Product backend, product web UI, and existing product documentation workflow are unchanged.
+- Hourly discovery, periodic serialized publication, bounded two-analysis refresh, explicit Actions target retry, seven-day handoff retention, and managed current Release assets are active. Current-head reports remain visible while the final tooling refresh completes automatically.
+- Full operational acceptance remains blocked by Snyk monthly quota, Sonar native export access, protected upstream posture permissions, and absent exact-head CodeRabbit review evidence. Upstream PRs closed during validation; current live PR publication acceptance requires an open target. Native Scorecard unavailable checks on the documentation-only branch remain explicit. None of these are silently deferred or labeled clean.
+
+
+### 2026-09-08 - All-channel readiness requirement: session start
+- User reaffirmed that every configured scanner must work; partial publication is visibility only, not operational acceptance. Future channel additions will be specified separately. Rechecking current native blockers and credential availability without adding scanners or deferring failures.
+
+
+### 2026-09-08 - All-channel readiness requirement: session end
+- Persisted the user requirement that every configured channel must prove native execution, exact-source provenance, successful ingestion, and dashboard visibility; partial reports or advisory green jobs are not acceptance. Future channels require the same proof before operational status.
+- Rechecked current reports and available secret names: SNYK_TOKEN, SONAR_TOKEN, and SONAR_API_TOKEN exist; SECURITY_POSTURE_TOKEN is absent. Native Snyk quota and Sonar export blockers remain; retained main Sonar evidence was inspected again. CodeRabbit still requires an actual exact-head upstream PR review. No scanner was removed, deferred, or replaced, and no subscription was purchased.
+- Official Sonar documentation states Free-plan branch analysis is main-branch only; the account entitlement must be verified before claiming all-branch readiness. This does not establish the cause of the observed HTTP export errors by itself.
+
+- Follow-up native log inspection: main Sonar issue-search probe returned HTTP 200, but export failed at api/project_analyses/search with HTTP 403. Exact revision verification remains mandatory; the blocked analysis-history endpoint must be accessible before native results can be accepted. Requested account plan/entitlement details, not secret values.
+
+
+### 2026-09-08 - Ant Design dashboard migration: session start
+- User requested Ant Design for issue/error visualization. Migrating the standalone analysis UI, preserving exact-source identity, partial-channel truthfulness, source navigation, and static deployment.
+
+### 2026-09-08 - Ant Design dashboard: implementation milestone
+- Replaced dashboard controls with Ant Design 6.6.3: provenance descriptions, target selector, tabs, severity statistics, findings/scanner tables, alerts, source drawer and pagination. Preserved retained evidence and hash routes.
+- Production build passed; runtime dependency audit found zero vulnerabilities. Browser acceptance is in progress.
+
+### 2026-09-08 - Ant Design dashboard: acceptance milestone
+- Four retained-dataset browser tests passed: provenance/deep links, mobile scanner statuses, escaped untrusted text, severity filtering, pagination and drawer keyboard close. Desktop/source/mobile screenshots reviewed. Documentation consistency passed for 90 pages.
+- Visual review caught Windows text-encoding replacement characters in UI separators; replaced them with portable plain text before publication.
+
+### 2026-09-08 - Ant Design dashboard: session complete
+- Deployed dedicated dashboard commit 7433fb6; Pages run 34241097995 succeeded, including build, report collection, deployment and cleanup.
+- Live Chrome verified all four active targets expose 26 scanner rows, issue search/drawer and immutable upstream source links; no browser errors. Site size 24,495,031 bytes against the 900,000,000-byte threshold.
+- Final production bundle and corrected mobile/filter/pagination browser check passed. UI changes are on fork feature/static-code-analysis; publishing reused existing reports and did not trigger scanner reruns.
+- All-channel operational acceptance remains separate: previously recorded vendor quota/access and repository-posture credential blockers are not resolved by this UI migration.
+
+### 2026-09-08 - Dashboard design reference review: session start
+- Reviewing user-provided dashboard screen designs for reuse with the existing Ant Design application and current-report evidence contract.
+
+### 2026-09-08 - Dashboard design reference review: complete
+- Inspected all 11 supplied screens, the design token guide, and exported HTML. Exports are presentation mockups using Tailwind CDN; reuse their layout/design through the existing Ant Design application.
+- Recommended compact persistent source identity, split findings/source inspection, severity distribution, directory finding counts, scanner category/status filters and a provenance detail view. Prefer scanner rows over a 26-card grid; simplify duplicate navigation and improve small-text contrast.
+- PR introduced/resolved comparisons require exact base/head evidence and comparable scanner coverage. AST/taint visualization requires scanner-native traces. Mock quality/confidence scores, cryptographic/SLSA/certification claims and automatic remediation are not established capabilities and must not be copied as facts.
+- Review only; no application or deployment changes. Existing current-only static hosting and all-channel acceptance requirements remain in force.
+
+### 2026-09-08 - Reference-inspired dashboard implementation: start
+- Implementing the approved visual direction in Ant Design: compact dark source header, overview distributions, split issue inspection, scanner filters and provenance.
+
+### 2026-09-08 - Reference-inspired dashboard: implementation milestone
+- Added dark Ant Design theme, compact provenance header, severity/directory/overlap overview, desktop split source workspace, mobile drawer, scanner category/status filters and provenance page. Existing report contracts and current-only hosting retained.
+- Expanded browser acceptance for directory drilldown, scanner filtering, provenance and mobile evidence.
+
+### 2026-09-08 - Reference-inspired dashboard: acceptance milestone
+- Six browser tests passed against the retained 21,189-finding dataset. Production build and 90-page documentation check passed. Reviewed desktop overview and split source screenshots.
+- Improved dark-theme link/severity contrast and kept distribution bars neutral at 100 percent so counts do not imply scanner success. Preparing existing Pages deployment.
+
+### 2026-09-08 - Reference-inspired dashboard: session complete
+- Deployed dashboard commit 10c9535 through Pages run 34242726181; preparation, deployment and cleanup succeeded. Fork implementation commit 488acbf6 is on feature/static-code-analysis.
+- Live Chrome verification passed: four active targets, 26 scanner rows each, immutable upstream issue source link, desktop split evidence and provenance page, zero browser errors. Site size 24,505,410 bytes / 900,000,000-byte limit.
+- Final contrast-adjusted browser check passed; six acceptance tests passed overall. Retained data used throughout UI validation; no scanner reruns or new infrastructure required for this change. Scanner operational blockers remain distinct from the completed UI work.
+
+### 2026-09-08 - Themes and manual analysis controls: start
+- Adding persistent light/dark themes, GitHub Actions scan handoff, explicit commit/PR selection and fresh report polling. Extending trusted orchestration for a bounded manual target alongside active branches/PRs.
+
+### 2026-09-08 - Themes and manual analysis: implementation milestone
+- Persistent light/dark selection, target-copy GitHub Actions handoff, uncached minute polling and manual report refresh implemented. Trusted controller resolves upstream commit/PR URLs and maintains one manual snapshot slot alongside active discovery.
+- Production build passed; 97 Python service/hosted tests and workflow policy checks passed. Browser acceptance in progress.

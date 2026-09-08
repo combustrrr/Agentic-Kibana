@@ -9,6 +9,7 @@ import gzip
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -100,14 +101,63 @@ def request_refresh(state: dict, selected: str) -> None:
         row.pop(field, None)
 
 
+def inventory(config: dict, state: dict) -> list[dict]:
+    rows = discover(config)
+    selected = state.get('manual_target')
+    if selected and not any(r['id'] == selected['id'] for r in rows):
+        rows.append(selected)
+    return rows
+
+
+def resolve_selection(config: dict, selected: str, rows: list[dict]) -> dict:
+    """Resolve explicit source input through GitHub; never interpret it as shell code."""
+    repo = config['source_repository']
+    prefix = f'https://github.com/{repo}/'
+    value = selected.strip()
+    if value.startswith(prefix):
+        value = value[len(prefix):].split('#', 1)[0].rstrip('/')
+        if value.startswith('commit/'):
+            value = value[7:]
+        elif value.startswith('tree/'):
+            from urllib.parse import unquote
+            value = unquote(value[5:])
+        elif value.startswith('pull/'):
+            value = 'PR #' + value[5:].split('/')[0]
+    matches = [r for r in rows if value in (r['id'], r['label'])
+               or (r.get('pr') and value == f"PR #{r['pr']}")]
+    if len(matches) == 1:
+        return matches[0]
+    if re.fullmatch(r'PR #?[1-9][0-9]*', value, re.I):
+        number = int(re.search(r'[0-9]+', value)[0])
+        p = api(f'repos/{repo}/pulls/{number}')
+        return target(repo, p['head']['ref'], p['head']['sha'], pr=number,
+                      source_repository=p['head']['repo']['full_name'],
+                      base_sha=p['base']['sha'], base_branch=p['base']['ref'])
+    if re.fullmatch(r'[0-9a-fA-F]{40}', value):
+        sha = api(f'repos/{repo}/commits/{value}')['sha']
+        row = target(repo, 'Selected commit', sha)
+        row.update(id=digest([repo, 'commit', sha])[:24], kind='commit', label='Commit ' + sha[:12])
+        return row
+    raise ValueError('Select an active branch, PR #number, full 40-character commit SHA, or matching upstream GitHub URL')
+
+
 def scan(config: dict, refresh_target: str | None = None) -> None:
     host = config['analysis_repository']
     rel = release(host, 'current-analysis-state', create=True)
     state = json.loads(rel['body'] or '{}')
     # No mutation until full discovery succeeds.
-    state = reconcile(state, discover(config), now())
+    discovered = inventory(config, state)
     if refresh_target:
-        request_refresh(state, refresh_target)
+        selected = resolve_selection(config, refresh_target, discovered)
+        if not any(r['id'] == selected['id'] for r in discovered if r != state.get('manual_target')):
+            old_manual = state.get('manual_target')
+            if old_manual:
+                discovered = [r for r in discovered if r['id'] != old_manual['id']]
+            state['manual_target'] = selected
+            discovered.append(selected)
+    state = reconcile(state, discovered, now())
+    if refresh_target:
+        request_refresh(state, selected['id'])
     # Explicit operator retries precede automatic backfill without removing any
     # active targets. The request persists if both analysis slots are occupied.
     state['targets'].sort(key=lambda row: not row.get('manual_refresh', False))
@@ -226,8 +276,8 @@ def collect(config: dict, row: dict, destination: Path) -> dict:
            for f in load(destination / 'findings.json')):
         raise ValueError('mixed source evidence: scanner traversed the trusted tooling checkout')
     validate_bundle(destination, report)
-    if (report.get('schema_version') == 'hosted-report-v1' and report.get('target', {}).get('kind') == 'branch'
-            and row['kind'] == 'branch' and report.get('tooling_sha') == row['tooling_sha']
+    if (report.get('schema_version') == 'hosted-report-v1' and report.get('target', {}).get('kind') in {'branch', 'commit'}
+            and row['kind'] in {'branch', 'commit'} and report.get('tooling_sha') == row['tooling_sha']
             and analysis_key(report['target'], row['tooling_sha'], config) == row['analysis_key']):
         report['target'] = {k: row.get(k) for k in ('id', 'repository', 'source_repository', 'kind', 'branch',
                                                  'pr', 'head_sha', 'base_sha', 'base_branch', 'label')}
@@ -250,7 +300,7 @@ def publish(config: dict, output: Path) -> None:
     scan_state = json.loads(upstream['body'])
     rel = release(repo, 'current-reports', create=True)
     previous = json.loads(rel['body'] or '{}')
-    state = reconcile(previous, discover(config), now())
+    state = reconcile(previous, inventory(config, scan_state), now())
     state.update(preferred_branch=config['preferred_branch'], analysis_repository=host)
     runs = {r['id']: r for r in scan_state['targets']}
     # Workflow completion notifications may be suppressed or delayed. Resolve the
@@ -281,7 +331,7 @@ def publish(config: dict, output: Path) -> None:
                         report_dir = work / row['id']
                         report = collect(config, scan_row, report_dir)
                         # Recheck before making results visible; collection may take minutes.
-                        latest = next((r for r in discover(config) if r['id'] == row['id']), None)
+                        latest = next((r for r in inventory(config, scan_state) if r['id'] == row['id']), None)
                         if latest is None or not accept(latest, report):
                             # Preserve/materialize the previous report below. Aborting
                             # this loop would leave its manifest URL missing on Pages.
