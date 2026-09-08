@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       refresh_target:
-        description: 'Optional: rescan an active branch, PR #number, or dashboard target ID'
+        description: 'Branch, PR #number, full commit SHA, or upstream GitHub URL (blank: discover all)'
         required: false
         type: string
   workflow_run:

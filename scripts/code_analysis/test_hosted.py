@@ -329,5 +329,33 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(evidence['pull_requests'], [110])
 
 
+class ManualSelectionTests(unittest.TestCase):
+    def test_commit_is_verified_and_separate_from_branch(self):
+        from scripts.code_analysis import github_service as service
+        config = {'source_repository': 'owner/repo'}
+        with patch.object(service, 'api', return_value={'sha': 'a' * 40}) as api:
+            row = service.resolve_selection(config, 'https://github.com/owner/repo/commit/' + 'a' * 40, [])
+        self.assertEqual(row['kind'], 'commit')
+        self.assertNotEqual(row['id'], h.target('owner/repo', 'Selected commit', 'a' * 40)['id'])
+        api.assert_called_once_with('repos/owner/repo/commits/' + 'a' * 40)
+        with self.assertRaises(ValueError):
+            service.resolve_selection(config, 'https://github.com/foreign/repo/commit/' + 'a' * 40, [])
+
+    def test_manual_pr_preserves_fork_and_base(self):
+        from scripts.code_analysis import github_service as service
+        with patch.object(service, 'api', return_value={'head': {'ref':'feature','sha':'a'*40,'repo':{'full_name':'fork/repo'}}, 'base': {'ref':'main','sha':'b'*40}}):
+            row = service.resolve_selection({'source_repository':'owner/repo'}, 'PR #17', [])
+        self.assertEqual((row['source_repository'], row['base_sha'], row['pr']), ('fork/repo', 'b'*40, 17))
+
+    def test_manual_slot_survives_discovery_and_does_not_duplicate_active_pr(self):
+        from scripts.code_analysis import github_service as service
+        branch = h.target('owner/repo','main','a'*40)
+        manual = h.target('owner/repo','feature','b'*40,pr=12)
+        with patch.object(service,'discover',return_value=[branch]):
+            self.assertEqual(service.inventory({}, {'manual_target':manual}), [branch,manual])
+        with patch.object(service,'discover',return_value=[branch,manual]):
+            self.assertEqual(service.inventory({}, {'manual_target':manual}), [branch,manual])
+
+
 if __name__ == '__main__':
     unittest.main()

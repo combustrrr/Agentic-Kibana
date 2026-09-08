@@ -11403,3 +11403,10 @@
 - Deployed dashboard commit 10c9535 through Pages run 34242726181; preparation, deployment and cleanup succeeded. Fork implementation commit 488acbf6 is on feature/static-code-analysis.
 - Live Chrome verification passed: four active targets, 26 scanner rows each, immutable upstream issue source link, desktop split evidence and provenance page, zero browser errors. Site size 24,505,410 bytes / 900,000,000-byte limit.
 - Final contrast-adjusted browser check passed; six acceptance tests passed overall. Retained data used throughout UI validation; no scanner reruns or new infrastructure required for this change. Scanner operational blockers remain distinct from the completed UI work.
+
+### 2026-09-08 - Themes and manual analysis controls: start
+- Adding persistent light/dark themes, GitHub Actions scan handoff, explicit commit/PR selection and fresh report polling. Extending trusted orchestration for a bounded manual target alongside active branches/PRs.
+
+### 2026-09-08 - Themes and manual analysis: implementation milestone
+- Persistent light/dark selection, target-copy GitHub Actions handoff, uncached minute polling and manual report refresh implemented. Trusted controller resolves upstream commit/PR URLs and maintains one manual snapshot slot alongside active discovery.
+- Production build passed; 97 Python service/hosted tests and workflow policy checks passed. Browser acceptance in progress.

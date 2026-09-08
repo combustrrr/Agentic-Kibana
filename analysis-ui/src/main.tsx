@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Alert, Button, ConfigProvider, Descriptions, Drawer, Empty, Grid, Input, Progress, Select, Space, Statistic, Table, Tabs, Tag, theme } from 'antd';
+import { Alert, Button, ConfigProvider, Descriptions, Drawer, Empty, Grid, Input, Modal, Segmented, Progress, Select, Space, Statistic, Table, Tabs, Tag, Typography, theme } from 'antd';
 import { CodeOutlined, GithubOutlined, SearchOutlined } from '@ant-design/icons';
 import 'antd/dist/reset.css';
 import './style.css';
@@ -14,14 +14,14 @@ type Report = { tooling_sha?: string; producer_run_attempt?: number; analyzed_sh
 const states: Record<string, string> = { current: 'Up to date', partial: 'Partial analysis', queued: 'Queued', scanning: 'Scanning', stale: 'Newer revision pending', failed: 'Analysis failed' };
 const ranks: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, INFO: 4, UNKNOWN: 5 };
 async function json<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const compressed = await fetch(`${path}.gz`, { signal });
+  const compressed = await fetch(`${path}.gz`, { signal, cache: 'no-store' });
   if (compressed.ok) {
     if (compressed.headers.get('content-encoding') === 'gzip') return compressed.json();
     if (!compressed.body) throw new Error('Empty report response');
     return new Response(compressed.body.pipeThrough(new DecompressionStream('gzip'))).json();
   }
   // Uncompressed local fixtures remain usable without a separate development server.
-  const r = await fetch(path, { signal }); if (!r.ok) throw new Error(`Report unavailable (${r.status}). Try again after the next publication.`); return r.json();
+  const r = await fetch(path, { signal, cache: 'no-store' }); if (!r.ok) throw new Error(`Report unavailable (${r.status}). Try again after the next publication.`); return r.json();
 }
 function route() { const p = new URLSearchParams(location.hash.slice(1)); return { target: p.get('target') || '', tab: p.get('tab') || 'overview', issue: p.get('issue') || '' }; }
 function navigate(target: string, tab: string, issue = '') { location.hash = new URLSearchParams({ target, tab, ...(issue ? { issue } : {}) }).toString(); }
@@ -39,13 +39,19 @@ function Evidence({ detail, source, error }: { detail?: Detail; source: string[]
 
 function App() {
   const screens = Grid.useBreakpoint();
+  const [appearance, setAppearance] = useState(() => { try { return localStorage.getItem('analysis-theme') || 'dark'; } catch { return 'dark'; } });
+  const [runOpen, setRunOpen] = useState(false);
+  const [selection, setSelection] = useState('');
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [lastRefresh, setLastRefresh] = useState('');
+  useEffect(() => { document.documentElement.dataset.theme = appearance; try { localStorage.setItem('analysis-theme', appearance); } catch {} }, [appearance]);
   const [category, setCategory] = useState('');
   const [channelStatus, setChannelStatus] = useState('');
   const [directory, setDirectory] = useState('');
   const [index, setIndex] = useState<Index>(); const [error, setError] = useState(''); const [r, setRoute] = useState(route());
   const [report, setReport] = useState<Report>(); const [findings, setFindings] = useState<Finding[]>([]); const [detail, setDetail] = useState<Detail>(); const [source, setSource] = useState<string[]>([]);
   const [query, setQuery] = useState(''); const [severity, setSeverity] = useState(''); const [scanner, setScanner] = useState(''); const [page, setPage] = useState(0); const [loading, setLoading] = useState(false);
-  useEffect(() => { const c = new AbortController(); const refresh = () => json<Index>('data/index.json', c.signal).then(setIndex).catch(e => { if (e.name !== 'AbortError') setError(e.message); }); refresh(); const timer = window.setInterval(refresh, 60000); const change = () => setRoute(route()); window.addEventListener('hashchange', change); return () => { c.abort(); window.clearInterval(timer); window.removeEventListener('hashchange', change); }; }, []);
+  useEffect(() => { const c = new AbortController(); const refresh = () => json<Index>('data/index.json', c.signal).then(value => { setIndex(value); setLastRefresh(new Date().toISOString()); }).catch(e => { if (e.name !== 'AbortError') setError(e.message); }); refresh(); const timer = window.setInterval(refresh, 60000); const change = () => setRoute(route()); window.addEventListener('hashchange', change); return () => { c.abort(); window.clearInterval(timer); window.removeEventListener('hashchange', change); }; }, [refreshTick]);
   const target = index?.targets.find(t => t.id === r.target) || (!r.target ? index?.targets.find(t => t.kind === 'branch' && t.branch === index.preferred_branch) || index?.targets[0] : undefined);
   useEffect(() => { setReport(undefined); setFindings([]); setDetail(undefined); setSource([]); setPage(0); setError(''); setLoading(false); if (!target?.report) return;
     const c = new AbortController(); setLoading(true); Promise.all([json<Report>(`data/${target.report}/report.json`, c.signal), json<Finding[]>(`data/${target.report}/findings.json`, c.signal)]).then(([a, b]) => { setReport(a); setFindings(b); }).catch(e => { if (e.name !== 'AbortError') setError(e.message); }).finally(() => { if (!c.signal.aborted) setLoading(false); }); return () => c.abort();
@@ -68,13 +74,21 @@ function App() {
   }, [r.issue, screens.lg, target?.id]);
   const fresh = !!report && report.analyzed_sha === target?.head_sha;
   const completed = report?.channels.filter(c => ['COMPLETED', 'COMPLETED_OPTIONAL', 'CONFIGURED_COMPLETE', 'POLICY_FINDINGS'].includes(c.status)).length || 0;
-  return <ConfigProvider theme={{ algorithm: theme.darkAlgorithm, token: { colorPrimary: '#7bd0ff', colorLink: '#7bd0ff', colorLinkHover: '#b3e5ff', colorBgBase: '#071523', colorBgContainer: '#102131', colorText: '#dce8f5', colorTextSecondary: '#a6b8c9', colorBorder: '#304459', borderRadius: 6, fontFamily: 'Segoe UI, sans-serif' }, components: { Button: { primaryColor: '#071523' } } }}>
-    <header className="topbar"><a className="brand" href="#"><CodeOutlined/> Code Analysis</a><a href={`https://github.com/${index?.analysis_repository || 'combustrrr/Agentic-Kibana'}/actions`} target="_blank" rel="noreferrer"><GithubOutlined/> Workflows</a></header>
+  return <ConfigProvider theme={{ algorithm: appearance === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm, token: { colorPrimary: appearance === 'dark' ? '#7bd0ff' : '#1765ad', colorLink: appearance === 'dark' ? '#7bd0ff' : '#1765ad', colorLinkHover: appearance === 'dark' ? '#b3e5ff' : '#124c85', colorBgBase: appearance === 'dark' ? '#071523' : '#f4f7fa', colorBgContainer: appearance === 'dark' ? '#102131' : '#ffffff', colorText: appearance === 'dark' ? '#dce8f5' : '#202d3d', colorTextSecondary: appearance === 'dark' ? '#a6b8c9' : '#52657a', colorBorder: appearance === 'dark' ? '#304459' : '#c9d4df', borderRadius: 6, fontFamily: 'Segoe UI, sans-serif' }, components: { Button: { primaryColor: appearance === 'dark' ? '#071523' : '#ffffff' } } }}>
+    <header className="topbar"><a className="brand" href="#"><CodeOutlined/> Code Analysis</a><Space wrap><Segmented aria-label="Color theme" value={appearance} options={[{label:'Dark',value:'dark'},{label:'Light',value:'light'}]} onChange={setAppearance}/><Button type="primary" onClick={() => { setSelection(target?.kind === 'commit' ? target.head_sha : target?.pr ? `PR #${target.pr}` : target?.branch || ''); setRunOpen(true); }}>Run analysis</Button><a href={`https://github.com/${index?.analysis_repository || 'combustrrr/Agentic-Kibana'}/actions`} target="_blank" rel="noreferrer"><GithubOutlined/> Workflows</a></Space></header>
+    <Modal title="Run source analysis" open={runOpen} onCancel={() => setRunOpen(false)} footer={null}>
+        <p>Select a branch or PR, or paste a full commit SHA or upstream GitHub URL. GitHub Actions runs the scanners with your repository permissions.</p>
+        <Select className="run-target-select" aria-label="Available analysis targets" placeholder="Choose a discovered target" value={index?.targets.some(t => t.id === selection) ? selection : undefined} options={index?.targets.map(t => ({value:t.id,label:t.label}))} onChange={setSelection}/>
+        <Input aria-label="Analysis target" value={selection} onChange={e => setSelection(e.target.value)} placeholder="Testing, PR #123, full commit SHA, or GitHub URL"/>
+        <ol><li>Copy the target: <Typography.Text copyable={{text:selection}} code>{selection || 'Enter a target above'}</Typography.Text></li><li>Open GitHub Actions below and select <strong>Run workflow</strong>. Keep the workflow branch at the fork default, <strong>Testing</strong>.</li><li>Paste the target into <strong>refresh_target</strong>, then run the workflow.</li></ol>
+        <Alert type="info" showIcon title="Results update automatically" description="The dashboard checks published reports every minute. Publication runs about every 10 minutes after analysis. Branch discovery runs hourly. One explicitly selected commit or closed PR is retained alongside active targets; a new manual selection replaces that slot."/>
+        <Button type="primary" href={`https://github.com/${index?.analysis_repository || 'combustrrr/Agentic-Kibana'}/actions/workflows/10-analysis-discovery.yml`} target="_blank" rel="noreferrer">Open Run analysis in GitHub</Button>
+      </Modal>
     <main>
       <section className="project">
         <div className="eyebrow">SOURCE REPOSITORY</div><h1>{target?.repository || 'Code quality dashboard'}</h1>
         <div className="target-row"><label htmlFor="target">Branch or pull request</label>
-          <Select id="target" aria-label="Branch or pull request" showSearch optionFilterProp="label" value={target?.id} placeholder="Select a target" onChange={value => navigate(value, r.tab)} options={['branch', 'pr'].map(kind => ({ label: kind === 'branch' ? 'Branches' : 'Open pull requests', options: index?.targets.filter(t => t.kind === kind).map(t => ({ value: t.id, label: t.label })) || [] }))}/>
+          <Select id="target" aria-label="Branch or pull request" showSearch optionFilterProp="label" value={target?.id} placeholder="Select a target" onChange={value => navigate(value, r.tab)} options={['branch', 'pr', 'commit'].map(kind => ({ label: kind === 'branch' ? 'Branches' : kind === 'pr' ? 'Pull requests' : 'Selected commit', options: index?.targets.filter(t => t.kind === kind).map(t => ({ value: t.id, label: t.label })) || [] }))}/>
           {target && <Badge value={target.status || 'queued'}/>}
         </div>
         {target?.pr && <p>Source {target.source_repository}:{target.branch} to {target.base_branch} | head analysis, not merge validation</p>}
@@ -85,6 +99,7 @@ function App() {
           { key: 'time', label: 'ANALYSIS COMPLETED', children: date(report?.generated_at) }
         ]}/>
         <Space wrap className="runs">
+          <span>Reports checked: {date(lastRefresh)}</span><Button size="small" onClick={() => setRefreshTick(t => t + 1)}>Refresh results</Button>
           {target?.scan_run_id && !report?.producer_runs.some(run => run.id === String(target.scan_run_id)) && <a href={`https://github.com/${index!.analysis_repository}/actions/runs/${target.scan_run_id}`} target="_blank" rel="noreferrer">Current scan #{target.scan_run_id}</a>}
           {index && <span>{index.targets.length} active targets | {index.targets.filter(t => t.status === 'queued').length} queued | {index.targets.filter(t => t.status === 'scanning').length} scanning</span>}
           {report?.tooling_sha && <span>Tooling <code title={report.tooling_sha}>{report.tooling_sha.slice(0, 12)}</code> | attempt {report.producer_run_attempt ?? 'Unavailable'}</span>}

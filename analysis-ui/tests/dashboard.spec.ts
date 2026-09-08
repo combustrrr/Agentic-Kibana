@@ -101,3 +101,19 @@ test('mobile issue evidence opens accessibly and closes with Escape', async ({pa
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog',{name:'Issue detail'})).not.toBeVisible();
 });
+
+
+test('theme persists and analysis handoff exposes the trusted workflow', async ({page}) => {
+  await page.goto('/');
+  await page.getByText('Light', {exact:true}).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme','light');
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme','light');
+  await page.getByRole('button',{name:'Run analysis',exact:true}).click();
+  await page.getByLabel('Analysis target',{exact:true}).fill('a'.repeat(40));
+  await expect(page.getByRole('link',{name:'Open Run analysis in GitHub'})).toHaveAttribute('href', /actions\/workflows\/10-analysis-discovery.yml$/);
+  await expect(page.getByText('refresh_target',{exact:true})).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:'Refresh results',exact:true}).click();
+  await expect(page.getByText(/Reports checked:/)).toBeVisible();
+});

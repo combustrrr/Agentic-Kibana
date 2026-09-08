@@ -257,3 +257,15 @@ Desktop issue browsing keeps retained source evidence beside a compact finding l
 small screens use the accessible drawer. Scanner category/status filters and a
 Provenance view expose the existing report contract. PR delta, AST traces, automated
 fixes and cryptographic certification claims are not inferred from these views.
+
+The dashboard supports persistent light/dark appearance and a Run analysis dialog.
+The dialog hands a target to the trusted GitHub Actions workflow; it never stores a
+token or dispatches from the browser. Operators keep the workflow branch on the fork
+default and supply `refresh_target`: an active branch, PR number, full upstream commit
+SHA, or matching upstream GitHub URL. GitHub resolves exact identities before queueing.
+One manually selected commit or non-active PR is retained alongside active discovery
+targets; the next such selection replaces that slot. PR snapshots preserve fork source
+and base/head context. This adds explicit revision inspection without historical browsing.
+Reports refresh automatically every minute with uncached fetches, or on Refresh results.
+Publication reconciles about every ten minutes; source-head discovery remains hourly.
+These intervals are polling cadences, not a real-time completion guarantee.
