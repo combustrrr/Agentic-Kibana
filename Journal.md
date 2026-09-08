@@ -11424,3 +11424,14 @@
 ### 2026-09-08 - Themes and manual analysis: session complete
 - Final Pages run 34244407385 completed preparation, deployment and cleanup successfully. Live browser recheck passed with zero errors; selected commit is visibly scanning and prior branch reports remain retained during tooling refresh.
 - UI and trusted controller changes are committed and pushed to the fork; full validation scan 34244219947 continues in Actions and is collected by scheduled publication.
+
+### 2026-09-08 - Reusable scanner/repository integration: start
+- Adding a trusted scanner adapter registry, neutral evidence envelope, generated isolated producer jobs and repository setup tooling. Preserve existing channels and current-source identity gates.
+
+### 2026-09-08 - Scanner extensions: implementation milestone
+- Registry generates isolated source/vendor adapter jobs and extends publication contracts. Neutral evidence envelopes verify source/target/run identity; invalid channels remain explicit partial results. Added JSON/SARIF examples and new-instance configuration command/profile.
+- 103 service tests passed, including extension-to-hosted-report integration and generated credential boundaries. Documentation and final acceptance in progress.
+
+### 2026-09-08 - Reusable integrations: acceptance milestone
+- 104 service/hosted/extension tests passed; workflow policy and 91-page documentation checks passed. Production UI build passed. Repository provisioning CLI created an isolated example config without changing the active source.
+- Existing scanner inventory unchanged; examples remain disabled. New adapters require real scanner/API wiring and native source verification before operational acceptance.

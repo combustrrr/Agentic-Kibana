@@ -183,6 +183,7 @@ nav:
           - Overview: code-analysis/README.md
           - Issue Wall: code-analysis/MONITORING_UI.md
           - Architecture: code-analysis/SERVICE_ARCHITECTURE.md
+          - Scanner and repository integrations: code-analysis/INTEGRATIONS.md
           - Production readiness: code-analysis/PRODUCTION_READINESS.md
           - Data handling: code-analysis/DATA_HANDLING_INVENTORY.md
           - External activation: code-analysis/EXTERNAL_ACTIVATION.md

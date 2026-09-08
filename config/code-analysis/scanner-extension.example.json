@@ -1,0 +1,10 @@
+{
+  "channel": "ext-example",
+  "name": "Example scanner",
+  "class": "security",
+  "mode": "source",
+  "adapter": "scripts/code_analysis/adapters/example_json.py",
+  "timeout_minutes": 15,
+  "evidence_source": "DETERMINISTIC",
+  "sensitive": false
+}

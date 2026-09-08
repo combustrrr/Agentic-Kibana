@@ -269,3 +269,8 @@ and base/head context. This adds explicit revision inspection without historical
 Reports refresh automatically every minute with uncached fetches, or on Refresh results.
 Publication reconciles about every ten minutes; source-head discovery remains hourly.
 These intervals are polling cadences, not a real-time completion guarantee.
+
+Scanner and repository extension points are documented in [Scanner and repository
+integrations](INTEGRATIONS.md). Trusted `scanner_extensions` registrations generate
+isolated source or vendor jobs. Versioned channel evidence is validated and joins
+the existing canonical report, so new channels need no frontend changes.

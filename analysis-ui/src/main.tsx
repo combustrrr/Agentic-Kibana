@@ -6,7 +6,7 @@ import 'antd/dist/reset.css';
 import './style.css';
 
 type Target = { scan_run_id?: number; run_attempt?: number; tooling_sha?: string; id: string; label: string; repository: string; source_repository: string; head_sha: string; kind: string; branch: string; pr?: number; base_branch?: string; base_sha?: string; checked_at: string; status: string; report?: string; error?: string };
-type Index = { metrics?: {site_bytes: number; site_limit_bytes: number}; schema_version: string; checked_at: string; targets: Target[]; preferred_branch: string; analysis_repository: string; discovery_error?: string; publication_error?: string };
+type Index = { analysis_default_branch?: string; metrics?: {site_bytes: number; site_limit_bytes: number}; schema_version: string; checked_at: string; targets: Target[]; preferred_branch: string; analysis_repository: string; discovery_error?: string; publication_error?: string };
 type Finding = { id: string; severity: string; message: string; file: string; line: number; scanners: string[]; rules: string[]; page: number };
 type Detail = Finding & { origins: { scanner_family: string; rule: string; file: string; start_line: number; raw_artifact: string; observation_id: string }[]; source: string | null; source_start: number; source_url: string | null };
 type Channel = { channel: string; name: string; class: string; status: string; findings: number | null; observation_count: number; reason: string; workflow: string };
@@ -80,7 +80,7 @@ function App() {
         <p>Select a branch or PR, or paste a full commit SHA or upstream GitHub URL. GitHub Actions runs the scanners with your repository permissions.</p>
         <Select className="run-target-select" aria-label="Available analysis targets" placeholder="Choose a discovered target" value={index?.targets.some(t => t.id === selection) ? selection : undefined} options={index?.targets.map(t => ({value:t.id,label:t.label}))} onChange={setSelection}/>
         <Input aria-label="Analysis target" value={selection} onChange={e => setSelection(e.target.value)} placeholder="Testing, PR #123, full commit SHA, or GitHub URL"/>
-        <ol><li>Copy the target: <Typography.Text copyable={{text:selection}} code>{selection || 'Enter a target above'}</Typography.Text></li><li>Open GitHub Actions below and select <strong>Run workflow</strong>. Keep the workflow branch at the fork default, <strong>Testing</strong>.</li><li>Paste the target into <strong>refresh_target</strong>, then run the workflow.</li></ol>
+        <ol><li>Copy the target: <Typography.Text copyable={{text:selection}} code>{selection || 'Enter a target above'}</Typography.Text></li><li>Open GitHub Actions below and select <strong>Run workflow</strong>. Keep the workflow branch at the fork default, <strong>{index?.analysis_default_branch || 'the repository default branch'}</strong>.</li><li>Paste the target into <strong>refresh_target</strong>, then run the workflow.</li></ol>
         <Alert type="info" showIcon title="Results update automatically" description="The dashboard checks published reports every minute. Publication runs about every 10 minutes after analysis. Branch discovery runs hourly. One explicitly selected commit or closed PR is retained alongside active targets; a new manual selection replaces that slot."/>
         <Button type="primary" href={`https://github.com/${index?.analysis_repository || 'combustrrr/Agentic-Kibana'}/actions/workflows/10-analysis-discovery.yml`} target="_blank" rel="noreferrer">Open Run analysis in GitHub</Button>
       </Modal>

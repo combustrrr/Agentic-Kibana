@@ -176,6 +176,26 @@ def generate():
                 isolated.append(step)
             job['steps'] = isolated
             jobs[f'scanner-{number}-{name}'] = job
+    from scripts.code_analysis.extensions import registry
+    config = json.loads((ROOT / 'config/code-analysis/service.json').read_text())
+    for extension in registry(config):
+        channel = extension['channel']
+        steps = [{'uses': CHECKOUT, 'with': {'ref': '${{ inputs.tooling_sha }}', 'persist-credentials': False}},
+                 {'uses': PYTHON, 'with': {'python-version': '3.11'}}]
+        if extension['mode'] == 'source':
+            steps.append({'uses': CHECKOUT, 'with': {'repository': '${{ fromJSON(inputs.target).source_repository }}',
+                          'ref': '${{ fromJSON(inputs.target).head_sha }}', 'path': '.source', 'persist-credentials': False}})
+        environment = {'TARGET_JSON': '${{ inputs.target }}', 'TOOLING_SHA': '${{ inputs.tooling_sha }}'}
+        environment.update({key: '${{ secrets.' + value + ' }}' for key, value in extension.get('secrets', {}).items()})
+        steps += [{'name': 'Run trusted scanner adapter', 'env': environment,
+                   'run': 'python -m scripts.code_analysis.extension_runner ' + channel},
+                  {'uses': UPLOAD, 'if': 'always()', 'with': {'name': channel,
+                   'path': '.extension-output/' + channel + '.channel-evidence', 'retention-days': 7,
+                   'if-no-files-found': 'error'}}]
+        jobs[channel] = {'name': extension['name'], 'needs': ['identity'],
+                         'if': "${{ contains(fromJSON(needs.identity.outputs.jobs), '" + channel + "') }}",
+                         'runs-on': 'ubuntu-latest', 'timeout-minutes': extension.get('timeout_minutes', 15) + 5,
+                         'permissions': {'contents': 'read'}, 'steps': steps}
     jobs['report'] = {'needs': list(jobs), 'if': "${{ always() && needs.identity.result == 'success' }}",
         'runs-on': 'ubuntu-latest', 'timeout-minutes': 30, 'permissions': {'contents': 'read', 'actions': 'read'},
         'steps': [{'uses': CHECKOUT, 'with': {'ref': '${{ inputs.tooling_sha }}', 'persist-credentials': False}},

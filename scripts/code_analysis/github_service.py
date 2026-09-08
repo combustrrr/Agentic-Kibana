@@ -221,7 +221,8 @@ def scan(config: dict, refresh_target: str | None = None) -> None:
             row.update(scan_run_id=dispatched['workflow_run_id'], run_attempt=1)
         row['status'] = 'scanning'
         running += 1
-    state.update(preferred_branch=config['preferred_branch'], analysis_repository=host)
+    state.update(preferred_branch=config['preferred_branch'], analysis_repository=host,
+                 analysis_default_branch=branch)
     save_state(host, rel, state)
     print(json.dumps({'targets': len(state['targets']), 'running': running,
                       'queued': sum(r['status'] == 'queued' for r in state['targets'])}))
@@ -300,7 +301,8 @@ def publish(config: dict, output: Path) -> None:
     rel = release(repo, 'current-reports', create=True)
     previous = json.loads(rel['body'] or '{}')
     state = reconcile(previous, inventory(config, scan_state), now())
-    state.update(preferred_branch=config['preferred_branch'], analysis_repository=host)
+    state.update(preferred_branch=config['preferred_branch'], analysis_repository=host,
+                 analysis_default_branch=scan_state.get('analysis_default_branch'))
     runs = {r['id']: r for r in scan_state['targets']}
     # Workflow completion notifications may be suppressed or delayed. Resolve the
     # unique persisted dispatch nonce, then collect that exact run and attempt.
