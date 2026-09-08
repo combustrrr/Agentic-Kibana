@@ -11414,3 +11414,9 @@
 ### 2026-09-08 - Live manual commit validation repair
 - Initial explicit commit run stopped at identity validation because the producer reconstructed a branch identity. Added canonical commit kind support shared by orchestration and producer assembly, retaining SHA validation and rejecting mixed PR context.
 - All 97 service/hosted tests passed after the fix; seven UI tests passed. Initial theme/control Pages deployment succeeded.
+
+### 2026-09-08 - Themes and manual analysis: live verification
+- Live Chrome confirmed persisted light/dark modes, correct trusted Actions link, manual result refresh and selected commit visibility; zero browser errors.
+- Fork Testing deployed at ce0845a4; feature implementation and visual follow-up pushed through 681f9597. Dedicated publisher deployed canonical identity support at 2a95373; final light-theme launch-link contrast update is 97420fc.
+- Retried exact commit workflow 34244219947 passed identity validation and started scanner jobs; several scanner jobs completed. Full analysis remains in progress and vendor access/quota blockers remain explicit.
+- Seven browser tests, 97 service/hosted tests, workflow policy and 90-page documentation checks passed.
