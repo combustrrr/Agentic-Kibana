@@ -11447,3 +11447,7 @@
 - Deployed code-analysis-launcher.icsarthak9.workers.dev with encrypted sessions, preview URLs disabled, and the private code-analysis-launcher GitHub App installed on the analysis fork.
 - GitHub App secret was transferred directly to Cloudflare. Live OAuth redirect smoke check passed with PKCE and exact callback. Published dashboard configuration now enables direct launch.
 
+
+### 2026-09-08 - Signed-in launch UX repaired
+- Live OAuth and target discovery succeeded. Signed-in developers now receive the current/preferred branch automatically, one direct Start analysis action, and no stale manual-Actions confirmation state. Production build and focused launch browser acceptance passed.
+
