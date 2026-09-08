@@ -11451,3 +11451,12 @@
 ### 2026-09-08 - Signed-in launch UX repaired
 - Live OAuth and target discovery succeeded. Signed-in developers now receive the current/preferred branch automatically, one direct Start analysis action, and no stale manual-Actions confirmation state. Production build and focused launch browser acceptance passed.
 
+
+### 2026-09-08 - Developer-centric launch UX polish: start
+- Restructuring the authenticated analysis dialog into clear codebase, revision, scanner-profile, and execution sections while preserving exact-source and trusted-workflow boundaries.
+
+
+### 2026-09-08 - Developer-centric launch UX polish: complete
+- Rebuilt the Ant Design launch dialog around four developer decisions: configured project, exact revision, scanner profile, and authenticated execution. The UI now exposes the analysis host, trusted workflow ref, source SHA, PR context, channel coverage, queue state, and current-only retention before dispatch.
+- Added a clear authenticated run receipt with GitHub tracking and submitted/queued/scanning/published stages. The manual GitHub Actions handoff remains available as a collapsed fallback for signed-out users.
+- Added responsive dark/light styling and strengthened browser coverage for the section hierarchy, authenticated launch, commit/PR validation, and Ant Design filtering. Production build, all 9 Playwright tests, documentation consistency, and diff validation passed.

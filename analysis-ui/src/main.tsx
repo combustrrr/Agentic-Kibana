@@ -8,7 +8,7 @@ import { useLaunchAuth } from './useLaunchAuth';
 import { AnalysisLauncher } from './AnalysisLauncher';
 
 type Target = { scan_run_id?: number; run_attempt?: number; tooling_sha?: string; id: string; label: string; repository: string; source_repository: string; head_sha: string; kind: string; branch: string; pr?: number; base_branch?: string; base_sha?: string; checked_at: string; status: string; report?: string; error?: string };
-type Index = { launch_endpoint?: string; source_repository?: string; analysis_default_branch?: string; metrics?: {site_bytes: number; site_limit_bytes: number}; schema_version: string; checked_at: string; targets: Target[]; preferred_branch: string; analysis_repository: string; discovery_error?: string; publication_error?: string };
+type Index = { launch_endpoint?: string; source_repository?: string; analysis_default_branch?: string; metrics?: {site_bytes: number; site_limit_bytes: number; queued?: number; scanning?: number}; schema_version: string; checked_at: string; targets: Target[]; preferred_branch: string; analysis_repository: string; discovery_error?: string; publication_error?: string };
 type Finding = { id: string; severity: string; message: string; file: string; line: number; scanners: string[]; rules: string[]; page: number };
 type Detail = Finding & { origins: { scanner_family: string; rule: string; file: string; start_line: number; raw_artifact: string; observation_id: string }[]; source: string | null; source_start: number; source_url: string | null };
 type Channel = { channel: string; name: string; class: string; status: string; findings: number | null; observation_count: number; reason: string; workflow: string };
@@ -84,7 +84,14 @@ function App() {
   const completed = report?.channels.filter(c => ['COMPLETED', 'COMPLETED_OPTIONAL', 'CONFIGURED_COMPLETE', 'POLICY_FINDINGS'].includes(c.status)).length || 0;
   return <ConfigProvider theme={{ algorithm: appearance === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm, token: { colorPrimary: appearance === 'dark' ? '#7bd0ff' : '#1765ad', colorLink: appearance === 'dark' ? '#7bd0ff' : '#1765ad', colorLinkHover: appearance === 'dark' ? '#b3e5ff' : '#124c85', colorBgBase: appearance === 'dark' ? '#071523' : '#f4f7fa', colorBgContainer: appearance === 'dark' ? '#102131' : '#ffffff', colorText: appearance === 'dark' ? '#dce8f5' : '#202d3d', colorTextSecondary: appearance === 'dark' ? '#a6b8c9' : '#52657a', colorBorder: appearance === 'dark' ? '#304459' : '#c9d4df', borderRadius: 6, fontFamily: 'Segoe UI, sans-serif' }, components: { Button: { primaryColor: appearance === 'dark' ? '#071523' : '#ffffff' } } }}>
     <header className="topbar"><a className="brand" href="#"><CodeOutlined/> Code Analysis</a><Space wrap><Segmented aria-label="Color theme" value={appearance} options={[{label:'Dark',value:'dark'},{label:'Light',value:'light'}]} onChange={setAppearance}/><Button type="primary" onClick={() => setRunOpen(true)}>Run analysis</Button><a href={`https://github.com/${index?.analysis_repository || 'combustrrr/Agentic-Kibana'}/actions`} target="_blank" rel="noreferrer"><GithubOutlined/> Workflows</a></Space></header>
-    {runOpen && <AnalysisLauncher onSubmitted={setPendingLaunch} auth={launchAuth} open close={() => setRunOpen(false)} repository={index?.source_repository || index?.targets[0]?.repository} host={index?.analysis_repository} workflowBranch={index?.analysis_default_branch} preferredBranch={index?.preferred_branch} targets={index?.targets || []} initial={target} follow={id => navigate(id, 'overview')}/>}
+    {runOpen && <AnalysisLauncher
+      onSubmitted={setPendingLaunch} auth={launchAuth} open close={() => setRunOpen(false)}
+      repository={index?.source_repository || index?.targets[0]?.repository} host={index?.analysis_repository}
+      workflowBranch={index?.analysis_default_branch} preferredBranch={index?.preferred_branch}
+      targets={index?.targets || []} initial={target} follow={id => navigate(id, 'overview')}
+      channelCount={report?.channels.length} completedChannels={completed}
+      queued={index?.metrics?.queued} scanning={index?.metrics?.scanning}
+    />}
     <main>
       {pendingLaunch && <Alert type="info" title="Waiting for requested target publication" description={`Analysis requested for ${pendingLaunch.kind} ${pendingLaunch.ref}. This view will select its report when the target appears in published data.`}/>}
       <section className="project">
