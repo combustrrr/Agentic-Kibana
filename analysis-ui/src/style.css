@@ -7,3 +7,4 @@
 [data-theme=light] a.ant-btn-primary{color:#fff}[data-theme=dark] a.ant-btn-primary{color:#071523}
 
 .analysis-launcher{display:flex;flex-direction:column;gap:12px}.analysis-launcher p{margin:0}.analysis-launcher .ant-alert{margin-bottom:0}.analysis-launcher label{font-weight:600}.analysis-launcher ol{padding-left:24px;margin:0}.analysis-launcher code{overflow-wrap:anywhere}
+.direct-launch{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px;border:1px solid #304459;border-radius:6px;background:#0b1927}.direct-launch p{margin-top:4px}[data-theme=light] .direct-launch{background:#f4f8fb;border-color:#c9d4df}@media(max-width:700px){.direct-launch{align-items:flex-start;flex-direction:column}}

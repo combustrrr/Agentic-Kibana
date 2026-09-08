@@ -145,10 +145,11 @@ test('authenticated developer selects live source and directly starts analysis',
   await expect(page.getByLabel('Analysis repository')).toBeVisible();
   await page.getByRole('button',{name:'Sign in with GitHub to start analysis'}).click();
   await expect(page.getByText('Signed in as developer')).toBeVisible();
-  await expect(page.getByRole('button',{name:'Start analysis',exact:true})).toBeDisabled();
-  await page.getByLabel('Available analysis targets').click();
-  await page.getByTitle('latest',{exact:true}).click();
+  await expect(page.getByRole('dialog').getByText('latest',{exact:true})).toBeVisible();
   await expect(page.getByText('b'.repeat(40),{exact:true})).toBeVisible();
+  await expect(page.getByText('Awaiting confirmation on GitHub')).not.toBeVisible();
+  await expect(page.getByRole('button',{name:'Open Run analysis in GitHub'})).not.toBeVisible();
+  await expect(page.getByRole('button',{name:'Start analysis',exact:true})).toBeEnabled();
   await page.getByRole('button',{name:'Start analysis',exact:true}).click();
   await expect(page.getByText('Analysis request submitted',{exact:true})).toBeVisible();
   expect(submitted).toEqual({repository:source,kind:'branch',ref:'latest'});

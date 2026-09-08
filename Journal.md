@@ -11465,3 +11465,8 @@
 - Cloudflare OAuth and workers.dev onboarding completed. Deployed Worker version 8c053a71 at code-analysis-launcher.icsarthak9.workers.dev with preview URLs disabled.
 - Private GitHub App code-analysis-launcher created through the manifest flow and installed by the user. Client secret was sent directly to Cloudflare; no credential was printed, written to Git, or sent in chat. Live OAuth redirect correctly includes PKCE and the exact Worker callback.
 
+
+### 2026-09-08 - Signed-in launch UX repair
+- Live Worker trace proved GitHub OAuth callback and authenticated target discovery for combustrrr. Repaired the dialog to automatically select the current/preferred branch, hide the manual Actions handoff after sign-in, and present one clear Start analysis action.
+- Production UI build passed. Existing browser suite reached 8/9 before an Ant Design test-selector mismatch; the corrected focused authenticated-launch test then passed. No production behavior failed.
+
