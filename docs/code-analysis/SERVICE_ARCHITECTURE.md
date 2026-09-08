@@ -243,3 +243,9 @@ The standalone browser tests consume the retained-report fixture under ignored
 The deployment workflow template lives in `config/code-analysis/dashboard-pages.yml`.
 GitHub Pages size/usage limits and scanner OSS entitlements must be checked at rollout;
 free standard public runners do not promise unlimited artifact or commercial-vendor use.
+
+The standalone dashboard uses Ant Design for navigation, target selection, severity
+statistics, issue/scanner tables, operational alerts, and the keyboard-accessible
+source drawer. Its shared theme and responsive styles live only in `analysis-ui/`.
+Issue routes remain shareable hash links; selecting a finding loads retained exact-
+revision evidence without running analysis. Scanner execution remains a separate view.

@@ -1,5 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Alert, Button, ConfigProvider, Descriptions, Drawer, Empty, Input, Progress, Select, Space, Statistic, Table, Tabs, Tag } from 'antd';
+import { CodeOutlined, GithubOutlined, SearchOutlined } from '@ant-design/icons';
+import 'antd/dist/reset.css';
 import './style.css';
 
 type Target = { scan_run_id?: number; run_attempt?: number; tooling_sha?: string; id: string; label: string; repository: string; source_repository: string; head_sha: string; kind: string; branch: string; pr?: number; base_branch?: string; base_sha?: string; checked_at: string; status: string; report?: string; error?: string };
@@ -23,7 +26,8 @@ async function json<T>(path: string, signal?: AbortSignal): Promise<T> {
 function route() { const p = new URLSearchParams(location.hash.slice(1)); return { target: p.get('target') || '', tab: p.get('tab') || 'overview', issue: p.get('issue') || '' }; }
 function navigate(target: string, tab: string, issue = '') { location.hash = new URLSearchParams({ target, tab, ...(issue ? { issue } : {}) }).toString(); }
 function date(s?: string) { return s ? new Date(s).toLocaleString() : 'Unavailable'; }
-function Badge({ value }: { value: string }) { return <span className={`badge ${value.toLowerCase()}`}>{states[value] || value.replaceAll('_', ' ')}</span>; }
+const colors: Record<string, string> = { CRITICAL: 'red', HIGH: 'volcano', MEDIUM: 'gold', LOW: 'blue', INFO: 'default', current: 'green', partial: 'orange', failed: 'red', scanning: 'blue', COMPLETED: 'green', CONFIGURED_COMPLETE: 'green', POLICY_FINDINGS: 'orange', NOT_AVAILABLE: 'orange', FAILED: 'red' };
+function Badge({ value }: { value: string }) { return <Tag color={colors[value]}>{states[value] || value.replaceAll('_', ' ')}</Tag>; }
 
 function App() {
   const [index, setIndex] = useState<Index>(); const [error, setError] = useState(''); const [r, setRoute] = useState(route());
@@ -39,23 +43,69 @@ function App() {
   }, [r.issue, findings, target?.report]);
   const filtered = useMemo(() => findings.filter(f => (!severity || f.severity === severity) && (!scanner || f.scanners.includes(scanner)) && `${f.message} ${f.file} ${f.rules.join(' ')}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => (ranks[a.severity] ?? 9) - (ranks[b.severity] ?? 9) || a.file.localeCompare(b.file)), [findings, query, severity, scanner]);
   useEffect(() => setPage(0), [query, severity, scanner]);
-  const count = Math.max(1, Math.ceil(filtered.length / 50));
   const fresh = !!report && report.analyzed_sha === target?.head_sha;
-  return <><header className="topbar"><a className="brand" href="#">◈ <span>Code Analysis</span></a><span className="top-note">Current code · traceable evidence</span><a href={index ? `https://github.com/${index.analysis_repository}/actions` : 'https://github.com/combustrrr/Agentic-Kibana/actions'} target="_blank" rel="noreferrer">Workflows ↗</a></header>
-    <main><section className="project"><div className="eyebrow">REPOSITORY</div><h1>{target?.repository || 'Code quality dashboard'}</h1><div className="target-row"><label htmlFor="target">Branch or pull request</label><select id="target" value={target?.id || ''} onChange={e => navigate(e.target.value, r.tab)}><option value="" disabled>Select a target</option>{['branch', 'pr'].map(kind => <optgroup key={kind} label={kind === 'branch' ? 'Branches' : 'Open pull requests'}>{index?.targets.filter(t => t.kind === kind).map(t => <option key={t.id} value={t.id}>{t.label}</option>)}</optgroup>)}</select>{target && <Badge value={target.status || 'queued'}/>}</div>
-      {target?.pr && <p>Source {target.source_repository}:{target.branch} → {target.base_branch} · head analysis, not merge validation</p>}
-      <div className="identity"><div><span>DISCOVERED HEAD</span><code>{target?.head_sha || 'Unavailable'}</code></div><div><span>ANALYZED COMMIT</span><code>{report?.analyzed_sha || 'Not analyzed'}</code></div><div><span>HEAD LAST CHECKED</span>{date(target?.checked_at || index?.checked_at)}</div><div><span>ANALYSIS COMPLETED</span>{date(report?.generated_at)}</div></div>
-      <div className="runs">{target?.scan_run_id && !report?.producer_runs.some(run => run.id === String(target.scan_run_id)) && <a href={`https://github.com/${index!.analysis_repository}/actions/runs/${target.scan_run_id}`} target="_blank" rel="noreferrer">Current scan #{target.scan_run_id}</a>}{index && <span>{index.targets.length} active targets | {index.targets.filter(t => t.status === 'queued').length} queued | {index.targets.filter(t => t.status === 'scanning').length} scanning</span>}{report?.tooling_sha && <span>Tooling <code title={report.tooling_sha}>{report.tooling_sha.slice(0, 12)}</code> | attempt {report.producer_run_attempt ?? 'Unavailable'}</span>}{report?.producer_runs.map(run => <a key={run.id} href={run.url} target="_blank" rel="noreferrer">Run #{run.id} ↗</a>)}</div>
-    </section>
-    {(error || index?.discovery_error || index?.publication_error || target?.error) && <div role="alert" className="notice">{error || index?.discovery_error || index?.publication_error || target?.error}</div>}
-    {report && (!fresh || report.status === 'partial') && <div className="notice">{!fresh ? 'These findings belong to the older analyzed commit shown above. The newer head is not analyzed yet.' : 'Analysis is incomplete. Available findings are shown; unavailable scanners do not mean zero issues.'}</div>}
-    <nav className="tabs" aria-label="Report views">{['overview', 'issues', 'scanners'].map(tab => <a key={tab} aria-current={r.tab === tab ? 'page' : undefined} href={`#${new URLSearchParams({ target: target?.id || '', tab })}`}>{tab[0].toUpperCase() + tab.slice(1)}{tab === 'issues' && report ? ` (${report.finding_count.toLocaleString()})` : ''}</a>)}</nav>
-    {loading ? <p role="status" className="empty">Loading the selected report…</p> : !report ? <div className="empty"><h2>{r.target && !target ? 'Target no longer active' : 'No report available yet'}</h2><p>{target ? 'This target is waiting for analysis. Findings from another branch are never substituted.' : 'Repository discovery has not published active targets yet.'}</p></div> : <>
-      {r.tab === 'overview' && <><section className="metrics">{['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map(s => <button key={s} onClick={() => { setSeverity(s); navigate(target!.id, 'issues'); }}><span className={`dot ${s.toLowerCase()}`}/><span>{s}</span><strong>{(report.severities[s] || 0).toLocaleString()}</strong><small>reported findings</small></button>)}</section><section className="summary"><div><h2>Understand what needs attention</h2><p>{report.finding_count.toLocaleString()} findings from {report.observation_count.toLocaleString()} scanner observations. Open an issue to inspect its rule, exact location, and supporting evidence.</p><button className="primary" onClick={() => { setSeverity(''); navigate(target!.id, 'issues'); }}>Browse issues →</button></div><div><h2>Analysis coverage</h2><p>{report.channels.filter(c => ['COMPLETED', 'COMPLETED_OPTIONAL', 'CONFIGURED_COMPLETE', 'POLICY_FINDINGS'].includes(c.status)).length} of {report.channels.length} channels completed.</p><p>Strict evidence gate: <strong>{report.publication_gate.satisfied ? 'Passed' : 'Not satisfied'}</strong></p><a href={`#target=${target!.id}&tab=scanners`}>Inspect every scanner →</a></div></section></>}
-      {r.tab === 'scanners' && <div className="table-scroll"><table><thead><tr><th>Scanner</th><th>Status</th><th>Findings</th><th>Workflow / evidence limitations</th></tr></thead><tbody>{report.channels.map(c => <tr key={c.channel}><td><strong>{c.name}</strong><small>{c.class}</small></td><td><Badge value={c.status}/></td><td>{c.findings === null ? 'Unavailable' : c.findings.toLocaleString()}</td><td>{c.reason || 'Retained evidence available'}<small>Scanner definition: {c.workflow}</small></td></tr>)}</tbody></table></div>}
-      {r.tab === 'issues' && <><div className="filters"><input aria-label="Search issues" placeholder="Search message, file, or rule…" value={query} onChange={e => setQuery(e.target.value)}/><select aria-label="Severity" value={severity} onChange={e => setSeverity(e.target.value)}><option value="">All severities</option>{Object.keys(ranks).map(s => <option key={s}>{s}</option>)}</select><select aria-label="Scanner" value={scanner} onChange={e => setScanner(e.target.value)}><option value="">All scanners</option>{[...new Set(findings.flatMap(f => f.scanners))].sort().map(s => <option key={s}>{s}</option>)}</select><span>{filtered.length.toLocaleString()} results</span></div><div className={detail ? 'issue-layout with-detail' : 'issue-layout'}><div className="table-scroll"><table><thead><tr><th>Severity</th><th>Issue and source</th><th>Scanner / rule</th></tr></thead><tbody>{filtered.slice(page * 50, page * 50 + 50).map(f => <tr key={f.id} className={r.issue === f.id ? 'selected' : ''}><td><Badge value={f.severity}/></td><td><button className="issue-link" onClick={() => navigate(target!.id, 'issues', f.id)}>{f.message}</button><small>{f.file}{f.line ? `:${f.line}` : ''}</small></td><td>{f.scanners.join(', ')}<small>{f.rules.join(', ')}</small></td></tr>)}</tbody></table>{!filtered.length && <p className="empty">No findings match these filters.</p>}<div className="pagination"><button disabled={page === 0} onClick={() => setPage(p => p - 1)}>Previous</button><span>Page {page + 1} of {count}</span><button disabled={page + 1 >= count} onClick={() => setPage(p => p + 1)}>Next</button></div></div>
-      {detail && <aside aria-label="Issue detail"><button className="close" aria-label="Close issue" onClick={() => navigate(target!.id, 'issues')}>×</button><Badge value={detail.severity}/><h2>{detail.message}</h2><p className="path">{detail.file}:{detail.line}</p>{detail.source_url && <a href={detail.source_url} target="_blank" rel="noreferrer">Open exact source revision ↗</a>}{source.length ? <pre className="source">{source.slice(Math.max(0, detail.line - 6), Math.max(0, detail.line - 6) + 16).map((line, i) => <div key={i} className={Math.max(1, detail.line - 5) + i === detail.line ? 'highlight' : ''}><span>{Math.max(1, detail.line - 5) + i}</span>{line}</div>)}</pre> : <p className="muted">Source preview unavailable or withheld. Use the immutable source link when available.</p>}<h3>Supporting observations</h3>{detail.origins.map(o => <div className="origin" key={o.observation_id}><strong>{o.scanner_family} · {o.rule}</strong><small>{o.file}:{o.start_line}</small><small>Artifact: {o.raw_artifact || 'Unavailable'}</small></div>)}</aside>}</div></>}
-    </>}
-    <footer>{index?.metrics && <span>Site data and UI: ~{(index.metrics.site_bytes / 1000000).toFixed(1)} MB / {(index.metrics.site_limit_bytes / 1000000).toFixed(0)} MB limit. </span>}Read-only analysis · Findings are scanner observations, not confirmed defects · Viewing this page never starts a scan.</footer></main></>;
+  const completed = report?.channels.filter(c => ['COMPLETED', 'COMPLETED_OPTIONAL', 'CONFIGURED_COMPLETE', 'POLICY_FINDINGS'].includes(c.status)).length || 0;
+  return <ConfigProvider theme={{ token: { colorPrimary: '#1765ad', borderRadius: 6, fontFamily: 'Inter, Segoe UI, sans-serif' } }}>
+    <header className="topbar"><a className="brand" href="#"><CodeOutlined/> Code Analysis</a><a href={`https://github.com/${index?.analysis_repository || 'combustrrr/Agentic-Kibana'}/actions`} target="_blank" rel="noreferrer"><GithubOutlined/> Workflows</a></header>
+    <main>
+      <section className="project">
+        <div className="eyebrow">SOURCE REPOSITORY</div><h1>{target?.repository || 'Code quality dashboard'}</h1>
+        <div className="target-row"><label htmlFor="target">Branch or pull request</label>
+          <Select id="target" aria-label="Branch or pull request" showSearch optionFilterProp="label" value={target?.id} placeholder="Select a target" onChange={value => navigate(value, r.tab)} options={['branch', 'pr'].map(kind => ({ label: kind === 'branch' ? 'Branches' : 'Open pull requests', options: index?.targets.filter(t => t.kind === kind).map(t => ({ value: t.id, label: t.label })) || [] }))}/>
+          {target && <Badge value={target.status || 'queued'}/>}
+        </div>
+        {target?.pr && <p>Source {target.source_repository}:{target.branch} to {target.base_branch} | head analysis, not merge validation</p>}
+        <Descriptions className="identity" size="small" column={{ xs: 1, sm: 1, md: 2 }} items={[
+          { key: 'head', label: 'DISCOVERED HEAD', children: <code>{target?.head_sha || 'Unavailable'}</code> },
+          { key: 'analyzed', label: 'ANALYZED COMMIT', children: <code>{report?.analyzed_sha || 'Not analyzed'}</code> },
+          { key: 'checked', label: 'HEAD LAST CHECKED', children: date(target?.checked_at || index?.checked_at) },
+          { key: 'time', label: 'ANALYSIS COMPLETED', children: date(report?.generated_at) }
+        ]}/>
+        <Space wrap className="runs">
+          {target?.scan_run_id && !report?.producer_runs.some(run => run.id === String(target.scan_run_id)) && <a href={`https://github.com/${index!.analysis_repository}/actions/runs/${target.scan_run_id}`} target="_blank" rel="noreferrer">Current scan #{target.scan_run_id}</a>}
+          {index && <span>{index.targets.length} active targets | {index.targets.filter(t => t.status === 'queued').length} queued | {index.targets.filter(t => t.status === 'scanning').length} scanning</span>}
+          {report?.tooling_sha && <span>Tooling <code title={report.tooling_sha}>{report.tooling_sha.slice(0, 12)}</code> | attempt {report.producer_run_attempt ?? 'Unavailable'}</span>}
+          {report?.producer_runs.map(run => <a key={run.id} href={run.url} target="_blank" rel="noreferrer">Run #{run.id}</a>)}
+        </Space>
+      </section>
+      {(error || index?.discovery_error || index?.publication_error || target?.error) && <Alert showIcon type="error" title="Report service error" description={error || index?.discovery_error || index?.publication_error || target?.error}/>}
+      {report && (!fresh || report.status === 'partial') && <Alert showIcon type="warning" title={!fresh ? 'Newer head awaiting analysis' : 'Analysis is incomplete'} description={!fresh ? 'These findings belong to the older analyzed commit shown above.' : 'Available findings are shown. Unavailable scanners do not mean zero issues.'}/>}
+      <Tabs activeKey={r.tab} onChange={tab => navigate(target?.id || '', tab)} items={['overview', 'issues', 'scanners'].map(tab => ({ key: tab, label: tab[0].toUpperCase() + tab.slice(1) + (tab === 'issues' && report ? ` (${report.finding_count.toLocaleString()})` : '') }))}/>
+      {!report ? <div className="empty" role="status"><Empty description={loading ? 'Loading the selected report...' : r.target && !target ? 'Target no longer active' : 'No report available yet'}/></div> : <>
+        {r.tab === 'overview' && <>
+          <section className="metrics">{['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map(s => <div key={s}><Statistic title={<Badge value={s}/>} value={report.severities[s] || 0}/><Button type="link" onClick={() => { setSeverity(s); navigate(target!.id, 'issues'); }}>View findings</Button></div>)}</section>
+          <section className="summary"><div><h2>Reported issues</h2><p>{report.finding_count.toLocaleString()} findings from {report.observation_count.toLocaleString()} scanner observations.</p><p>Inspect the rule, exact source location, and evidence behind each finding.</p><Button type="primary" onClick={() => { setSeverity(''); navigate(target!.id, 'issues'); }}>Browse issues</Button></div>
+            <div><h2>Scanner execution</h2><p>{completed} of {report.channels.length} channels completed.</p><Progress percent={Math.round(completed / Math.max(1, report.channels.length) * 100)} showInfo={false} aria-label={`${completed} of ${report.channels.length} channels completed`}/><p>Strict evidence gate: <strong>{report.publication_gate.satisfied ? 'Passed' : 'Not satisfied'}</strong></p><Button onClick={() => navigate(target!.id, 'scanners')}>Inspect every scanner</Button></div></section>
+        </>}
+        {r.tab === 'scanners' && <><Alert showIcon type="info" title="Scanner execution and evidence" description="Execution failures are separate from code findings. Unavailable counts are unknown; completed policy findings can still require attention."/>
+          <Table<Channel> rowKey="channel" size="middle" dataSource={report.channels} pagination={false} scroll={{ x: 850 }} columns={[
+            { title: 'Scanner', key: 'scanner', width: 210, render: (_, c) => <><strong>{c.name}</strong><small>{c.class}</small></> },
+            { title: 'Status', key: 'status', width: 200, render: (_, c) => <Badge value={c.status}/> },
+            { title: 'Findings', key: 'findings', width: 110, render: (_, c) => c.findings === null ? 'Unavailable' : c.findings.toLocaleString() },
+            { title: 'Workflow / evidence limitations', key: 'reason', render: (_, c) => <>{c.reason || 'Retained evidence available'}<small>Scanner definition: {c.workflow}</small></> }
+          ]}/></>}
+        {r.tab === 'issues' && <>
+          <div className="filters"><Input aria-label="Search issues" prefix={<SearchOutlined/>} placeholder="Search message, file, or rule" allowClear value={query} onChange={e => setQuery(e.target.value)}/>
+            <Select aria-label="Severity" value={severity} onChange={setSeverity} options={[{ value: '', label: 'All severities' }, ...Object.keys(ranks).map(s => ({ value: s, label: s }))]}/>
+            <Select aria-label="Scanner" showSearch optionFilterProp="label" value={scanner} onChange={setScanner} options={[{ value: '', label: 'All scanners' }, ...[...new Set(findings.flatMap(f => f.scanners))].sort().map(s => ({ value: s, label: s }))]}/>
+            <span>{filtered.length.toLocaleString()} results</span>
+          </div>
+          <Table<Finding> rowKey="id" size="middle" dataSource={filtered} scroll={{ x: 760 }} rowClassName={f => r.issue === f.id ? 'selected' : ''} locale={{ emptyText: 'No findings match these filters.' }} pagination={{ current: page + 1, pageSize: 50, showSizeChanger: false, onChange: p => setPage(p - 1), showTotal: total => `${total.toLocaleString()} findings` }} columns={[
+            { title: 'Severity', key: 'severity', width: 120, render: (_, f) => <Badge value={f.severity}/> },
+            { title: 'Issue and source', key: 'issue', render: (_, f) => <><Button type="link" className="issue-link" onClick={() => navigate(target!.id, 'issues', f.id)}>{f.message}</Button><small>{f.file}{f.line ? `:${f.line}` : ''}</small></> },
+            { title: 'Scanner / rule', key: 'scanner', width: 240, render: (_, f) => <>{f.scanners.join(', ')}<small>{f.rules.join(', ')}</small></> }
+          ]}/>
+        </>}
+      </>}
+      <Drawer title="Issue detail" open={!!r.issue && r.tab === 'issues'} onClose={() => navigate(target?.id || '', 'issues')} size="min(850px, 100vw)" destroyOnHidden>
+        {detail ? <><Badge value={detail.severity}/><h2>{detail.message}</h2><p className="path">{detail.file}:{detail.line}</p>
+          {detail.source_url && <a href={detail.source_url} target="_blank" rel="noreferrer">Open exact source revision</a>}
+          {source.length ? <pre className="source">{source.slice(Math.max(0, detail.line - 6), Math.max(0, detail.line - 6) + 16).map((line, i) => <div key={i} className={Math.max(1, detail.line - 5) + i === detail.line ? 'highlight' : ''}><span>{Math.max(1, detail.line - 5) + i}</span>{line}</div>)}</pre> : <p>Source preview unavailable or withheld. Use the immutable source link when available.</p>}
+          <h3>Supporting observations</h3>{detail.origins.map(o => <div className="origin" key={o.observation_id}><strong>{o.scanner_family} | {o.rule}</strong><small>{o.file}:{o.start_line}</small><small>Artifact: {o.raw_artifact || 'Unavailable'}</small></div>)}
+        </> : <Empty description={error || 'Loading issue evidence...'}/>}
+      </Drawer>
+      <footer>{index?.metrics && <span>Site data and UI: ~{(index.metrics.site_bytes / 1000000).toFixed(1)} MB / {(index.metrics.site_limit_bytes / 1000000).toFixed(0)} MB limit. </span>}Findings are scanner observations, not confirmed defects. Viewing this page never starts a scan.</footer>
+    </main>
+  </ConfigProvider>;
 }
 createRoot(document.getElementById('root')!).render(<App/>);
