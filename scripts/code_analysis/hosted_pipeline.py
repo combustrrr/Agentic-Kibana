@@ -20,9 +20,18 @@ def assemble(artifacts: Path, output: Path, identity: dict, producer_repository:
                     str(artifacts), '--output-dir', str(normalized), '--allow-partial'], check=True)
     raw = load(normalized / 'unified-findings.json')
     manifest = load(config_root / 'required-channels.json')
+    catalog = load(config_root / 'proposal-tool-catalog.json')
+    from scripts.code_analysis.extensions import contracts, ingest
+    service_config = load(config_root / 'service.json') if (config_root / 'service.json').exists() else {}
+    manifest, catalog = contracts(service_config, manifest, catalog)
+    extra_findings, extra_statuses = ingest(service_config, artifacts, identity, run_id)
+    raw.extend(extra_findings)
     repository, sha = identity['source_repository'], identity['head_sha']
     contract = evidence_contract.build(manifest, artifacts, repository, sha, [run_id])
     status = channel_status.build(manifest, artifacts, raw, contract, repository, sha)
+    for channel in status['channels']:
+        if channel['channel'] in extra_statuses:
+            channel.update(extra_statuses[channel['channel']])
     malformed = load(normalized / 'normalization-status.json')['malformed_artifacts']
     for channel in status['channels']:
         if set(channel['artifact_files']).intersection(malformed):
@@ -32,7 +41,7 @@ def assemble(artifacts: Path, output: Path, identity: dict, producer_repository:
                             'workflow_run_id': run_id, 'generated_at': now()}, manifest)
     proof = provenance.build(artifacts, sha, [run_id])
     snapshot = build_analysis_snapshot(build_snapshot(current, status, proof, allow_partial=True),
-                                      load(config_root / 'proposal-tool-catalog.json'), artifacts)
+                                      catalog, artifacts)
     if malformed:
         # The strict normalizer would reject these inputs. Preserve that gate
         # result while publishing the successfully parsed observations.

@@ -11414,3 +11414,24 @@
 ### 2026-09-08 - Live manual commit validation repair
 - Initial explicit commit run stopped at identity validation because the producer reconstructed a branch identity. Added canonical commit kind support shared by orchestration and producer assembly, retaining SHA validation and rejecting mixed PR context.
 - All 97 service/hosted tests passed after the fix; seven UI tests passed. Initial theme/control Pages deployment succeeded.
+
+### 2026-09-08 - Themes and manual analysis: live verification
+- Live Chrome confirmed persisted light/dark modes, correct trusted Actions link, manual result refresh and selected commit visibility; zero browser errors.
+- Fork Testing deployed at ce0845a4; feature implementation and visual follow-up pushed through 681f9597. Dedicated publisher deployed canonical identity support at 2a95373; final light-theme launch-link contrast update is 97420fc.
+- Retried exact commit workflow 34244219947 passed identity validation and started scanner jobs; several scanner jobs completed. Full analysis remains in progress and vendor access/quota blockers remain explicit.
+- Seven browser tests, 97 service/hosted tests, workflow policy and 90-page documentation checks passed.
+
+### 2026-09-08 - Themes and manual analysis: session complete
+- Final Pages run 34244407385 completed preparation, deployment and cleanup successfully. Live browser recheck passed with zero errors; selected commit is visibly scanning and prior branch reports remain retained during tooling refresh.
+- UI and trusted controller changes are committed and pushed to the fork; full validation scan 34244219947 continues in Actions and is collected by scheduled publication.
+
+### 2026-09-08 - Reusable scanner/repository integration: start
+- Adding a trusted scanner adapter registry, neutral evidence envelope, generated isolated producer jobs and repository setup tooling. Preserve existing channels and current-source identity gates.
+
+### 2026-09-08 - Scanner extensions: implementation milestone
+- Registry generates isolated source/vendor adapter jobs and extends publication contracts. Neutral evidence envelopes verify source/target/run identity; invalid channels remain explicit partial results. Added JSON/SARIF examples and new-instance configuration command/profile.
+- 103 service tests passed, including extension-to-hosted-report integration and generated credential boundaries. Documentation and final acceptance in progress.
+
+### 2026-09-08 - Reusable integrations: acceptance milestone
+- 104 service/hosted/extension tests passed; workflow policy and 91-page documentation checks passed. Production UI build passed. Repository provisioning CLI created an isolated example config without changing the active source.
+- Existing scanner inventory unchanged; examples remain disabled. New adapters require real scanner/API wiring and native source verification before operational acceptance.

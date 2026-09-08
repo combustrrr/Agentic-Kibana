@@ -75,6 +75,12 @@ def selection(config: dict, source: Path) -> tuple[list[str], dict, list[str]]:
         # This producer also reads repository posture, which remains applicable.
         excluded['github-actions-security'] = {
             'status': 'NOT_APPLICABLE', 'reason': 'Selected source contains no GitHub Actions workflow definitions'}
+    from scripts.code_analysis.extensions import registry
+    for extension in registry(config):
+        if extension.get('deferred_reason'):
+            excluded[extension['channel']] = {'status': 'DEFERRED', 'reason': extension['deferred_reason']}
+        else:
+            jobs.append(extension['channel'])
     return jobs, excluded, languages
 
 

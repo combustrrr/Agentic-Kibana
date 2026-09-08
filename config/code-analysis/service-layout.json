@@ -10,7 +10,10 @@
     ],
     "ingestion_adapters": [
       "scripts/code_analysis/normalizer.py",
-      "scripts/code_analysis/collect_coderabbit.py"
+      "scripts/code_analysis/collect_coderabbit.py",
+      "scripts/code_analysis/extensions.py",
+      "scripts/code_analysis/adapters/example_json.py",
+      "scripts/code_analysis/adapters/example_sarif.py"
     ],
     "domain": [
       "scripts/code_analysis/monitoring.py",
@@ -28,7 +31,9 @@
       "scripts/code_analysis/applicability.py",
       "scripts/code_analysis/snyk_metadata.py",
       "scripts/code_analysis/snyk_scan.py",
-      "scripts/code_analysis/scorecard_report.py"
+      "scripts/code_analysis/scorecard_report.py",
+      "scripts/code_analysis/extension_runner.py",
+      "scripts/code_analysis/configure_instance.py"
     ],
     "presentation": [
       "scripts/code_analysis/bound_sarif.py",
@@ -51,7 +56,8 @@
       "scripts/code_analysis/benchmark_monitoring.py",
       "scripts/code_analysis/test_service.py",
       "scripts/code_analysis/test_hosted.py",
-      "scripts/code_analysis/generate_source_workflow.py"
+      "scripts/code_analysis/generate_source_workflow.py",
+      "scripts/code_analysis/test_extensions.py"
     ],
     "compatibility_entrypoints": [
       "scripts/code_analysis/normalizer.py",
