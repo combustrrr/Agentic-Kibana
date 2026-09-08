@@ -11456,3 +11456,12 @@
 - Pushed implementation 87cf4f71 to the fork feature branch, 6e534516 to fork Testing, and 9071337 to the dedicated dashboard main. Pages runs 34250820868 and 34251090031 succeeded; live Chrome confirmed repository/revision choices, exact-source preview, trusted handoff and explicit setup status.
 - Typed Testing request 34250998714 succeeded and queued exact-source run 34251030579. Two-source limit retained; scanner completion remains pending and is not implied by successful dispatch.
 - Blocker: Wrangler confirms no Cloudflare authentication, and GitHub App client credentials/installation are unconfigured. launch_endpoint remains null; direct OAuth launching is implemented and locally verified, but not live accepted. Setup is documented in AUTHENTICATED_LAUNCHING.md. Vendor-channel blockers remain separate. Upstream unchanged.
+
+### 2026-09-08 - Cloudflare launcher activation milestone
+- Cloudflare OAuth completed for the account, Worker code uploaded, and SESSION_KEY plus a temporary pre-registration client secret were configured without exposing values.
+- Blocked on the account's one-time workers.dev subdomain registration. Cloudflare onboarding is open in the browser; deployment cannot expose a callback URL until the user confirms a subdomain.
+
+### 2026-09-08 - Cloudflare and GitHub App activation milestone
+- Cloudflare OAuth and workers.dev onboarding completed. Deployed Worker version 8c053a71 at code-analysis-launcher.icsarthak9.workers.dev with preview URLs disabled.
+- Private GitHub App code-analysis-launcher created through the manifest flow and installed by the user. Client secret was sent directly to Cloudflare; no credential was printed, written to Git, or sent in chat. Live OAuth redirect correctly includes PKCE and the exact Worker callback.
+
