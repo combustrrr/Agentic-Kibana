@@ -11451,3 +11451,8 @@
 ### 2026-09-08 - Authenticated launcher acceptance milestone
 - Passed 105 service tests, 8 Worker protocol/authorization tests, 9 browser tests against the retained 21,189-finding dataset, UI production build, workflow policy, and 92-page documentation checks.
 - Wrangler 4.129.1 dry-run packaging passed (about 4 KB compressed). Direct launch remains disabled until Cloudflare and GitHub App credentials are configured; no paid resources were purchased.
+
+### 2026-09-08 - Authenticated launch repair: session end
+- Pushed implementation 87cf4f71 to the fork feature branch, 6e534516 to fork Testing, and 9071337 to the dedicated dashboard main. Pages runs 34250820868 and 34251090031 succeeded; live Chrome confirmed repository/revision choices, exact-source preview, trusted handoff and explicit setup status.
+- Typed Testing request 34250998714 succeeded and queued exact-source run 34251030579. Two-source limit retained; scanner completion remains pending and is not implied by successful dispatch.
+- Blocker: Wrangler confirms no Cloudflare authentication, and GitHub App client credentials/installation are unconfigured. launch_endpoint remains null; direct OAuth launching is implemented and locally verified, but not live accepted. Setup is documented in AUTHENTICATED_LAUNCHING.md. Vendor-channel blockers remain separate. Upstream unchanged.
