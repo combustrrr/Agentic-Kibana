@@ -336,6 +336,7 @@ class ManualSelectionTests(unittest.TestCase):
         with patch.object(service, 'api', return_value={'sha': 'a' * 40}) as api:
             row = service.resolve_selection(config, 'https://github.com/owner/repo/commit/' + 'a' * 40, [])
         self.assertEqual(row['kind'], 'commit')
+        self.assertEqual(row, h.target(row['repository'], row['branch'], row['head_sha'], kind=row['kind']))
         self.assertNotEqual(row['id'], h.target('owner/repo', 'Selected commit', 'a' * 40)['id'])
         api.assert_called_once_with('repos/owner/repo/commits/' + 'a' * 40)
         with self.assertRaises(ValueError):

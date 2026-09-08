@@ -11410,3 +11410,7 @@
 ### 2026-09-08 - Themes and manual analysis: implementation milestone
 - Persistent light/dark selection, target-copy GitHub Actions handoff, uncached minute polling and manual report refresh implemented. Trusted controller resolves upstream commit/PR URLs and maintains one manual snapshot slot alongside active discovery.
 - Production build passed; 97 Python service/hosted tests and workflow policy checks passed. Browser acceptance in progress.
+
+### 2026-09-08 - Live manual commit validation repair
+- Initial explicit commit run stopped at identity validation because the producer reconstructed a branch identity. Added canonical commit kind support shared by orchestration and producer assembly, retaining SHA validation and rejecting mixed PR context.
+- All 97 service/hosted tests passed after the fix; seven UI tests passed. Initial theme/control Pages deployment succeeded.

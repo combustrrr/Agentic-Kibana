@@ -135,8 +135,7 @@ def resolve_selection(config: dict, selected: str, rows: list[dict]) -> dict:
                       base_sha=p['base']['sha'], base_branch=p['base']['ref'])
     if re.fullmatch(r'[0-9a-fA-F]{40}', value):
         sha = api(f'repos/{repo}/commits/{value}')['sha']
-        row = target(repo, 'Selected commit', sha)
-        row.update(id=digest([repo, 'commit', sha])[:24], kind='commit', label='Commit ' + sha[:12])
+        row = target(repo, 'Selected commit', sha, kind='commit')
         return row
     raise ValueError('Select an active branch, PR #number, full 40-character commit SHA, or matching upstream GitHub URL')
 

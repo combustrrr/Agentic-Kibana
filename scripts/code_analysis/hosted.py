@@ -36,7 +36,7 @@ def load(path: Path) -> dict:
 
 def target(repository: str, branch: str, sha: str, *, pr: int | None = None,
            source_repository: str | None = None, base_sha: str | None = None,
-           base_branch: str | None = None) -> dict:
+           base_branch: str | None = None, kind: str | None = None) -> dict:
     source_repository = source_repository or repository
     if not REPOSITORY.fullmatch(repository) or not REPOSITORY.fullmatch(source_repository):
         raise ValueError("invalid source repository")
@@ -44,11 +44,14 @@ def target(repository: str, branch: str, sha: str, *, pr: int | None = None,
         raise ValueError("invalid source SHA")
     if not branch or (pr is not None and (type(pr) is not int or pr <= 0)):
         raise ValueError("invalid target")
-    return {"id": digest([repository, "pr" if pr else "branch", pr or branch])[:24],
+    kind = kind or ('pr' if pr else 'branch')
+    if kind not in {'branch', 'pr', 'commit'} or (kind == 'pr') != bool(pr) or (kind == 'commit' and base_sha is not None):
+        raise ValueError('invalid target kind/context')
+    return {"id": digest([repository, kind, sha if kind == 'commit' else pr or branch])[:24],
             "repository": repository, "source_repository": source_repository,
-            "kind": "pr" if pr else "branch", "branch": branch, "pr": pr,
+            "kind": kind, "branch": branch, "pr": pr,
             "head_sha": sha, "base_sha": base_sha, "base_branch": base_branch,
-            "label": f"PR #{pr}: {branch}" if pr else branch}
+            "label": f"PR #{pr}: {branch}" if pr else "Commit " + sha[:12] if kind == "commit" else branch}
 
 
 def analysis_key(row: dict, tooling_sha: str, config: dict) -> str:
