@@ -249,3 +249,11 @@ statistics, issue/scanner tables, operational alerts, and the keyboard-accessibl
 source drawer. Its shared theme and responsive styles live only in `analysis-ui/`.
 Issue routes remain shareable hash links; selecting a finding loads retained exact-
 revision evidence without running analysis. Scanner execution remains a separate view.
+
+The reference-inspired dark dashboard adds a compact identity header, overview
+severity distribution, directory counts, and distinct-scanner overlap. Directory
+counts are not normalized risk scores; scanner overlap is not a confidence estimate.
+Desktop issue browsing keeps retained source evidence beside a compact finding list;
+small screens use the accessible drawer. Scanner category/status filters and a
+Provenance view expose the existing report contract. PR delta, AST traces, automated
+fixes and cryptographic certification claims are not inferred from these views.

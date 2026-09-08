@@ -11378,3 +11378,23 @@
 - Live Chrome verified all four active targets expose 26 scanner rows, issue search/drawer and immutable upstream source links; no browser errors. Site size 24,495,031 bytes against the 900,000,000-byte threshold.
 - Final production bundle and corrected mobile/filter/pagination browser check passed. UI changes are on fork feature/static-code-analysis; publishing reused existing reports and did not trigger scanner reruns.
 - All-channel operational acceptance remains separate: previously recorded vendor quota/access and repository-posture credential blockers are not resolved by this UI migration.
+
+### 2026-09-08 - Dashboard design reference review: session start
+- Reviewing user-provided dashboard screen designs for reuse with the existing Ant Design application and current-report evidence contract.
+
+### 2026-09-08 - Dashboard design reference review: complete
+- Inspected all 11 supplied screens, the design token guide, and exported HTML. Exports are presentation mockups using Tailwind CDN; reuse their layout/design through the existing Ant Design application.
+- Recommended compact persistent source identity, split findings/source inspection, severity distribution, directory finding counts, scanner category/status filters and a provenance detail view. Prefer scanner rows over a 26-card grid; simplify duplicate navigation and improve small-text contrast.
+- PR introduced/resolved comparisons require exact base/head evidence and comparable scanner coverage. AST/taint visualization requires scanner-native traces. Mock quality/confidence scores, cryptographic/SLSA/certification claims and automatic remediation are not established capabilities and must not be copied as facts.
+- Review only; no application or deployment changes. Existing current-only static hosting and all-channel acceptance requirements remain in force.
+
+### 2026-09-08 - Reference-inspired dashboard implementation: start
+- Implementing the approved visual direction in Ant Design: compact dark source header, overview distributions, split issue inspection, scanner filters and provenance.
+
+### 2026-09-08 - Reference-inspired dashboard: implementation milestone
+- Added dark Ant Design theme, compact provenance header, severity/directory/overlap overview, desktop split source workspace, mobile drawer, scanner category/status filters and provenance page. Existing report contracts and current-only hosting retained.
+- Expanded browser acceptance for directory drilldown, scanner filtering, provenance and mobile evidence.
+
+### 2026-09-08 - Reference-inspired dashboard: acceptance milestone
+- Six browser tests passed against the retained 21,189-finding dataset. Production build and 90-page documentation check passed. Reviewed desktop overview and split source screenshots.
+- Improved dark-theme link/severity contrast and kept distribution bars neutral at 100 percent so counts do not imply scanner success. Preparing existing Pages deployment.

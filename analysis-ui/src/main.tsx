@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Alert, Button, ConfigProvider, Descriptions, Drawer, Empty, Input, Progress, Select, Space, Statistic, Table, Tabs, Tag } from 'antd';
+import { Alert, Button, ConfigProvider, Descriptions, Drawer, Empty, Grid, Input, Progress, Select, Space, Statistic, Table, Tabs, Tag, theme } from 'antd';
 import { CodeOutlined, GithubOutlined, SearchOutlined } from '@ant-design/icons';
 import 'antd/dist/reset.css';
 import './style.css';
@@ -27,9 +27,21 @@ function route() { const p = new URLSearchParams(location.hash.slice(1)); return
 function navigate(target: string, tab: string, issue = '') { location.hash = new URLSearchParams({ target, tab, ...(issue ? { issue } : {}) }).toString(); }
 function date(s?: string) { return s ? new Date(s).toLocaleString() : 'Unavailable'; }
 const colors: Record<string, string> = { CRITICAL: 'red', HIGH: 'volcano', MEDIUM: 'gold', LOW: 'blue', INFO: 'default', current: 'green', partial: 'orange', failed: 'red', scanning: 'blue', COMPLETED: 'green', CONFIGURED_COMPLETE: 'green', POLICY_FINDINGS: 'orange', NOT_AVAILABLE: 'orange', FAILED: 'red' };
-function Badge({ value }: { value: string }) { return <Tag color={colors[value]}>{states[value] || value.replaceAll('_', ' ')}</Tag>; }
+function Badge({ value }: { value: string }) { return <Tag className={`status-tag status-${value}`} color={colors[value]}>{states[value] || value.replaceAll('_', ' ')}</Tag>; }
+
+function Evidence({ detail, source, error }: { detail?: Detail; source: string[]; error: string }) {
+  return <div className="evidence-content">        {detail ? <><Badge value={detail.severity}/><h2>{detail.message}</h2><p className="path">{detail.file}:{detail.line}</p>
+          {detail.source_url && <a href={detail.source_url} target="_blank" rel="noreferrer">Open exact source revision</a>}
+          {source.length ? <pre className="source">{source.slice(Math.max(0, detail.line - 6), Math.max(0, detail.line - 6) + 16).map((line, i) => <div key={i} className={Math.max(1, detail.line - 5) + i === detail.line ? 'highlight' : ''}><span>{Math.max(1, detail.line - 5) + i}</span>{line}</div>)}</pre> : <p>Source preview unavailable or withheld. Use the immutable source link when available.</p>}
+          <h3>Supporting observations</h3>{detail.origins.map(o => <div className="origin" key={o.observation_id}><strong>{o.scanner_family} | {o.rule}</strong><small>{o.file}:{o.start_line}</small><small>Artifact: {o.raw_artifact || 'Unavailable'}</small></div>)}
+        </> : <Empty description={error || 'Issue evidence unavailable or loading...'}/>}</div>;
+}
 
 function App() {
+  const screens = Grid.useBreakpoint();
+  const [category, setCategory] = useState('');
+  const [channelStatus, setChannelStatus] = useState('');
+  const [directory, setDirectory] = useState('');
   const [index, setIndex] = useState<Index>(); const [error, setError] = useState(''); const [r, setRoute] = useState(route());
   const [report, setReport] = useState<Report>(); const [findings, setFindings] = useState<Finding[]>([]); const [detail, setDetail] = useState<Detail>(); const [source, setSource] = useState<string[]>([]);
   const [query, setQuery] = useState(''); const [severity, setSeverity] = useState(''); const [scanner, setScanner] = useState(''); const [page, setPage] = useState(0); const [loading, setLoading] = useState(false);
@@ -41,11 +53,22 @@ function App() {
   useEffect(() => { setDetail(undefined); setSource([]); if (!r.issue || !target?.report) return; const f = findings.find(f => f.id === r.issue); if (!f) return; const c = new AbortController();
     json<Detail[]>(`data/${target.report}/details/${f.page}.json`, c.signal).then(async rows => { const d = rows.find(d => d.id === f.id); setDetail(d); if (d?.source) setSource(await json<string[]>(`data/${target.report}/${d.source}`, c.signal)); }).catch(e => { if (e.name !== 'AbortError') setError(e.message); }); return () => c.abort();
   }, [r.issue, findings, target?.report]);
-  const filtered = useMemo(() => findings.filter(f => (!severity || f.severity === severity) && (!scanner || f.scanners.includes(scanner)) && `${f.message} ${f.file} ${f.rules.join(' ')}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => (ranks[a.severity] ?? 9) - (ranks[b.severity] ?? 9) || a.file.localeCompare(b.file)), [findings, query, severity, scanner]);
-  useEffect(() => setPage(0), [query, severity, scanner]);
+  const filtered = useMemo(() => findings.filter(f => (!directory || (f.file.includes('/') ? f.file.slice(0, f.file.lastIndexOf('/')) : '(root)') === directory) && (!severity || f.severity === severity) && (!scanner || f.scanners.includes(scanner)) && `${f.message} ${f.file} ${f.rules.join(' ')}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => (ranks[a.severity] ?? 9) - (ranks[b.severity] ?? 9) || a.file.localeCompare(b.file)), [findings, query, severity, scanner, directory]);
+  useEffect(() => setPage(0), [query, severity, scanner, directory]);
+  const directories = useMemo(() => {
+    const counts = new Map<string, number>();
+    findings.forEach(f => { const dir = f.file.includes('/') ? f.file.slice(0, f.file.lastIndexOf('/')) : '(root)'; counts.set(dir, (counts.get(dir) || 0) + 1); });
+    return [...counts].sort((a, b) => b[1] - a[1]).slice(0, 6);
+  }, [findings]);
+  const support = useMemo(() => [1, 2, 3].map(n => ({ n, count: findings.filter(f => n === 3 ? new Set(f.scanners).size >= 3 : new Set(f.scanners).size === n).length })), [findings]);
+  useEffect(() => {
+    if (!r.issue || !screens.lg) return;
+    const close = (e: KeyboardEvent) => { if (e.key === 'Escape') navigate(target?.id || '', 'issues'); };
+    window.addEventListener('keydown', close); return () => window.removeEventListener('keydown', close);
+  }, [r.issue, screens.lg, target?.id]);
   const fresh = !!report && report.analyzed_sha === target?.head_sha;
   const completed = report?.channels.filter(c => ['COMPLETED', 'COMPLETED_OPTIONAL', 'CONFIGURED_COMPLETE', 'POLICY_FINDINGS'].includes(c.status)).length || 0;
-  return <ConfigProvider theme={{ token: { colorPrimary: '#1765ad', borderRadius: 6, fontFamily: 'Inter, Segoe UI, sans-serif' } }}>
+  return <ConfigProvider theme={{ algorithm: theme.darkAlgorithm, token: { colorPrimary: '#7bd0ff', colorLink: '#7bd0ff', colorLinkHover: '#b3e5ff', colorBgBase: '#071523', colorBgContainer: '#102131', colorText: '#dce8f5', colorTextSecondary: '#a6b8c9', colorBorder: '#304459', borderRadius: 6, fontFamily: 'Segoe UI, sans-serif' }, components: { Button: { primaryColor: '#071523' } } }}>
     <header className="topbar"><a className="brand" href="#"><CodeOutlined/> Code Analysis</a><a href={`https://github.com/${index?.analysis_repository || 'combustrrr/Agentic-Kibana'}/actions`} target="_blank" rel="noreferrer"><GithubOutlined/> Workflows</a></header>
     <main>
       <section className="project">
@@ -70,39 +93,56 @@ function App() {
       </section>
       {(error || index?.discovery_error || index?.publication_error || target?.error) && <Alert showIcon type="error" title="Report service error" description={error || index?.discovery_error || index?.publication_error || target?.error}/>}
       {report && (!fresh || report.status === 'partial') && <Alert showIcon type="warning" title={!fresh ? 'Newer head awaiting analysis' : 'Analysis is incomplete'} description={!fresh ? 'These findings belong to the older analyzed commit shown above.' : 'Available findings are shown. Unavailable scanners do not mean zero issues.'}/>}
-      <Tabs activeKey={r.tab} onChange={tab => navigate(target?.id || '', tab)} items={['overview', 'issues', 'scanners'].map(tab => ({ key: tab, label: tab[0].toUpperCase() + tab.slice(1) + (tab === 'issues' && report ? ` (${report.finding_count.toLocaleString()})` : '') }))}/>
+      <Tabs activeKey={r.tab} onChange={tab => navigate(target?.id || '', tab)} items={['overview', 'issues', 'scanners', 'provenance'].map(tab => ({ key: tab, label: tab[0].toUpperCase() + tab.slice(1) + (tab === 'issues' && report ? ` (${report.finding_count.toLocaleString()})` : '') }))}/>
       {!report ? <div className="empty" role="status"><Empty description={loading ? 'Loading the selected report...' : r.target && !target ? 'Target no longer active' : 'No report available yet'}/></div> : <>
         {r.tab === 'overview' && <>
           <section className="metrics">{['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map(s => <div key={s}><Statistic title={<Badge value={s}/>} value={report.severities[s] || 0}/><Button type="link" onClick={() => { setSeverity(s); navigate(target!.id, 'issues'); }}>View findings</Button></div>)}</section>
-          <section className="summary"><div><h2>Reported issues</h2><p>{report.finding_count.toLocaleString()} findings from {report.observation_count.toLocaleString()} scanner observations.</p><p>Inspect the rule, exact source location, and evidence behind each finding.</p><Button type="primary" onClick={() => { setSeverity(''); navigate(target!.id, 'issues'); }}>Browse issues</Button></div>
-            <div><h2>Scanner execution</h2><p>{completed} of {report.channels.length} channels completed.</p><Progress percent={Math.round(completed / Math.max(1, report.channels.length) * 100)} showInfo={false} aria-label={`${completed} of ${report.channels.length} channels completed`}/><p>Strict evidence gate: <strong>{report.publication_gate.satisfied ? 'Passed' : 'Not satisfied'}</strong></p><Button onClick={() => navigate(target!.id, 'scanners')}>Inspect every scanner</Button></div></section>
+          <section className="summary"><div><h2>Reported issues</h2><p>{report.finding_count.toLocaleString()} findings from {report.observation_count.toLocaleString()} scanner observations.</p><p>Inspect the rule, exact source location, and evidence behind each finding.</p><Button type="primary" onClick={() => { setSeverity(''); setDirectory(''); setQuery(''); setScanner(''); navigate(target!.id, 'issues'); }}>Browse issues</Button></div>
+            <div><h2>Scanner execution</h2><p>{completed} of {report.channels.length} channels completed.</p><Progress strokeColor="#7bd0ff" percent={Math.round(completed / Math.max(1, report.channels.length) * 100)} showInfo={false} aria-label={`${completed} of ${report.channels.length} channels completed`}/><p>Strict evidence gate: <strong>{report.publication_gate.satisfied ? 'Passed' : 'Not satisfied'}</strong></p><Button onClick={() => navigate(target!.id, 'scanners')}>Inspect every scanner</Button></div></section>
         </>}
+        {r.tab === 'overview' && <section className="insights-grid">
+          <article className="panel"><h2>Severity distribution</h2><p>Composition of the available findings at this revision.</p>{Object.keys(ranks).map(level => <div className="distribution" key={level}><Badge value={level}/><Progress strokeColor="#7bd0ff" percent={report.finding_count ? (report.severities[level] || 0) / report.finding_count * 100 : 0} showInfo={false}/><span>{(report.severities[level] || 0).toLocaleString()}</span></div>)}</article>
+          <article className="panel"><h2>Scanner overlap</h2><p>Distinct scanner families supporting each canonical finding. This measures overlap, not confidence.</p>{support.map(({ n, count }) => <div className="support-row" key={n}><span>{n === 3 ? '3 or more scanners' : `${n} scanner${n === 1 ? '' : 's'}`}</span><strong>{count.toLocaleString()}</strong><Progress strokeColor="#7bd0ff" percent={report.finding_count ? count / report.finding_count * 100 : 0} showInfo={false}/></div>)}</article>
+          <article className="panel"><h2>Directories with most findings</h2><p>Finding counts, without normalization by code size.</p>{directories.map(([dir, count]) => <div className="directory-row" key={dir}><Button type="link" onClick={() => { setDirectory(dir); setQuery(''); setSeverity(''); setScanner(''); navigate(target!.id, 'issues'); }}>{dir}</Button><strong>{count.toLocaleString()}</strong><Progress strokeColor="#7bd0ff" percent={count / Math.max(1, directories[0][1]) * 100} showInfo={false}/></div>)}</article>
+          <article className="panel"><h2>Highest severity findings</h2><p>Open the original location and scanner observations.</p>{[...findings].sort((a,b) => (ranks[a.severity] ?? 9) - (ranks[b.severity] ?? 9)).slice(0, 4).map(f => <div className="priority-row" key={f.id}><Badge value={f.severity}/><Button type="link" onClick={() => navigate(target!.id, 'issues', f.id)}>{f.message}</Button><small>{f.file}:{f.line}</small></div>)}</article>
+        </section>}
+        {r.tab === 'provenance' && <section className="insights-grid">
+          <article className="panel"><h2>Analysis identity</h2><Descriptions column={1} items={[
+            {key:'source',label:'Source repository',children:target!.source_repository},
+            {key:'sha',label:'Analyzed revision',children:<code>{report.analyzed_sha}</code>},
+            {key:'tool',label:'Trusted tooling revision',children:<code>{report.tooling_sha || 'Unavailable'}</code>},
+            {key:'base',label:'PR base revision',children:<code>{target!.base_sha || 'Not applicable'}</code>},
+            {key:'attempt',label:'Producer attempt',children:report.producer_run_attempt ?? 'Unavailable'},
+            {key:'schema',label:'Collection schema',children:index?.schema_version}
+          ]}/></article>
+          <article className="panel"><h2>Producing workflows</h2><p>These exact runs produced the displayed report.</p>{report.producer_runs.map(run => <div className="origin" key={run.id}><GithubOutlined/> <a href={run.url} target="_blank" rel="noreferrer">Run #{run.id}</a></div>)}<h3>Evidence gate</h3><Tag color={report.publication_gate.satisfied ? 'green' : 'orange'}>{report.publication_gate.satisfied ? 'Passed' : 'Not satisfied'}</Tag><p>The evidence gate and scanner completeness are separate. {completed} of {report.channels.length} channels completed.</p><p>Individual finding details identify their source observations and retained artifact paths.</p></article>
+        </section>}
         {r.tab === 'scanners' && <><Alert showIcon type="info" title="Scanner execution and evidence" description="Execution failures are separate from code findings. Unavailable counts are unknown; completed policy findings can still require attention."/>
-          <Table<Channel> rowKey="channel" size="middle" dataSource={report.channels} pagination={false} scroll={{ x: 850 }} columns={[
+          <div className="filters"><Select aria-label="Scanner category" value={category} onChange={setCategory} options={[{value:'',label:'All categories'}, ...[...new Set(report.channels.map(c => c.class))].sort().map(c => ({value:c,label:c}))]}/><Select aria-label="Execution status" value={channelStatus} onChange={setChannelStatus} options={[{value:'',label:'All statuses'}, ...[...new Set(report.channels.map(c => c.status))].sort().map(c => ({value:c,label:c.replaceAll('_',' ')}))]}/><span>{report.channels.filter(c => (!category || c.class === category) && (!channelStatus || c.status === channelStatus)).length} channels</span></div>
+          <Table<Channel> rowKey="channel" size="middle" dataSource={report.channels.filter(c => (!category || c.class === category) && (!channelStatus || c.status === channelStatus))} pagination={false} scroll={{ x: 850 }} columns={[
             { title: 'Scanner', key: 'scanner', width: 210, render: (_, c) => <><strong>{c.name}</strong><small>{c.class}</small></> },
             { title: 'Status', key: 'status', width: 200, render: (_, c) => <Badge value={c.status}/> },
             { title: 'Findings', key: 'findings', width: 110, render: (_, c) => c.findings === null ? 'Unavailable' : c.findings.toLocaleString() },
             { title: 'Workflow / evidence limitations', key: 'reason', render: (_, c) => <>{c.reason || 'Retained evidence available'}<small>Scanner definition: {c.workflow}</small></> }
           ]}/></>}
         {r.tab === 'issues' && <>
+          {directory && <Tag closable onClose={() => setDirectory('')}>Directory: {directory}</Tag>}
           <div className="filters"><Input aria-label="Search issues" prefix={<SearchOutlined/>} placeholder="Search message, file, or rule" allowClear value={query} onChange={e => setQuery(e.target.value)}/>
             <Select aria-label="Severity" value={severity} onChange={setSeverity} options={[{ value: '', label: 'All severities' }, ...Object.keys(ranks).map(s => ({ value: s, label: s }))]}/>
             <Select aria-label="Scanner" showSearch optionFilterProp="label" value={scanner} onChange={setScanner} options={[{ value: '', label: 'All scanners' }, ...[...new Set(findings.flatMap(f => f.scanners))].sort().map(s => ({ value: s, label: s }))]}/>
             <span>{filtered.length.toLocaleString()} results</span>
           </div>
-          <Table<Finding> rowKey="id" size="middle" dataSource={filtered} scroll={{ x: 760 }} rowClassName={f => r.issue === f.id ? 'selected' : ''} locale={{ emptyText: 'No findings match these filters.' }} pagination={{ current: page + 1, pageSize: 50, showSizeChanger: false, onChange: p => setPage(p - 1), showTotal: total => `${total.toLocaleString()} findings` }} columns={[
+          <div className={r.issue && screens.lg ? "findings-workspace split" : "findings-workspace"}><div className="findings-list"><Table<Finding> rowKey="id" size="middle" dataSource={filtered} scroll={{ x: r.issue && screens.lg ? undefined : 760 }} rowClassName={f => r.issue === f.id ? 'selected' : ''} locale={{ emptyText: 'No findings match these filters.' }} pagination={{ current: page + 1, pageSize: 50, showSizeChanger: false, onChange: p => setPage(p - 1), showTotal: total => `${total.toLocaleString()} findings` }} columns={r.issue && screens.lg ? [{title:'Findings',key:'compact',render:(_,f) => <><Badge value={f.severity}/><Button type="link" className="issue-link" onClick={() => navigate(target!.id, 'issues', f.id)}>{f.message}</Button><small>{f.file}:{f.line}</small><small>{f.scanners.join(', ')} | {f.rules.join(', ')}</small></>}] : [
             { title: 'Severity', key: 'severity', width: 120, render: (_, f) => <Badge value={f.severity}/> },
             { title: 'Issue and source', key: 'issue', render: (_, f) => <><Button type="link" className="issue-link" onClick={() => navigate(target!.id, 'issues', f.id)}>{f.message}</Button><small>{f.file}{f.line ? `:${f.line}` : ''}</small></> },
             { title: 'Scanner / rule', key: 'scanner', width: 240, render: (_, f) => <>{f.scanners.join(', ')}<small>{f.rules.join(', ')}</small></> }
-          ]}/>
+          ]}/></div>
+          {r.issue && screens.lg && <section className="evidence-panel" aria-label="Issue detail"><div className="pane-heading"><h2>Issue detail</h2><Button onClick={() => navigate(target!.id, 'issues')}>Close issue</Button></div><Evidence detail={detail} source={source} error={error}/></section>}
+          </div>
         </>}
       </>}
-      <Drawer title="Issue detail" open={!!r.issue && r.tab === 'issues'} onClose={() => navigate(target?.id || '', 'issues')} size="min(850px, 100vw)" destroyOnHidden>
-        {detail ? <><Badge value={detail.severity}/><h2>{detail.message}</h2><p className="path">{detail.file}:{detail.line}</p>
-          {detail.source_url && <a href={detail.source_url} target="_blank" rel="noreferrer">Open exact source revision</a>}
-          {source.length ? <pre className="source">{source.slice(Math.max(0, detail.line - 6), Math.max(0, detail.line - 6) + 16).map((line, i) => <div key={i} className={Math.max(1, detail.line - 5) + i === detail.line ? 'highlight' : ''}><span>{Math.max(1, detail.line - 5) + i}</span>{line}</div>)}</pre> : <p>Source preview unavailable or withheld. Use the immutable source link when available.</p>}
-          <h3>Supporting observations</h3>{detail.origins.map(o => <div className="origin" key={o.observation_id}><strong>{o.scanner_family} | {o.rule}</strong><small>{o.file}:{o.start_line}</small><small>Artifact: {o.raw_artifact || 'Unavailable'}</small></div>)}
-        </> : <Empty description={error || 'Loading issue evidence...'}/>}
+      <Drawer title="Issue detail" open={!!r.issue && r.tab === 'issues' && !screens.lg} onClose={() => navigate(target?.id || '', 'issues')} size="min(850px, 100vw)" destroyOnHidden>
+        <Evidence detail={detail} source={source} error={error}/>
       </Drawer>
       <footer>{index?.metrics && <span>Site data and UI: ~{(index.metrics.site_bytes / 1000000).toFixed(1)} MB / {(index.metrics.site_limit_bytes / 1000000).toFixed(0)} MB limit. </span>}Findings are scanner observations, not confirmed defects. Viewing this page never starts a scan.</footer>
     </main>

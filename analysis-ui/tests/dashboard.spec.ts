@@ -10,14 +10,14 @@ test('retained dataset preserves source identity, filters and issue provenance',
   await page.getByLabel('Search issues').fill('assert');
   await expect(page.locator('.ant-table-tbody > tr.ant-table-row').first()).toBeVisible();
   await page.locator('.issue-link').first().click();
-  await expect(page.getByRole('dialog', { name: 'Issue detail' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Issue detail' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Supporting observations' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open exact source revision' })).toHaveAttribute('href', /\/blob\/[a-f0-9]{40}\//);
   const url = page.url(); await page.reload();
   await expect(page.getByRole('heading', { name: 'Supporting observations' })).toBeVisible();
   expect(page.url()).toEqual(url);
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('dialog', { name: 'Issue detail' })).not.toBeVisible();
+  await expect(page.getByRole('region', { name: 'Issue detail' })).not.toBeVisible();
   expect(new URL(page.url()).hash).not.toContain('issue=');
   expect(errors).toEqual([]);
 });
@@ -68,4 +68,36 @@ test('Ant Design filters, pagination and responsive layout remain usable', async
   await page.getByLabel('Branch or pull request').click();
   await expect(page.getByRole('listbox')).toBeAttached();
   await page.keyboard.press('Escape');
+});
+
+
+test('overview drilldown, scanner filters and provenance use retained evidence', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Directories with most findings' })).toBeVisible();
+  const directory = page.locator('.directory-row .ant-btn').first();
+  const path = await directory.innerText();
+  await directory.click();
+  await expect(page.getByText(`Directory: ${path}`, {exact:true})).toBeVisible();
+  await expect(page.locator('.ant-table-tbody > tr.ant-table-row').first()).toContainText(path);
+  await page.getByRole('tab', {name:'Scanners',exact:true}).click();
+  await page.getByLabel('Execution status').click();
+  await page.getByTitle('NOT AVAILABLE', {exact:true}).click();
+  const rows=page.locator('.ant-table-tbody > tr.ant-table-row');
+  await expect(rows.first()).toContainText('NOT AVAILABLE');
+  for (const row of await rows.all()) await expect(row).toContainText('NOT AVAILABLE');
+  await page.getByRole('tab', {name:'Provenance',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Analysis identity'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Producing workflows'})).toBeVisible();
+  await expect(page.locator('.panel').filter({hasText:'Producing workflows'}).getByRole('link').first()).toHaveAttribute('href', /github.com.*actions\/runs\/\d+/);
+});
+
+test('mobile issue evidence opens accessibly and closes with Escape', async ({page}) => {
+  await page.setViewportSize({width:390,height:844});
+  await page.goto('/');
+  await page.getByRole('tab',{name:/^Issues/}).click();
+  await page.locator('.issue-link').first().click();
+  await expect(page.getByRole('dialog',{name:'Issue detail'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Supporting observations'})).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog',{name:'Issue detail'})).not.toBeVisible();
 });
