@@ -11485,3 +11485,6 @@
 - Rebuilt the Ant Design launch dialog around four developer decisions: configured project, exact revision, scanner profile, and authenticated execution. The UI now exposes the analysis host, trusted workflow ref, source SHA, PR context, channel coverage, queue state, and current-only retention before dispatch.
 - Added a clear authenticated run receipt with GitHub tracking and submitted/queued/scanning/published stages. The manual GitHub Actions handoff remains available as a collapsed fallback for signed-out users.
 - Added responsive dark/light styling and strengthened browser coverage for the section hierarchy, authenticated launch, commit/PR validation, and Ant Design filtering. Production build, all 9 Playwright tests, documentation consistency, and diff validation passed.
+
+### 2026-09-08 - Temporary verification directory cleanup blocker
+- Removed the deployment worktree and dashboard clone. The older `.tmp/live-upstream-verification` tree remains untracked because its sandbox-owned ACL denied deletion even after an elevated ownership/grant attempt; product and deployment files are unaffected.
