@@ -11435,3 +11435,8 @@
 ### 2026-09-08 - Reusable integrations: acceptance milestone
 - 104 service/hosted/extension tests passed; workflow policy and 91-page documentation checks passed. Production UI build passed. Repository provisioning CLI created an isolated example config without changing the active source.
 - Existing scanner inventory unchanged; examples remain disabled. New adapters require real scanner/API wiring and native source verification before operational acceptance.
+
+### 2026-09-08 - Reusable integrations: session complete
+- Fork Testing deployed at cdc99a63; feature implementation e619ab6a pushed. Dedicated dashboard commit 716086b deployed successfully via Pages run 34246054660, including cleanup.
+- Final live Chrome check passed with zero errors. Earlier manual commit analysis completed and its partial report is now published automatically; site size 33,393,251 bytes against 900,000,000-byte limit.
+- Extension examples remain disabled; no new scanner claimed operational. 104 service tests, workflow policy, 91-page docs, UI build and targeted browser handoff acceptance passed. Integration guide covers scanner/API adapters, exact-source evidence, credentials and repository provisioning.
