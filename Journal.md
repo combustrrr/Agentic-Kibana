@@ -11372,3 +11372,9 @@
 ### 2026-09-08 - Ant Design dashboard: acceptance milestone
 - Four retained-dataset browser tests passed: provenance/deep links, mobile scanner statuses, escaped untrusted text, severity filtering, pagination and drawer keyboard close. Desktop/source/mobile screenshots reviewed. Documentation consistency passed for 90 pages.
 - Visual review caught Windows text-encoding replacement characters in UI separators; replaced them with portable plain text before publication.
+
+### 2026-09-08 - Ant Design dashboard: session complete
+- Deployed dedicated dashboard commit 7433fb6; Pages run 34241097995 succeeded, including build, report collection, deployment and cleanup.
+- Live Chrome verified all four active targets expose 26 scanner rows, issue search/drawer and immutable upstream source links; no browser errors. Site size 24,495,031 bytes against the 900,000,000-byte threshold.
+- Final production bundle and corrected mobile/filter/pagination browser check passed. UI changes are on fork feature/static-code-analysis; publishing reused existing reports and did not trigger scanner reruns.
+- All-channel operational acceptance remains separate: previously recorded vendor quota/access and repository-posture credential blockers are not resolved by this UI migration.
