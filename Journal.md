@@ -11440,3 +11440,14 @@
 - Fork Testing deployed at cdc99a63; feature implementation e619ab6a pushed. Dedicated dashboard commit 716086b deployed successfully via Pages run 34246054660, including cleanup.
 - Final live Chrome check passed with zero errors. Earlier manual commit analysis completed and its partial report is now published automatically; site size 33,393,251 bytes against 900,000,000-byte limit.
 - Extension examples remain disabled; no new scanner claimed operational. 104 service tests, workflow policy, 91-page docs, UI build and targeted browser handoff acceptance passed. Integration guide covers scanner/API adapters, exact-source evidence, credentials and repository provisioning.
+
+### 2026-09-08 - Developer initiated analysis repair: start
+- Inspecting dashboard selection and trusted workflow handoff so developers can initiate exact-target analysis and follow current results.
+
+### 2026-09-08 - Authenticated launching implementation milestone
+- User chose authenticated direct dashboard launch. Added a GitHub App OAuth/PKCE Worker, memory-only encrypted sessions, current write-access checks, live source target selection, and trusted discovery dispatch.
+- Added typed selection to preserve branch/PR/commit identity and current-only retention. Worker authorization/dispatch tests pass (8); live activation requires Cloudflare access and GitHub App setup.
+
+### 2026-09-08 - Authenticated launcher acceptance milestone
+- Passed 105 service tests, 8 Worker protocol/authorization tests, 9 browser tests against the retained 21,189-finding dataset, UI production build, workflow policy, and 92-page documentation checks.
+- Wrangler 4.129.1 dry-run packaging passed (about 4 KB compressed). Direct launch remains disabled until Cloudflare and GitHub App credentials are configured; no paid resources were purchased.

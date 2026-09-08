@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Alert, Button, ConfigProvider, Descriptions, Drawer, Empty, Grid, Input, Modal, Segmented, Progress, Select, Space, Statistic, Table, Tabs, Tag, Typography, theme } from 'antd';
+import { Alert, Button, ConfigProvider, Descriptions, Drawer, Empty, Grid, Input, Segmented, Progress, Select, Space, Statistic, Table, Tabs, Tag, Typography, theme } from 'antd';
 import { CodeOutlined, GithubOutlined, SearchOutlined } from '@ant-design/icons';
 import 'antd/dist/reset.css';
 import './style.css';
+import { useLaunchAuth } from './useLaunchAuth';
+import { AnalysisLauncher } from './AnalysisLauncher';
 
 type Target = { scan_run_id?: number; run_attempt?: number; tooling_sha?: string; id: string; label: string; repository: string; source_repository: string; head_sha: string; kind: string; branch: string; pr?: number; base_branch?: string; base_sha?: string; checked_at: string; status: string; report?: string; error?: string };
-type Index = { analysis_default_branch?: string; metrics?: {site_bytes: number; site_limit_bytes: number}; schema_version: string; checked_at: string; targets: Target[]; preferred_branch: string; analysis_repository: string; discovery_error?: string; publication_error?: string };
+type Index = { launch_endpoint?: string; source_repository?: string; analysis_default_branch?: string; metrics?: {site_bytes: number; site_limit_bytes: number}; schema_version: string; checked_at: string; targets: Target[]; preferred_branch: string; analysis_repository: string; discovery_error?: string; publication_error?: string };
 type Finding = { id: string; severity: string; message: string; file: string; line: number; scanners: string[]; rules: string[]; page: number };
 type Detail = Finding & { origins: { scanner_family: string; rule: string; file: string; start_line: number; raw_artifact: string; observation_id: string }[]; source: string | null; source_start: number; source_url: string | null };
 type Channel = { channel: string; name: string; class: string; status: string; findings: number | null; observation_count: number; reason: string; workflow: string };
@@ -41,7 +43,7 @@ function App() {
   const screens = Grid.useBreakpoint();
   const [appearance, setAppearance] = useState(() => { try { return localStorage.getItem('analysis-theme') || 'dark'; } catch { return 'dark'; } });
   const [runOpen, setRunOpen] = useState(false);
-  const [selection, setSelection] = useState('');
+  const [pendingLaunch, setPendingLaunch] = useState<{ kind: string; ref: string }>();
   const [refreshTick, setRefreshTick] = useState(0);
   const [lastRefresh, setLastRefresh] = useState('');
   useEffect(() => { document.documentElement.dataset.theme = appearance; try { localStorage.setItem('analysis-theme', appearance); } catch {} }, [appearance]);
@@ -52,6 +54,12 @@ function App() {
   const [report, setReport] = useState<Report>(); const [findings, setFindings] = useState<Finding[]>([]); const [detail, setDetail] = useState<Detail>(); const [source, setSource] = useState<string[]>([]);
   const [query, setQuery] = useState(''); const [severity, setSeverity] = useState(''); const [scanner, setScanner] = useState(''); const [page, setPage] = useState(0); const [loading, setLoading] = useState(false);
   useEffect(() => { const c = new AbortController(); const refresh = () => json<Index>('data/index.json', c.signal).then(value => { setIndex(value); setLastRefresh(new Date().toISOString()); }).catch(e => { if (e.name !== 'AbortError') setError(e.message); }); refresh(); const timer = window.setInterval(refresh, 60000); const change = () => setRoute(route()); window.addEventListener('hashchange', change); return () => { c.abort(); window.clearInterval(timer); window.removeEventListener('hashchange', change); }; }, [refreshTick]);
+  const launchAuth = useLaunchAuth(index?.launch_endpoint);
+  useEffect(() => {
+    if (!pendingLaunch) return;
+    const launched = index?.targets.find(t => t.kind === pendingLaunch.kind && (t.kind === 'pr' ? String(t.pr) === pendingLaunch.ref : t.kind === 'commit' ? t.head_sha.toLowerCase() === pendingLaunch.ref.toLowerCase() : t.branch === pendingLaunch.ref));
+    if (launched) { navigate(launched.id, 'overview'); setPendingLaunch(undefined); }
+  }, [index, pendingLaunch]);
   const target = index?.targets.find(t => t.id === r.target) || (!r.target ? index?.targets.find(t => t.kind === 'branch' && t.branch === index.preferred_branch) || index?.targets[0] : undefined);
   useEffect(() => { setReport(undefined); setFindings([]); setDetail(undefined); setSource([]); setPage(0); setError(''); setLoading(false); if (!target?.report) return;
     const c = new AbortController(); setLoading(true); Promise.all([json<Report>(`data/${target.report}/report.json`, c.signal), json<Finding[]>(`data/${target.report}/findings.json`, c.signal)]).then(([a, b]) => { setReport(a); setFindings(b); }).catch(e => { if (e.name !== 'AbortError') setError(e.message); }).finally(() => { if (!c.signal.aborted) setLoading(false); }); return () => c.abort();
@@ -75,16 +83,10 @@ function App() {
   const fresh = !!report && report.analyzed_sha === target?.head_sha;
   const completed = report?.channels.filter(c => ['COMPLETED', 'COMPLETED_OPTIONAL', 'CONFIGURED_COMPLETE', 'POLICY_FINDINGS'].includes(c.status)).length || 0;
   return <ConfigProvider theme={{ algorithm: appearance === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm, token: { colorPrimary: appearance === 'dark' ? '#7bd0ff' : '#1765ad', colorLink: appearance === 'dark' ? '#7bd0ff' : '#1765ad', colorLinkHover: appearance === 'dark' ? '#b3e5ff' : '#124c85', colorBgBase: appearance === 'dark' ? '#071523' : '#f4f7fa', colorBgContainer: appearance === 'dark' ? '#102131' : '#ffffff', colorText: appearance === 'dark' ? '#dce8f5' : '#202d3d', colorTextSecondary: appearance === 'dark' ? '#a6b8c9' : '#52657a', colorBorder: appearance === 'dark' ? '#304459' : '#c9d4df', borderRadius: 6, fontFamily: 'Segoe UI, sans-serif' }, components: { Button: { primaryColor: appearance === 'dark' ? '#071523' : '#ffffff' } } }}>
-    <header className="topbar"><a className="brand" href="#"><CodeOutlined/> Code Analysis</a><Space wrap><Segmented aria-label="Color theme" value={appearance} options={[{label:'Dark',value:'dark'},{label:'Light',value:'light'}]} onChange={setAppearance}/><Button type="primary" onClick={() => { setSelection(target?.kind === 'commit' ? target.head_sha : target?.pr ? `PR #${target.pr}` : target?.branch || ''); setRunOpen(true); }}>Run analysis</Button><a href={`https://github.com/${index?.analysis_repository || 'combustrrr/Agentic-Kibana'}/actions`} target="_blank" rel="noreferrer"><GithubOutlined/> Workflows</a></Space></header>
-    <Modal title="Run source analysis" open={runOpen} onCancel={() => setRunOpen(false)} footer={null}>
-        <p>Select a branch or PR, or paste a full commit SHA or upstream GitHub URL. GitHub Actions runs the scanners with your repository permissions.</p>
-        <Select className="run-target-select" aria-label="Available analysis targets" placeholder="Choose a discovered target" value={index?.targets.some(t => t.id === selection) ? selection : undefined} options={index?.targets.map(t => ({value:t.id,label:t.label}))} onChange={setSelection}/>
-        <Input aria-label="Analysis target" value={selection} onChange={e => setSelection(e.target.value)} placeholder="Testing, PR #123, full commit SHA, or GitHub URL"/>
-        <ol><li>Copy the target: <Typography.Text copyable={{text:selection}} code>{selection || 'Enter a target above'}</Typography.Text></li><li>Open GitHub Actions below and select <strong>Run workflow</strong>. Keep the workflow branch at the fork default, <strong>{index?.analysis_default_branch || 'the repository default branch'}</strong>.</li><li>Paste the target into <strong>refresh_target</strong>, then run the workflow.</li></ol>
-        <Alert type="info" showIcon title="Results update automatically" description="The dashboard checks published reports every minute. Publication runs about every 10 minutes after analysis. Branch discovery runs hourly. One explicitly selected commit or closed PR is retained alongside active targets; a new manual selection replaces that slot."/>
-        <Button type="primary" href={`https://github.com/${index?.analysis_repository || 'combustrrr/Agentic-Kibana'}/actions/workflows/10-analysis-discovery.yml`} target="_blank" rel="noreferrer">Open Run analysis in GitHub</Button>
-      </Modal>
+    <header className="topbar"><a className="brand" href="#"><CodeOutlined/> Code Analysis</a><Space wrap><Segmented aria-label="Color theme" value={appearance} options={[{label:'Dark',value:'dark'},{label:'Light',value:'light'}]} onChange={setAppearance}/><Button type="primary" onClick={() => setRunOpen(true)}>Run analysis</Button><a href={`https://github.com/${index?.analysis_repository || 'combustrrr/Agentic-Kibana'}/actions`} target="_blank" rel="noreferrer"><GithubOutlined/> Workflows</a></Space></header>
+    {runOpen && <AnalysisLauncher onSubmitted={setPendingLaunch} auth={launchAuth} open close={() => setRunOpen(false)} repository={index?.source_repository || index?.targets[0]?.repository} host={index?.analysis_repository} workflowBranch={index?.analysis_default_branch} targets={index?.targets || []} initial={target} follow={id => navigate(id, 'overview')}/>}
     <main>
+      {pendingLaunch && <Alert type="info" title="Waiting for requested target publication" description={`Analysis requested for ${pendingLaunch.kind} ${pendingLaunch.ref}. This view will select its report when the target appears in published data.`}/>}
       <section className="project">
         <div className="eyebrow">SOURCE REPOSITORY</div><h1>{target?.repository || 'Code quality dashboard'}</h1>
         <div className="target-row"><label htmlFor="target">Branch or pull request</label>

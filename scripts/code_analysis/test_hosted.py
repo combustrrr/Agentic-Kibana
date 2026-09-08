@@ -74,7 +74,7 @@ class IdentityTests(unittest.TestCase):
             self.assertIn('page=2', api.call_args.args[0])
 
     def test_expired_handoff_requeues_only_when_no_durable_report_exists(self):
-        config = {'analysis_repository': 'service/host', 'publishing_repository': 'service/site',
+        config = {'source_repository': 'owner/repo', 'analysis_repository': 'service/host', 'publishing_repository': 'service/site',
                   'preferred_branch': 'main', 'max_parallel_analyses': 2}
         item = h.target('owner/repo', 'main', 'a' * 40)
         row = {**item, 'analysis_key': h.analysis_key(item, 'd' * 40, config), 'request_id': 'old',
@@ -330,6 +330,19 @@ class ReportTests(unittest.TestCase):
 
 
 class ManualSelectionTests(unittest.TestCase):
+    def test_structured_selection_preserves_kind_and_repository(self):
+        branch = h.target('owner/repo', 'PR #17', 'a' * 40)
+        pr = h.target('owner/repo', 'feature', 'b' * 40, pr=17)
+        config = {'source_repository': 'owner/repo'}
+        for kind, ref, expected in [('branch', 'PR #17', branch), ('pr', '17', pr)]:
+            self.assertEqual(service.resolve_selection(config, json.dumps({'repository': 'owner/repo', 'kind': kind, 'ref': ref}), [branch, pr]), expected)
+        with self.assertRaises(ValueError):
+            service.resolve_selection(config, json.dumps({'repository': 'other/repo', 'kind': 'branch', 'ref': 'main'}), [])
+        sha_branch = h.target('owner/repo', 'a' * 40, 'b' * 40)
+        with patch.object(service, 'api', return_value={'sha': 'a' * 40}):
+            row = service.resolve_selection(config, json.dumps({'repository': 'owner/repo', 'kind': 'commit', 'ref': 'a' * 40}), [sha_branch])
+        self.assertEqual(row['kind'], 'commit')
+
     def test_commit_is_verified_and_separate_from_branch(self):
         from scripts.code_analysis import github_service as service
         config = {'source_repository': 'owner/repo'}

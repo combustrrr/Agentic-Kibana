@@ -159,7 +159,8 @@ reject deployments at 900 MB. Source snippets are content-addressed, findings de
 are paginated, and selection loads only that target's data. Every target shows discovered
 head, analyzed SHA, last discovery time, analysis time, scanner status, and run links.
 A previous report remains visibly stale during a new scan; partial results never borrow
-findings from older revisions. GitHub API/scan controls remain outside the browser.
+findings from older revisions. Optional authenticated launch controls call a separate
+Worker; GitHub credentials and workflow dispatch stay behind that boundary.
 
 The site is public. Detected Gitleaks values are withheld from public finding messages,
 and source previews for affected files are withheld. Scanner text is rendered as text,
@@ -259,9 +260,10 @@ Provenance view expose the existing report contract. PR delta, AST traces, autom
 fixes and cryptographic certification claims are not inferred from these views.
 
 The dashboard supports persistent light/dark appearance and a Run analysis dialog.
-The dialog hands a target to the trusted GitHub Actions workflow; it never stores a
-token or dispatches from the browser. Operators keep the workflow branch on the fork
-default and supply `refresh_target`: an active branch, PR number, full upstream commit
+The dialog supports authenticated launching through the configured Worker, with an
+in-memory opaque session, and a GitHub Actions handoff when direct launch is unavailable.
+The handoff keeps the workflow branch on the fork default and supplies `refresh_target`:
+a typed repository/revision selection, active branch, PR number, full upstream commit
 SHA, or matching upstream GitHub URL. GitHub resolves exact identities before queueing.
 One manually selected commit or non-active PR is retained alongside active discovery
 targets; the next such selection replaces that slot. PR snapshots preserve fork source
@@ -274,3 +276,19 @@ Scanner and repository extension points are documented in [Scanner and repositor
 integrations](INTEGRATIONS.md). Trusted `scanner_extensions` registrations generate
 isolated source or vendor jobs. Versioned channel evidence is validated and joins
 the existing canonical report, so new channels need no frontend changes.
+
+
+## Authenticated launching (2026-09-08)
+
+The user-approved direct-launch flow adds GitHub sign-in through a Cloudflare Worker.
+The Pages UI offers the configured repository, separate branch/PR/commit selectors,
+live authenticated target discovery, a source preview, and a Start analysis action.
+The Worker checks the developer's current write permission on the analysis fork and
+submits a structured selection to its trusted default-branch discovery workflow.
+The existing current-only reports, two-analysis limit, scanner boundaries and publisher
+remain authoritative. Public browsing remains anonymous; launching requires GitHub.
+The earlier no-login constraint now applies only to viewing results.
+
+The implementation is disabled until App/Worker setup supplies a launch endpoint.
+See [authenticated launch setup and acceptance](AUTHENTICATED_LAUNCHING.md). Local tests
+do not establish a working live OAuth installation or resolve vendor scanner blockers.
