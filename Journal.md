@@ -11497,3 +11497,12 @@
 - Added retained observation IDs/artifact provenance and navigable related findings derived from shared rules, files, directories, and scanners. Relationships are labeled as associations rather than causal claims.
 - Added scalable, collapsed grouping by rule, file, directory, or scanner, capped expanded rendering to 100 findings per group, and preserved search/filter behavior.
 - Production build, diff validation, and all 10 Playwright scenarios passed against the retained 21,189-finding dataset.
+
+### 2026-09-09 - Developer visualizations and investigation priorities: start
+- Adding lightweight charts and evidence-based investigation candidates while avoiding claims that correlated findings share a root cause or that one code change will automatically resolve them.
+
+### 2026-09-09 - Developer visualizations and investigation priorities: complete
+- Added accessible SVG donut charts for severity composition and scanner overlap with responsive dark/light legends.
+- Added investigation priorities ranked from repeated rule-and-directory clusters using severity-weighted retained findings. Each candidate links into pre-filtered, rule-grouped issues.
+- Kept guidance explicitly heuristic: shared scanner symptoms do not prove a common cause, and developers are directed to validate control flow, runtime behavior, tests, configuration, and data flow before changing logic.
+- Production build passed. The existing 10 Playwright scenarios passed in the full run and the added visualization/priority scenario passed after correcting its Ant Design selector.

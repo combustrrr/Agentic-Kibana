@@ -32,6 +32,11 @@ const colors: Record<string, string> = { CRITICAL: 'red', HIGH: 'volcano', MEDIU
 function Badge({ value }: { value: string }) { return <Tag className={`status-tag status-${value}`} color={colors[value]}>{states[value] || value.replaceAll('_', ' ')}</Tag>; }
 function directoryOf(file: string) { return file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : '(root)'; }
 type Relation = { label: string; reason: string; findings: Finding[] };
+const chartColors = ['#ff4d4f', '#ff7a45', '#fadb14', '#1677ff', '#8c8c8c', '#9254de'];
+function DonutChart({ values, label, center }: { values: { label: string; value: number; color?: string }[]; label: string; center: string }) {
+  const total = values.reduce((sum, item) => sum + item.value, 0); let offset = 0;
+  return <div className="donut-layout"><svg className="donut" viewBox="0 0 42 42" role="img" aria-label={label}><circle className="donut-track" cx="21" cy="21" r="15.9155" fill="none" strokeWidth="6"/>{total > 0 && values.map((item, index) => { const share = item.value / total * 100; const start = offset; offset += share; return <circle key={item.label} cx="21" cy="21" r="15.9155" fill="none" stroke={item.color || chartColors[index]} strokeWidth="6" strokeDasharray={`${share} ${100 - share}`} strokeDashoffset={25 - start}/>; })}<text x="21" y="20" textAnchor="middle">{center}</text><text className="donut-caption" x="21" y="25" textAnchor="middle">findings</text></svg><div className="chart-legend">{values.filter(v => v.value).map((item, i) => <div key={item.label}><i style={{ background: item.color || chartColors[i] }}/><span>{item.label}</span><strong>{item.value.toLocaleString()}</strong></div>)}</div></div>;
+}
 
 function Evidence({ detail, source, error, findings, openFinding }: { detail?: Detail; source: string[]; error: string; findings: Finding[]; openFinding: (id: string) => void }) {
   const related = useMemo<Relation[]>(() => {
@@ -96,6 +101,15 @@ function App() {
     return [...counts].sort((a, b) => b[1] - a[1]).slice(0, 6);
   }, [findings]);
   const support = useMemo(() => [1, 2, 3].map(n => ({ n, count: findings.filter(f => n === 3 ? new Set(f.scanners).size >= 3 : new Set(f.scanners).size === n).length })), [findings]);
+  const investigationCandidates = useMemo(() => {
+    const clusters = new Map<string, { rule: string; directory: string; rows: Finding[]; score: number }>();
+    findings.forEach(f => (f.rules.length ? f.rules : ['No rule']).forEach(rule => {
+      const directory = directoryOf(f.file); const key = `${rule}\u0000${directory}`;
+      const cluster = clusters.get(key) || { rule, directory, rows: [], score: 0 };
+      cluster.rows.push(f); cluster.score += Math.max(1, 6 - (ranks[f.severity] ?? 5)); clusters.set(key, cluster);
+    }));
+    return [...clusters.values()].filter(c => c.rows.length > 1).sort((a, b) => b.score - a.score || b.rows.length - a.rows.length).slice(0, 5);
+  }, [findings]);
   useEffect(() => {
     if (!r.issue || !screens.lg) return;
     const close = (e: KeyboardEvent) => { if (e.key === 'Escape') navigate(target?.id || '', 'issues'); };
@@ -146,10 +160,11 @@ function App() {
             <div><h2>Scanner execution</h2><p>{completed} of {report.channels.length} channels completed.</p><Progress strokeColor="#7bd0ff" percent={Math.round(completed / Math.max(1, report.channels.length) * 100)} showInfo={false} aria-label={`${completed} of ${report.channels.length} channels completed`}/><p>Strict evidence gate: <strong>{report.publication_gate.satisfied ? 'Passed' : 'Not satisfied'}</strong></p><Button onClick={() => navigate(target!.id, 'scanners')}>Inspect every scanner</Button></div></section>
         </>}
         {r.tab === 'overview' && <section className="insights-grid">
-          <article className="panel"><h2>Severity distribution</h2><p>Composition of the available findings at this revision.</p>{Object.keys(ranks).map(level => <div className="distribution" key={level}><Badge value={level}/><Progress strokeColor="#7bd0ff" percent={report.finding_count ? (report.severities[level] || 0) / report.finding_count * 100 : 0} showInfo={false}/><span>{(report.severities[level] || 0).toLocaleString()}</span></div>)}</article>
-          <article className="panel"><h2>Scanner overlap</h2><p>Distinct scanner families supporting each canonical finding. This measures overlap, not confidence.</p>{support.map(({ n, count }) => <div className="support-row" key={n}><span>{n === 3 ? '3 or more scanners' : `${n} scanner${n === 1 ? '' : 's'}`}</span><strong>{count.toLocaleString()}</strong><Progress strokeColor="#7bd0ff" percent={report.finding_count ? count / report.finding_count * 100 : 0} showInfo={false}/></div>)}</article>
+          <article className="panel"><h2>Severity distribution</h2><p>Composition of available findings at this revision.</p><DonutChart label="Finding distribution by severity" center={report.finding_count.toLocaleString()} values={Object.keys(ranks).map((level, i) => ({ label: level, value: report.severities[level] || 0, color: chartColors[i] }))}/></article>
+          <article className="panel"><h2>Scanner overlap</h2><p>Distinct scanner families supporting each canonical finding. Overlap is not confidence.</p><DonutChart label="Finding distribution by scanner overlap" center={report.finding_count.toLocaleString()} values={support.map(({ n, count }, i) => ({ label: n === 3 ? '3+ scanners' : `${n} scanner${n === 1 ? '' : 's'}`, value: count, color: ['#1677ff', '#13c2c2', '#9254de'][i] }))}/></article>
           <article className="panel"><h2>Directories with most findings</h2><p>Finding counts, without normalization by code size.</p>{directories.map(([dir, count]) => <div className="directory-row" key={dir}><Button type="link" onClick={() => { setDirectory(dir); setQuery(''); setSeverity(''); setScanner(''); navigate(target!.id, 'issues'); }}>{dir}</Button><strong>{count.toLocaleString()}</strong><Progress strokeColor="#7bd0ff" percent={count / Math.max(1, directories[0][1]) * 100} showInfo={false}/></div>)}</article>
           <article className="panel"><h2>Highest severity findings</h2><p>Open the original location and scanner observations.</p>{[...findings].sort((a,b) => (ranks[a.severity] ?? 9) - (ranks[b.severity] ?? 9)).slice(0, 4).map(f => <div className="priority-row" key={f.id}><Badge value={f.severity}/><Button type="link" onClick={() => navigate(target!.id, 'issues', f.id)}>{f.message}</Button><small>{f.file}:{f.line}</small></div>)}</article>
+          <article className="panel investigation-panel"><h2>Investigation priorities</h2><p>Clusters with repeated high-severity findings from the same rule and source area. Inspect shared code, configuration, or data flow first; one change is not assumed to resolve the cluster.</p><Alert type="warning" showIcon title="Heuristic guidance" description="Static scanners can correlate symptoms without proving a common cause. Validate control flow, runtime behavior, and tests before changing logic."/>{investigationCandidates.map((candidate, i) => <div className="candidate" key={`${candidate.rule}:${candidate.directory}`}><span>{i + 1}</span><div><strong>{candidate.rule}</strong><small>{candidate.directory} · {candidate.rows.length.toLocaleString()} findings · {new Set(candidate.rows.map(f => f.file)).size} files</small></div><Button onClick={() => { setQuery(candidate.rule); setDirectory(candidate.directory); setSeverity(''); setScanner(''); setGroupBy('rule'); navigate(target!.id, 'issues'); }}>Investigate cluster</Button></div>)}</article>
         </section>}
         {r.tab === 'provenance' && <section className="insights-grid">
           <article className="panel"><h2>Analysis identity</h2><Descriptions column={1} items={[
