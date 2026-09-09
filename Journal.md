@@ -11532,3 +11532,11 @@
 - Pages run 34363426190 passed gateway contract verification, build, publication, deployment, and cleanup. Verified the live Connections screen and launch wizard in Chrome after deployment.
 - Published application code to fork Testing (d079c245) and dashboard main (bca50eb); deployed the compatible Cloudflare Worker first. No scanner rerun or vendor-entitlement claim was made during this integration rollout.
 - Live authenticated connection checks require the developer's GitHub sign-in. The UI exposes these checks directly; existing scanner-access blockers remain separate from application connectivity.
+
+### 2026-09-09 - Repository portability: start
+- Found mandatory Python/JavaScript onboarding fields and inherited scanner layout assumptions. Adding portable repository onboarding with truthful scanner availability and synchronized launcher configuration.
+
+### 2026-09-09 - Portable repository onboarding validated
+- Added an opt-in portable profile with no mandatory Python/JavaScript layout and generated workflows free of the original project harness. Repository-wide producers run; unsupported language/build/vendor channels remain explicitly NOT_AVAILABLE, never silently deferred.
+- Onboarding generates coordinated analysis/dashboard/Cloudflare overlays without overwriting an existing destination. GitHub App registration accepts a generic configurable name. Existing current-instance workflow generation is unchanged.
+- Tests: 47 portability/hosted/extension tests passed across Rust, Java, JavaScript-only and documentation-only fixtures; 92-page documentation check passed. These validate orchestration and configuration, not live scanner coverage for every language. Private source access and non-GitHub hosts remain documented integration requirements.

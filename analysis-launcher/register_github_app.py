@@ -18,6 +18,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--worker-origin", required=True)
     parser.add_argument("--dashboard-url", required=True)
+    parser.add_argument("--app-name", default="Code Analysis Launcher")
     args = parser.parse_args()
     worker = urllib.parse.urlsplit(args.worker_origin)
     dashboard = urllib.parse.urlsplit(args.dashboard_url)
@@ -30,7 +31,7 @@ def main() -> None:
     result: dict[str, str] = {}
     ready = threading.Event()
     manifest = {
-        "name": "Kavach Code Analysis Launcher - combustrrr",
+        "name": args.app_name,
         "url": args.dashboard_url,
         "redirect_url": "http://127.0.0.1:8979/created",
         "callback_urls": [args.worker_origin.rstrip("/") + "/auth/callback"],
