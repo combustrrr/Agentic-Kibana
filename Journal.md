@@ -11604,3 +11604,8 @@
 - Remove analysis UI, launcher, scripts, contracts, scanner workflows, scanner fixtures, and service docs; preserve all removed files in the standalone repository. Product CI, docs, and release workflows remain, with their own independent policy checks.
 - Retain only shared PyYAML/Ruff CI requirements and external documentation links. Product verification: CI structural policy passed for three workflows/three Dockerfiles, 63 policy tests passed, and 80-page docs consistency passed.
 
+
+### 2026-09-09 — Standalone analysis cutover completed
+- Product fork Testing now excludes the analysis service and retains only product CI, docs, and release. Standalone dashboard main owns the full service; Cloudflare dispatch targets it, and the owner confirmed App installation access.
+- Destination discovery and Pages publication succeeded, and Snyk completed using the approved encrypted credential transfer. Repaired a Ruff dependency on product configuration; 58 standalone tests and workflow policy pass. Fresh Testing verification requested in run 34377029706. Sonar entitlement, upstream posture permissions, and maintenance-token setup remain named blockers; authenticated browser launch has not independently been verified.
+
