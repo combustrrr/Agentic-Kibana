@@ -155,3 +155,22 @@ deletes unreferenced managed report assets and preserves referenced or unrelated
 assets. There is no browser flush operation: clearing active reports would remove
 useful output and does not make a scan fresher. If the current collection exceeds
 the configured capacity, publication fails and retains the last working site.
+
+## Connection verification and request status
+
+Open **Connections** to inspect how this instance is wired. Sign in, then use
+**Verify connections** to compare Cloudflare's source and execution repositories
+with the versioned service configuration on the fork's default branch. The check
+also reports whether the discovery workflow is active and lists configured channels.
+A successful check does not certify vendor access or scanner completion.
+
+After launching, the dashboard checks the exact request workflow through Cloudflare
+while signed in. It shows GitHub's queued/running/terminal status, attempt, and check
+time separately from target scanner status. Discovery success is explicitly not a
+completed report. Canceled or failed requests stay visible with their GitHub link.
+The request tracker still lasts only for the current page session.
+
+The additional endpoints use the existing App Contents-read and Actions permissions;
+no new credential or storage service is required. Deploy the compatible Worker before
+the UI. An older gateway produces an explicit unavailable check, while GitHub links
+and current reports remain usable.

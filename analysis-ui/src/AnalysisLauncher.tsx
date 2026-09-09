@@ -3,7 +3,7 @@ import { Alert, Button, Collapse, Descriptions, Input, Modal, Segmented, Select,
 import { GithubOutlined, PlayCircleOutlined } from '@ant-design/icons';
 
 type Target = { id: string; repository: string; source_repository: string; kind: string; branch: string; pr?: number; label: string; head_sha: string; base_branch?: string; checked_at: string };
-export type LaunchRequest = { kind: string; ref: string; url: string; submittedAt: string };
+export type LaunchRequest = { kind: string; ref: string; url: string; submittedAt: string; runId?: number };
 type Auth = ReturnType<typeof import('./useLaunchAuth').useLaunchAuth>;
 type Props = { onSubmitted: (request: LaunchRequest) => void; auth: Auth; open: boolean; close: () => void; repository?: string; host?: string; workflowBranch?: string; preferredBranch?: string; targets: Target[]; initial?: Target; follow: (target: string) => void; channelCount?: number; completedChannels?: number; queued?: number; scanning?: number };
 
@@ -42,7 +42,7 @@ export function AnalysisLauncher({ onSubmitted, auth, open, close, repository, h
     try {
       const result = await auth.api<{ url: string; run_id?: number }>('launch', { repository, kind, ref });
       setSubmitted(result); setStep(3);
-      onSubmitted({ kind, ref, url: result.url, submittedAt });
+      onSubmitted({ kind, ref, url: result.url, submittedAt, runId: result.run_id });
     } catch (e) { setError(e instanceof Error ? e.message : 'Launch failed.'); }
     finally { setBusy(false); }
   };

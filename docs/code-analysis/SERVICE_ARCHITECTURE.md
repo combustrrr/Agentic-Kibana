@@ -292,3 +292,36 @@ The earlier no-login constraint now applies only to viewing results.
 The current instance points at its deployed Cloudflare Worker and private GitHub App.
 See [authenticated launch setup and acceptance](AUTHENTICATED_LAUNCHING.md). A successful
 OAuth launch does not by itself establish scanner completion or resolve vendor blockers.
+
+## Integrated application connections
+
+The standalone dashboard includes a **Connections** workspace, available even when
+no target has a report. It shows the source repository, Cloudflare gateway, scanner
+execution repository, publication repository, and GitHub session. Authenticated
+verification reads `config/code-analysis/service.json` from the execution repository's
+actual default branch and checks the configured discovery workflow. A configuration
+match confirms routing, not scanner coverage or successful analysis.
+
+```mermaid
+flowchart LR
+  Developer --> Dashboard
+  Dashboard -->|GitHub sign-in and revision request| Cloudflare
+  Cloudflare -->|Authorized dispatch| Discovery[GitHub discovery workflow]
+  Discovery -->|Exact source revision| Scanners[Scanner workflows]
+  Scanners -->|Retained evidence| Publisher[Serialized publisher]
+  Publisher -->|Current reports and UI| Pages[GitHub Pages]
+  Pages --> Dashboard
+  Cloudflare -->|Exact request-run status| Dashboard
+```
+
+`GET /api/integration` verifies the live execution configuration without running source
+code. `GET /api/runs/{id}` reads only the configured repository's discovery workflow
+runs. Both require the existing same-origin bearer session and recheck the user's
+write access; neither exposes raw GitHub API objects or credentials.
+
+The request banner checks the exact discovery run every 20 seconds while it is
+active and the user is signed in. A completed discovery run does not mean scanners
+completed. Scanner state and new report availability still come from the published
+inventory, refreshed every minute. The canonical analyzed SHA, producer runs, and
+channel evidence remain authoritative. Status errors preserve the GitHub run link
+instead of inventing progress; signing out stops authenticated polling.

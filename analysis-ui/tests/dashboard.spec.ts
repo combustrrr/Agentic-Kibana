@@ -109,6 +109,7 @@ test('overview drilldown, scanner filters and provenance use retained evidence',
   await expect(page.locator('.ant-table-tbody > tr.ant-table-row').first()).toContainText(path);
   await page.getByRole('tab', {name:'Scanners',exact:true}).click();
   await page.getByLabel('Execution status').click();
+  await expect(page.locator('.ant-select-dropdown:visible')).not.toHaveClass(/(?:enter|appear)-active/);
   await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({hasText:'NOT AVAILABLE'}).click();
   const rows=page.locator('.ant-table-tbody > tr.ant-table-row');
   await expect(rows.first()).toContainText('NOT AVAILABLE');
@@ -164,6 +165,7 @@ test('authenticated developer selects live source and directly starts analysis',
     const url = new URL(route.request().url());
     const headers = {'Access-Control-Allow-Origin':'http://127.0.0.1:4178', 'Access-Control-Allow-Headers':'Authorization, Content-Type', 'Access-Control-Allow-Methods':'GET, POST, OPTIONS'};
     if (route.request().method() === 'OPTIONS') return route.fulfill({status:204, headers});
+    if (url.pathname === '/api/runs/42') return route.fulfill({headers,json:{status:'completed',conclusion:'success',attempt:1,checked_at:new Date().toISOString()}});
     if (url.pathname === '/auth/login') return route.fulfill({contentType:'text/html', body:`<script>window.opener.postMessage({type:'analysis-auth',nonce:'${url.searchParams.get('nonce')}',token:'opaque-session',login:'developer'},'http://127.0.0.1:4178');window.close();</script>`});
     if (url.pathname === '/api/targets') return route.fulfill({headers, json:{repository:source, analysis_repository:source, targets:[{id:'branch:latest',kind:'branch',branch:'latest',label:'latest',repository:source,source_repository:source,head_sha:'b'.repeat(40),checked_at:new Date().toISOString()}]}});
     expect(route.request().headers().authorization).toBe('Bearer opaque-session');
@@ -193,6 +195,8 @@ test('authenticated developer selects live source and directly starts analysis',
   await expect(page.getByRole('link',{name:'Track run 42'})).toHaveAttribute('href',/actions\/runs\/42$/);
   await expect(page.getByRole('button',{name:'Start analysis',exact:true})).not.toBeVisible();
   await page.getByRole('button',{name:'View results on dashboard'}).click();
+  await expect(page.getByText('Request workflow: success',{exact:true})).toBeVisible();
+  await expect(page.getByText('Discovery completed. Scanner execution and report publication are separate stages; check the target status and producing runs below.')).toBeVisible();
   await expect(page.getByText('Request submitted — awaiting a new published result')).toBeVisible();
   expect(await page.evaluate(() => JSON.stringify({...localStorage,...sessionStorage}))).not.toContain('opaque-session');
 });
@@ -210,6 +214,7 @@ test('commit selection survives sign-in and old output is not mistaken for new r
     const url = new URL(route.request().url());
     const headers = {'Access-Control-Allow-Origin':'http://127.0.0.1:4178', 'Access-Control-Allow-Headers':'Authorization, Content-Type', 'Access-Control-Allow-Methods':'GET, POST, OPTIONS'};
     if (route.request().method() === 'OPTIONS') return route.fulfill({status:204,headers});
+    if (url.pathname === '/api/runs/42') return route.fulfill({headers,json:{status:'completed',conclusion:'success',attempt:1,checked_at:new Date().toISOString()}});
     if (url.pathname === '/auth/login') return route.fulfill({contentType:'text/html',body:`<script>window.opener.postMessage({type:'analysis-auth',nonce:'${url.searchParams.get('nonce')}',token:'test-session',login:'developer'},'http://127.0.0.1:4178');window.close();</script>`});
     if (url.pathname === '/api/targets') return route.fulfill({headers,json:{repository:source,analysis_repository:source,targets:[]}});
     submitted = route.request().postDataJSON();
@@ -228,6 +233,8 @@ test('commit selection survives sign-in and old output is not mistaken for new r
   await expect(page.getByText('Pinned to this SHA')).toBeVisible();
   await page.getByRole('button',{name:'Start analysis',exact:true}).click();
   await page.getByRole('button',{name:'View results on dashboard'}).click();
+  await expect(page.getByText('Request workflow: success',{exact:true})).toBeVisible();
+  await expect(page.getByText('Discovery completed. Scanner execution and report publication are separate stages; check the target status and producing runs below.')).toBeVisible();
   expect(submitted).toEqual({repository:source,kind:'commit',ref:sha});
   await page.getByRole('button',{name:'Check for results'}).click();
   await expect(page.getByText('Request submitted — awaiting a new published result')).toBeVisible();
@@ -252,4 +259,34 @@ test('commit validation prevents an invalid launch and distinguishes PR input', 
   await page.getByText('Pull request',{exact:true}).click();
   await page.getByLabel('Analysis target',{exact:true}).fill('-1');
   await expect(page.getByText('Enter a positive PR number.')).toBeVisible();
+});
+
+test('connections verify live configuration without claiming scanner completion', async ({page,context}, testInfo) => {
+  const data = JSON.parse(readFileSync('public/data/index.json','utf8'));
+  const source = data.analysis_repository;
+  Object.assign(data,{source_repository:source,launch_endpoint:'https://launcher.example',publishing_repository:'owner/dashboard'});
+  await page.route('**/index.json',route=>route.fulfill({json:data}));
+  let ready = true;
+  await context.route('https://launcher.example/**',async route=>{
+    const url = new URL(route.request().url());
+    const headers = {'Access-Control-Allow-Origin':'http://127.0.0.1:4178','Access-Control-Allow-Headers':'Authorization, Content-Type','Access-Control-Allow-Methods':'GET, POST, OPTIONS'};
+    if(route.request().method()==='OPTIONS') return route.fulfill({status:204,headers});
+    if(url.pathname==='/auth/login') return route.fulfill({contentType:'text/html',body:`<script>window.opener.postMessage({type:'analysis-auth',nonce:'${url.searchParams.get('nonce')}',token:'connection-session',login:'developer'},'http://127.0.0.1:4178');window.close();</script>`});
+    expect(url.pathname).toBe('/api/integration');
+    return route.fulfill({headers,json:{source_repository:source,analysis_repository:source,publishing_repository:'owner/dashboard',workflow_branch:'Testing',workflow_state:ready?'active':'disabled_manually',configuration_matches:true,ready,enabled_scanners:['ruff','coverage'],checked_at:new Date().toISOString()}});
+  });
+  await page.goto('/#tab=connections');
+  await expect(page.getByRole('heading',{name:'Application connections'})).toBeVisible();
+  await expect(page.getByText('Launch configuration verified')).not.toBeVisible();
+  await page.getByRole('button',{name:'Sign in to verify connections'}).click();
+  await expect(page.getByText('Launch configuration verified')).toBeVisible();
+  await expect(page.getByText('This verifies routing and workflow availability. Scanner results determine which channels actually completed.')).toBeVisible();
+  ready=false;
+  await page.getByRole('button',{name:'Verify connections'}).click();
+  await expect(page.getByText('Configuration needs attention')).toBeVisible();
+  await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:testInfo.outputPath('connections-mobile.png'),fullPage:true});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.getByRole('button',{name:'Sign out',exact:true}).click();
+  await expect(page.getByText('Configuration needs attention')).not.toBeVisible();
 });
