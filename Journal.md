@@ -11522,3 +11522,8 @@
 ### 2026-09-09 — Repair extraction docs CI
 - CI identified a remaining fork-only PENDING_WORK.md analysis document outside product navigation. Preserve it in the standalone historical documents and remove it from product docs.
 
+
+### 2026-09-09 — Repository-owned analysis integration rollout
+- Install two minimal immutable shared-workflow wrappers and a reviewed multi-project profile. Native fork analysis and read-only upstream analysis have separate source IDs and reporting boundaries; no files or settings are changed upstream.
+- Product workflow policy explicitly validates the wrappers without importing the external service. CI structural policy passes for five workflows and three shipping Dockerfiles; product docs consistency passes.
+
