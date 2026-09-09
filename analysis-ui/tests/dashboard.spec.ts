@@ -178,7 +178,9 @@ test('authenticated developer selects live source and directly starts analysis',
   await expect(page.getByText('Signed in as developer')).toBeVisible();
   await page.getByRole('button',{name:'Choose revision',exact:true}).click();
   await page.getByLabel('Available analysis targets').click();
-  await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({hasText:'latest'}).click();
+  await expect(page.getByRole('option',{name:'latest',exact:true})).toBeAttached();
+  await page.getByLabel('Available analysis targets').press('ArrowDown');
+  await page.getByLabel('Available analysis targets').press('Enter');
   await expect(page.getByRole('dialog').getByTitle('latest')).toBeVisible();
   await expect(page.getByText('b'.repeat(40),{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Review analysis',exact:true}).click();
