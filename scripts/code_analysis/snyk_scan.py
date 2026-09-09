@@ -4,10 +4,15 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import re
 
 
 def main():
-    profile = json.loads((Path(__file__).resolve().parents[2] / 'config/code-analysis/service.json').read_text())['profile']
+    config = json.loads((Path(__file__).resolve().parents[2] / 'config/code-analysis/service.json').read_text())
+    profile = config['profile']
+    repository = os.environ.get('SOURCE_REPOSITORY', config['source_repository'])
+    if not re.fullmatch(r'[\w.-]+/[\w.-]+', repository):
+        raise ValueError('Invalid source repository for Snyk attribution')
     root = Path.cwd().resolve()
     runs, failures = [], []
     with tempfile.TemporaryDirectory(prefix='snyk-scan-') as directory:
@@ -16,7 +21,8 @@ def main():
             if not path.is_relative_to(root):
                 raise ValueError('manifest escapes checkout')
             output = Path(directory) / f'{number}.sarif'
-            command = ['snyk', 'test', '--file=' + name, '--sarif-file-output=' + str(output)]
+            command = ['snyk', 'test', '--file=' + name, '--sarif-file-output=' + str(output),
+                       '--remote-repo-url=https://github.com/' + repository]
             if name in profile['snyk_python_manifests']:
                 command += ['--command=' + str(Path(os.environ['RUNNER_TEMP']) / 'snyk-metadata/inspect-python')]
             result = subprocess.run(command, check=False)

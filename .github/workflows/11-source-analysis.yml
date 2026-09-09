@@ -90,19 +90,6 @@ jobs:
 
         '
       continue-on-error: true
-    - name: Probe Sonar credentials without exposing secrets
-      if: env.SONAR_TOKEN != '' || env.SONAR_API_TOKEN != ''
-      env:
-        SCAN_BRANCH: ${{ fromJSON(inputs.target).branch || github.head_ref || github.ref_name }}
-      run: 'python $RUNNER_TEMP/analysis-tooling/scripts/code_analysis/probe_sonar_access.py
-
-        cat sonar-access-probe.json
-
-
-        python -c ''import json; p=json.load(open("sonar-access-probe.json")); print("native_export_ready="+str(p["credentials"].get("issue_api",{}).get("project_issues_http_status")==200
-        and p["credentials"].get("issue_api",{}).get("branch_issues_http_status") not in (401,403)).lower())'' >>
-        "$GITHUB_OUTPUT"'
-      id: sonar-access
     - name: Derive stable Sonar analysis branch
       id: sonar-identity
       env:
@@ -113,6 +100,22 @@ jobs:
         \ ]]; then\n  branch_hash=\"$(printf '%s' \"$SOURCE_BRANCH\" | sha256sum | cut -c1-16)\"\n  sonar_branch=\"\
         branch-issue-wall-$branch_hash\"\nfi\nprintf 'sonar_branch=%s\\n' \"$sonar_branch\" >> \"$GITHUB_OUTPUT\"\
         \n"
+    - name: Probe Sonar credentials without exposing secrets
+      if: env.SONAR_TOKEN != '' || env.SONAR_API_TOKEN != ''
+      env:
+        SCAN_BRANCH: ${{ steps.sonar-identity.outputs.sonar_branch }}
+      run: 'python $RUNNER_TEMP/analysis-tooling/scripts/code_analysis/probe_sonar_access.py
+
+        cat sonar-access-probe.json
+
+
+        python -c ''import json; p=json.load(open("sonar-access-probe.json")); print("native_export_ready="+str(p["credentials"].get("issue_api",{}).get("project_issues_http_status")==200
+        and p["credentials"].get("issue_api",{}).get("branch_issues_http_status") not in (401,403)).lower())'' >>
+        "$GITHUB_OUTPUT"
+
+        python -c ''import json; p=json.load(open("sonar-access-probe.json")); print("access_failure="+p["credentials"].get("issue_api",{}).get("access_failure",""))''
+        >> "$GITHUB_OUTPUT"'
+      id: sonar-access
     - name: Record unconfigured status
       if: steps.sonar-scope.outputs.should_scan == 'true' && env.SONAR_TOKEN == ''
       shell: bash
@@ -174,6 +177,7 @@ jobs:
         MANUAL_OUTCOME: ${{ steps.sonar-manual.outcome }}
         EXPORT_OUTCOME: ${{ steps.sonar-export.outcome }}
         EXPORT_READY: ${{ steps.sonar-access.outputs.native_export_ready }}
+        ACCESS_FAILURE: ${{ steps.sonar-access.outputs.access_failure }}
       shell: bash
       run: "outcome=\"$NATIVE_OUTCOME\"\nif [[ \"$EVENT_NAME\" == workflow_dispatch ]]; then\n  outcome=\"$MANUAL_OUTCOME\"\
         \nfi\nstatus=CONFIGURED_COMPLETE\nreason=\"\"\nif [[ \"$outcome\" != success ]]; then\n  status=CONFIGURED_PARTIAL\n\
@@ -182,9 +186,12 @@ jobs:
         \ configured\"\nelif [[ \"$EXPORT_OUTCOME\" != success ]]; then\n  status=CONFIGURED_PARTIAL\n  reason=\"\
         SonarQube Cloud analysis completed but native issue export failed\"\nfi\nif [[ \"$EXPORT_READY\" != true\
         \ ]]; then\n  reason=\"Sonar native issue API is unavailable to the configured credential; analysis awaits\
-        \ export access\"\nfi\njq -n --arg status \"$status\" --arg reason \"$reason\" --arg outcome \"$outcome\"\
-        \ --arg export \"$EXPORT_OUTCOME\" \\\n  '{schema_version:\"1\",scanner_family:\"SonarQube Cloud\",status:$status,reason:$reason,surfaces:{analysis:$outcome,native_issue_export:$export}}'\
-        \ \\\n  > sonar-status.json\n"
+        \ export access\"\nfi\nif [[ \"$ACCESS_FAILURE\" == branch_entitlement ]]; then\n  reason=\"Sonar organization\
+        \ denies non-main-branch data access; enable branch entitlement. Token validity and Browse permission do\
+        \ not resolve this restriction.\"\nfi\njq -n --arg status \"$status\" --arg reason \"$reason\" --arg outcome\
+        \ \"$outcome\" --arg export \"$EXPORT_OUTCOME\" \\\n  '{schema_version:\"1\",scanner_family:\"SonarQube\
+        \ Cloud\",status:$status,reason:$reason,surfaces:{analysis:$outcome,native_issue_export:$export}}' \\\n\
+        \  > sonar-status.json\n"
     - name: Upload SonarQube Cloud status
       if: always()
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -667,9 +674,10 @@ jobs:
       shell: bash
       run: "status=CONFIGURED_COMPLETE\nreason=\"\"\nif [[ \"$SCA_OUTCOME\" != success || \"$CODE_OUTCOME\" != success\
         \ ]]; then\n  status=CONFIGURED_PARTIAL\n  reason=\"One or more Snyk analysis surfaces were unavailable\
-        \ or incomplete; inspect the retained logs\"\nfi\nif grep -q \"monthly limit\" snyk-*.log; then\n  reason=\"\
-        Snyk organization monthly test quota exhausted; eligible OSS entitlement or quota renewal is required\"\n\
-        fi\njq -n \\\n  --arg status \"$status\" \\\n  --arg reason \"$reason\" \\\n  --arg sca \"$SCA_OUTCOME\"\
+        \ or incomplete; inspect the retained logs\"\nfi\nif [[ \"$SCA_OUTCOME\" != success || \"$CODE_OUTCOME\"\
+        \ != success ]] && grep -q \"monthly limit\" snyk-*.log; then\n  reason=\"Snyk execution incomplete; a quota\
+        \ warning was also emitted. Inspect the failing manifest or surface before attributing the failure to quota.\"\
+        \nfi\njq -n \\\n  --arg status \"$status\" \\\n  --arg reason \"$reason\" \\\n  --arg sca \"$SCA_OUTCOME\"\
         \ \\\n  --arg code \"$CODE_OUTCOME\" \\\n  '{schema_version:\"1\",scanner_family:\"Snyk\",status:$status,reason:$reason,surfaces:{sca:$sca,code:$code}}'\
         \ \\\n  > snyk-status.json\n"
     - name: Upload structured Snyk evidence

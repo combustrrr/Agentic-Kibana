@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -74,7 +75,9 @@ def main():
         path.mkdir(exist_ok=True)
         (path / 'METADATA').write_text(content, encoding='utf-8')
     wrapper = destination / 'inspect-python'
-    wrapper.write_text('#!/bin/sh\nexec "' + str(python) + '" -I "$@"\n', encoding='utf-8')
+    bootstrap = Path(__file__).with_name('snyk_python.py').resolve()
+    wrapper.write_text('#!/bin/sh\nexec ' + shlex.quote(str(python)) + ' -I ' + shlex.quote(str(bootstrap)) + ' '
+                       + shlex.quote(str(root)) + ' "$@"\n', encoding='utf-8')
     wrapper.chmod(0o755)
     print(json.dumps({'metadata_distributions': len(packages)}))
 

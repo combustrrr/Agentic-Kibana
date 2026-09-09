@@ -221,3 +221,24 @@ Tests cover unrelated Rust, Java, JavaScript-only, and documentation-only trees,
 workflow isolation, unchanged original workflow generation, configuration agreement,
 and prevention of accidental overwrite. A new instance still needs a live branch/PR
 acceptance run before its scanner coverage can be called operational.
+
+## Scanner access and Python resolver repair (2026-09-09)
+
+Sonar's native API explicitly denies non-main-branch data for the current organization.
+Both configured tokens authenticate, main-project issues are readable, and a Browse
+grant succeeded. This is distinct from a missing/invalid token. The exact-source probe
+now uses the same derived branch as the scanner. Sonar documents an OSS plan with
+branch support; existing organization migration is not automated here and the service
+does not delete organizations or purchase subscriptions.
+
+Snyk's quota warning alone does not establish execution failure. Retained npm scans
+and a local exact-manifest CLI check completed while displaying that warning. The
+failed Python resolver needs its staged sibling modules on Python's import path.
+The inspection bootstrap permits only the temporary Snyk resolver directory outside
+the source checkout, preserving isolated startup and metadata-only dependencies.
+Each required manifest still needs valid SARIF; failures are not suppressed.
+
+Upstream secret-protection controls require upstream-authorized credentials; the
+fork owner's account has read-only upstream access. A token with only fork permissions
+cannot observe upstream settings. CodeRabbit requires an actual reviewed upstream PR
+head; a branch scan does not manufacture review evidence.

@@ -96,7 +96,7 @@ def generate(config=None):
                 text = text.replace('repos/${GITHUB_REPOSITORY}', 'repos/${SOURCE_REPOSITORY}')
                 step = yaml.safe_load(text)
                 if name == 'snyk' and step.get('name') == 'Record configured scan status':
-                    step['run'] = step['run'].replace('jq -n', 'if grep -q "monthly limit" snyk-*.log; then\n  reason="Snyk organization monthly test quota exhausted; eligible OSS entitlement or quota renewal is required"\nfi\njq -n')
+                    step['run'] = step['run'].replace('jq -n', 'if [[ "$SCA_OUTCOME" != success || "$CODE_OUTCOME" != success ]] && grep -q "monthly limit" snyk-*.log; then\n  reason="Snyk execution incomplete; a quota warning was also emitted. Inspect the failing manifest or surface before attributing the failure to quota."\nfi\njq -n')
                 if step.get('name') == 'Ensure Browse for the verified Sonar API user':
                     step['if'] = "env.SONAR_API_TOKEN != ''"
                     step['continue-on-error'] = True
@@ -140,16 +140,20 @@ def generate(config=None):
             if name == 'sonarqube-cloud':
                 probe = next(s for s in steps if s.get('name') == 'Probe Sonar credentials without exposing secrets')
                 steps.remove(probe)
-                position = next(i for i, s in enumerate(steps) if s.get('name') == 'Ensure Browse for the verified Sonar API user')
+                position = next(i for i, s in enumerate(steps) if s.get('id') == 'sonar-identity')
+                probe.setdefault('env', {})['SCAN_BRANCH'] = '${{ steps.sonar-identity.outputs.sonar_branch }}'
                 probe['id'] = 'sonar-access'
                 probe['run'] += '\npython -c \'import json; p=json.load(open("sonar-access-probe.json")); print("native_export_ready="+str(p["credentials"].get("issue_api",{}).get("project_issues_http_status")==200 and p["credentials"].get("issue_api",{}).get("branch_issues_http_status") not in (401,403)).lower())\' >> "$GITHUB_OUTPUT"'
+                probe['run'] += '\npython -c \'import json; p=json.load(open("sonar-access-probe.json")); print("access_failure="+p["credentials"].get("issue_api",{}).get("access_failure",""))\' >> "$GITHUB_OUTPUT"'
                 steps.insert(position + 1, probe)
                 for s in steps:
                     if s.get('id') in {'sonar-native', 'sonar-manual'}:
                         s['if'] += " && steps.sonar-access.outputs.native_export_ready == 'true'"
                     if s.get('name') == 'Record configured scan status':
                         s.setdefault('env', {})['EXPORT_READY'] = '${{ steps.sonar-access.outputs.native_export_ready }}'
+                        s['env']['ACCESS_FAILURE'] = '${{ steps.sonar-access.outputs.access_failure }}'
                         s['run'] = s['run'].replace('jq -n', 'if [[ "$EXPORT_READY" != true ]]; then\n  reason="Sonar native issue API is unavailable to the configured credential; analysis awaits export access"\nfi\njq -n')
+                        s['run'] = s['run'].replace('jq -n', 'if [[ "$ACCESS_FAILURE" == branch_entitlement ]]; then\n  reason="Sonar organization denies non-main-branch data access; enable branch entitlement. Token validity and Browse permission do not resolve this restriction."\nfi\njq -n')
             if name == 'openssf-scorecard':
                 steps = [{'uses': CHECKOUT, 'with': {'ref': '${{ inputs.tooling_sha }}', 'persist-credentials': False}},
                     {'name': 'Install verified Scorecard 5.5.0', 'run':

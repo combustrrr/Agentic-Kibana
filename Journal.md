@@ -11544,3 +11544,12 @@
 ### 2026-09-09 - Portable onboarding rollout: complete
 - Published portable configuration and generation tools to fork Testing (e62bfbc6) and dashboard main (34870e9). Dashboard publication run 34364709012 completed contract checks, deployment, and cleanup successfully using the existing UI build.
 - Current source configuration was preserved. New repositories require their own App/access setup, generated overlays, and live scanner acceptance; fixture tests establish portability of orchestration without claiming universal scanner coverage.
+
+### 2026-09-09 - All-channel scanner repair: start
+- Auditing current exact-source producer evidence and repairing scanner execution failures. Vendor access limitations remain explicit until usable native evidence proves resolution.
+
+### 2026-09-09 - Scanner repair findings and local verification
+- Current Testing evidence has 22 usable channels, three partial channels, and branch-only CodeRabbit not applicable. Source tests fail but coverage is retained; SBOM policy findings are completed evidence.
+- Corrected the Snyk diagnosis: npm completed even while warning about quota; the failed surfaces were Python manifest resolution. Added an isolated bootstrap that permits Snyk's staged resolver helper imports without exposing repository Python paths. Explicit source URL attribution is retained.
+- Sonar returns a native non-main-branch entitlement denial despite a valid token, readable main-project issues, and successful Browse grant. Probes now inspect the exact vendor branch and retain that distinct reason. The current GitHub identity cannot read upstream secret-protection controls, and no posture credential is configured.
+- Tests: 50 hosted/extension/portability/access regressions and workflow-policy audit passed. Live repaired scanner execution follows; no subscription was purchased or organization deleted.
