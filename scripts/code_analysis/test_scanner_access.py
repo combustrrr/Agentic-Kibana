@@ -11,10 +11,17 @@ from unittest.mock import patch
 
 import yaml
 from scripts.code_analysis import probe_sonar_access as probe
-from scripts.code_analysis.generate_source_workflow import generate
+from scripts.code_analysis.generate_source_workflow import generate, diagnostics
 
 
 class ScannerAccessTests(unittest.TestCase):
+    def test_vendor_diagnostics_cannot_publish_a_target_report(self):
+        workflow = yaml.safe_load(diagnostics())
+        self.assertEqual(set(workflow['jobs']), {'identity', 'scanner-3-snyk', 'scanner-1-sonarqube-cloud'})
+        self.assertEqual(workflow['permissions'], {'contents': 'read'})
+        self.assertNotIn('--assemble', diagnostics())
+        self.assertEqual(Path('.github/workflows/12-scanner-diagnostics.yml').read_text(encoding='utf-8'), diagnostics())
+
     def test_snyk_resolver_imports_its_helpers_without_importing_source(self):
         from scripts.code_analysis.snyk_python import resolver_path
         with tempfile.TemporaryDirectory() as directory:

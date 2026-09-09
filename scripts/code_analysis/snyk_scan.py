@@ -15,6 +15,11 @@ def main():
         raise ValueError('Invalid source repository for Snyk attribution')
     root = Path.cwd().resolve()
     runs, failures = [], []
+    # Node and Python can choose different OS temp roots. Use one explicit
+    # trusted staging directory so the isolated resolver can validate its path.
+    staging = Path(os.environ['RUNNER_TEMP']) / 'snyk-resolver-staging'
+    staging.mkdir(exist_ok=True)
+    environment = {**os.environ, 'SNYK_TMP_PATH': str(staging), 'TMPDIR': str(staging)}
     with tempfile.TemporaryDirectory(prefix='snyk-scan-') as directory:
         for number, name in enumerate(profile['snyk_python_manifests'] + profile['snyk_npm_manifests']):
             path = (root / name).resolve(strict=True)
@@ -25,7 +30,7 @@ def main():
                        '--remote-repo-url=https://github.com/' + repository]
             if name in profile['snyk_python_manifests']:
                 command += ['--command=' + str(Path(os.environ['RUNNER_TEMP']) / 'snyk-metadata/inspect-python')]
-            result = subprocess.run(command, check=False)
+            result = subprocess.run(command, check=False, env=environment)
             if result.returncode > 1 or not output.is_file():
                 failures.append(name)
             if output.is_file():
