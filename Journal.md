@@ -11566,3 +11566,8 @@
 - Diagnostic run 34368489309 at tooling 1430c9fd completed Snyk SCA and Code. All five manifests produced SARIF; Python results include 29 backend and 4 documentation findings. The prior quota-only diagnosis was incorrect: explicit shared Node/Python staging fixes resolver rejection.
 - 51 service regression tests and workflow policy checks pass. Full run 34366794113 verifies 22 usable channels before this Snyk fix. Sonar branch entitlement and upstream security-posture permissions remain external blockers; no open upstream PR is available for CodeRabbit acceptance.
 
+
+### 2026-09-09 — Scanner repair session end
+- Published verified scanner fixes to fork Testing e8156be4 and synchronized dashboard tooling at 5970af8. Refresh request 34368971832 succeeded; subsequent full analysis/publication is asynchronous and not claimed complete here.
+- Snyk is live-verified complete. Sonar branch entitlement and upstream security-posture authorization cannot be granted by the current CLI identity. CodeRabbit awaits an actual reviewed upstream PR. No subscription was purchased and upstream was not modified.
+
