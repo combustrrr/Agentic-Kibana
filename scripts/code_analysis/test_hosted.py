@@ -330,6 +330,13 @@ class ReportTests(unittest.TestCase):
 
 
 class ManualSelectionTests(unittest.TestCase):
+    def test_cleanup_removes_only_unreferenced_reports(self):
+        state = {'targets': [{'asset': 'report-active.json.gz'}, {'asset': 'report-active.json.gz'}]}
+        assets = [{'id': 1, 'name': 'report-active.json.gz'}, {'id': 2, 'name': 'report-old.json.gz'}, {'id': 3, 'name': 'other-asset'}]
+        with patch.object(service, 'release', return_value={'id': 10, 'body': json.dumps(state)}), patch.object(service, 'pages', return_value=assets), patch.object(service, 'api') as api:
+            service.cleanup({'publishing_repository': 'owner/dashboard'})
+        api.assert_called_once_with('repos/owner/dashboard/releases/assets/2', method='DELETE')
+
     def test_structured_selection_preserves_kind_and_repository(self):
         branch = h.target('owner/repo', 'PR #17', 'a' * 40)
         pr = h.target('owner/repo', 'feature', 'b' * 40, pr=17)

@@ -5,10 +5,10 @@ import { CodeOutlined, GithubOutlined, SearchOutlined } from '@ant-design/icons'
 import 'antd/dist/reset.css';
 import './style.css';
 import { useLaunchAuth } from './useLaunchAuth';
-import { AnalysisLauncher } from './AnalysisLauncher';
+import { AnalysisLauncher, type LaunchRequest } from './AnalysisLauncher';
 
 type Target = { scan_run_id?: number; run_attempt?: number; tooling_sha?: string; id: string; label: string; repository: string; source_repository: string; head_sha: string; kind: string; branch: string; pr?: number; base_branch?: string; base_sha?: string; checked_at: string; status: string; report?: string; error?: string };
-type Index = { launch_endpoint?: string; source_repository?: string; analysis_default_branch?: string; metrics?: {site_bytes: number; site_limit_bytes: number; queued?: number; scanning?: number}; schema_version: string; checked_at: string; targets: Target[]; preferred_branch: string; analysis_repository: string; discovery_error?: string; publication_error?: string };
+type Index = { publishing_repository?: string; launch_endpoint?: string; source_repository?: string; analysis_default_branch?: string; metrics?: {site_bytes: number; site_limit_bytes: number; queued?: number; scanning?: number}; schema_version: string; checked_at: string; targets: Target[]; preferred_branch: string; analysis_repository: string; discovery_error?: string; publication_error?: string };
 type Finding = { id: string; severity: string; message: string; file: string; line: number; scanners: string[]; rules: string[]; page: number };
 type Detail = Finding & { origins: { scanner_family: string; rule: string; file: string; start_line: number; raw_artifact: string; observation_id: string }[]; source: string | null; source_start: number; source_url: string | null };
 type Channel = { channel: string; name: string; class: string; status: string; findings: number | null; observation_count: number; reason: string; workflow: string };
@@ -63,7 +63,7 @@ function App() {
   const screens = Grid.useBreakpoint();
   const [appearance, setAppearance] = useState(() => { try { return localStorage.getItem('analysis-theme') || 'dark'; } catch { return 'dark'; } });
   const [runOpen, setRunOpen] = useState(false);
-  const [pendingLaunch, setPendingLaunch] = useState<{ kind: string; ref: string }>();
+  const [pendingLaunch, setPendingLaunch] = useState<(LaunchRequest & { previousReport?: string; previousRun?: number })>();
   const [refreshTick, setRefreshTick] = useState(0);
   const [lastRefresh, setLastRefresh] = useState('');
   useEffect(() => { document.documentElement.dataset.theme = appearance; try { localStorage.setItem('analysis-theme', appearance); } catch {} }, [appearance]);
@@ -75,11 +75,9 @@ function App() {
   const [query, setQuery] = useState(''); const [severity, setSeverity] = useState(''); const [scanner, setScanner] = useState(''); const [groupBy, setGroupBy] = useState('none'); const [page, setPage] = useState(0); const [loading, setLoading] = useState(false);
   useEffect(() => { const c = new AbortController(); const refresh = () => json<Index>('data/index.json', c.signal).then(value => { setIndex(value); setLastRefresh(new Date().toISOString()); }).catch(e => { if (e.name !== 'AbortError') setError(e.message); }); refresh(); const timer = window.setInterval(refresh, 60000); const change = () => setRoute(route()); window.addEventListener('hashchange', change); return () => { c.abort(); window.clearInterval(timer); window.removeEventListener('hashchange', change); }; }, [refreshTick]);
   const launchAuth = useLaunchAuth(index?.launch_endpoint);
-  useEffect(() => {
-    if (!pendingLaunch) return;
-    const launched = index?.targets.find(t => t.kind === pendingLaunch.kind && (t.kind === 'pr' ? String(t.pr) === pendingLaunch.ref : t.kind === 'commit' ? t.head_sha.toLowerCase() === pendingLaunch.ref.toLowerCase() : t.branch === pendingLaunch.ref));
-    if (launched) { navigate(launched.id, 'overview'); setPendingLaunch(undefined); }
-  }, [index, pendingLaunch]);
+  const launched = pendingLaunch && index?.targets.find(t => t.kind === pendingLaunch.kind && (t.kind === 'pr' ? String(t.pr) === pendingLaunch.ref : t.kind === 'commit' ? t.head_sha.toLowerCase() === pendingLaunch.ref.toLowerCase() : t.branch === pendingLaunch.ref));
+  const newOutput = !!(launched?.report && launched.report !== pendingLaunch?.previousReport && ['current', 'partial'].includes(launched.status));
+  const launchStatus = newOutput ? 'New report available for your selected target' : launched?.scan_run_id !== pendingLaunch?.previousRun && launched?.status === 'scanning' ? 'Analysis is running' : launched?.status === 'queued' ? 'Target is queued for analysis' : launched?.status === 'failed' && launched.scan_run_id !== pendingLaunch?.previousRun ? 'Analysis needs attention' : 'Request submitted — awaiting a new published result';
   const target = index?.targets.find(t => t.id === r.target) || (!r.target ? index?.targets.find(t => t.kind === 'branch' && t.branch === index.preferred_branch) || index?.targets[0] : undefined);
   useEffect(() => { setReport(undefined); setFindings([]); setDetail(undefined); setSource([]); setPage(0); setError(''); setLoading(false); if (!target?.report) return;
     const c = new AbortController(); setLoading(true); Promise.all([json<Report>(`data/${target.report}/report.json`, c.signal), json<Finding[]>(`data/${target.report}/findings.json`, c.signal)]).then(([a, b]) => { setReport(a); setFindings(b); }).catch(e => { if (e.name !== 'AbortError') setError(e.message); }).finally(() => { if (!c.signal.aborted) setLoading(false); }); return () => c.abort();
@@ -120,15 +118,19 @@ function App() {
   return <ConfigProvider theme={{ algorithm: appearance === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm, token: { colorPrimary: appearance === 'dark' ? '#7bd0ff' : '#1765ad', colorLink: appearance === 'dark' ? '#7bd0ff' : '#1765ad', colorLinkHover: appearance === 'dark' ? '#b3e5ff' : '#124c85', colorBgBase: appearance === 'dark' ? '#071523' : '#f4f7fa', colorBgContainer: appearance === 'dark' ? '#102131' : '#ffffff', colorText: appearance === 'dark' ? '#dce8f5' : '#202d3d', colorTextSecondary: appearance === 'dark' ? '#a6b8c9' : '#52657a', colorBorder: appearance === 'dark' ? '#304459' : '#c9d4df', borderRadius: 6, fontFamily: 'Segoe UI, sans-serif' }, components: { Button: { primaryColor: appearance === 'dark' ? '#071523' : '#ffffff' } } }}>
     <header className="topbar"><a className="brand" href="#"><CodeOutlined/> Code Analysis</a><Space wrap><Segmented aria-label="Color theme" value={appearance} options={[{label:'Dark',value:'dark'},{label:'Light',value:'light'}]} onChange={setAppearance}/><Button type="primary" onClick={() => setRunOpen(true)}>Run analysis</Button><a href={`https://github.com/${index?.analysis_repository || 'combustrrr/Agentic-Kibana'}/actions`} target="_blank" rel="noreferrer"><GithubOutlined/> Workflows</a></Space></header>
     {runOpen && <AnalysisLauncher
-      onSubmitted={setPendingLaunch} auth={launchAuth} open close={() => setRunOpen(false)}
+      onSubmitted={request => {
+        const previous = index?.targets.find(t => t.kind === request.kind && (t.kind === 'pr' ? String(t.pr) === request.ref : t.kind === 'commit' ? t.head_sha.toLowerCase() === request.ref : t.branch === request.ref));
+        setPendingLaunch({ ...request, previousReport: previous?.report, previousRun: previous?.scan_run_id });
+        setRefreshTick(t => t + 1);
+      }} auth={launchAuth} open close={() => setRunOpen(false)}
       repository={index?.source_repository || index?.targets[0]?.repository} host={index?.analysis_repository}
       workflowBranch={index?.analysis_default_branch} preferredBranch={index?.preferred_branch}
       targets={index?.targets || []} initial={target} follow={id => navigate(id, 'overview')}
       channelCount={report?.channels.length} completedChannels={completed}
-      queued={index?.metrics?.queued} scanning={index?.metrics?.scanning}
+      queued={index ? index.targets.filter(t => t.status === 'queued').length : undefined} scanning={index ? index.targets.filter(t => t.status === 'scanning').length : undefined}
     />}
     <main>
-      {pendingLaunch && <Alert type="info" title="Waiting for requested target publication" description={`Analysis requested for ${pendingLaunch.kind} ${pendingLaunch.ref}. This view will select its report when the target appears in published data.`}/>}
+      {pendingLaunch && <Alert className="launch-tracking" type={newOutput ? 'success' : 'info'} showIcon closable onClose={() => setPendingLaunch(undefined)} title={launchStatus} description={<><p>{pendingLaunch.kind}: <code>{pendingLaunch.ref}</code>. Submitted {date(pendingLaunch.submittedAt)}. {newOutput ? 'Open the report to inspect its analyzed SHA, producing run, and scanner completeness.' : 'Previous output may remain visible until a new report is published. Status is based on the latest published inventory.'}</p><Space wrap><a href={pendingLaunch.url} target="_blank" rel="noreferrer">Track analysis request</a>{launched && <Button onClick={() => navigate(launched.id, 'overview')}>{newOutput ? 'Open new report' : 'View selected target'}</Button>}<Button onClick={() => setRefreshTick(t => t + 1)}>Check for results</Button></Space></>}/>}
       <section className="project">
         <div className="eyebrow">SOURCE REPOSITORY</div><h1>{target?.repository || 'Code quality dashboard'}</h1>
         <div className="target-row"><label htmlFor="target">Branch or pull request</label>
@@ -205,7 +207,7 @@ function App() {
       <Drawer title="Issue detail" open={!!r.issue && r.tab === 'issues' && !screens.lg} onClose={() => navigate(target?.id || '', 'issues')} size="min(850px, 100vw)" destroyOnHidden>
         <Evidence detail={detail} source={source} error={error} findings={findings} openFinding={id => navigate(target?.id || '', 'issues', id)}/>
       </Drawer>
-      <footer>{index?.metrics && <span>Site data and UI: ~{(index.metrics.site_bytes / 1000000).toFixed(1)} MB / {(index.metrics.site_limit_bytes / 1000000).toFixed(0)} MB limit. </span>}Findings are scanner observations, not confirmed defects. Viewing this page never starts a scan.</footer>
+      <footer>{index?.metrics && <Collapse ghost items={[{ key: 'storage', label: `Current reports and UI: ${(index.metrics.site_bytes / 1000000).toFixed(1)} MB (${(100 * index.metrics.site_bytes / index.metrics.site_limit_bytes).toFixed(1)}% of capacity)`, children: <><p>This is the size of the currently published website, not a growing history of every scan. It contains the latest report for each active branch and PR, plus one manual selection.</p><p>Each successful deployment removes unreferenced report assets. Temporary scanner artifacts expire according to the configured retention period. Re-running analysis does not require flushing reports or browser storage.</p><p>The {(index.metrics.site_limit_bytes / 1000000).toFixed(0)} MB safety limit preserves the last working site if a new collection is too large. Active reports are never silently deleted to make room.</p>{index.publishing_repository && <a href={`https://github.com/${index.publishing_repository}/actions`} target="_blank" rel="noreferrer">View publication and cleanup runs</a>}</> }]}/>}Findings are scanner observations, not confirmed defects.</footer>
     </main>
   </ConfigProvider>;
 }

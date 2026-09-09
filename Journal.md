@@ -11466,3 +11466,8 @@
 
 ### 2026-09-09 - Developer visualizations and investigation priorities
 - Published accessible severity and scanner-overlap donuts plus cautious, severity-weighted investigation clusters derived from shared rules and directories. Guidance explicitly requires logical/runtime validation before code changes.
+
+### 2026-09-09 - Analysis wizard and storage validation
+- Replaced the launch form with Project, Revision, Review, and Results steps. Branches and PRs resolve their latest heads during processing; commits require a full SHA. Authentication preserves the selected revision.
+- Pending requests retain their workflow link and distinguish existing output from a newly published report. Current storage explains per-target replacement and automatic post-deployment cleanup; all five live report assets remain referenced.
+- Validation: production build, 12 browser scenarios against the retained 21,189 findings, 35 hosted-service tests, 8 launcher tests, and documentation checks passed. Added a regression proving cleanup retains active/shared and unrelated assets.
