@@ -88,3 +88,30 @@ test('GitHub dispatch errors are failures, never successful scan confirmations',
   const response = await worker.fetch(await request('/api/launch', { repository: 'source/app', kind: 'commit', ref: 'a'.repeat(40) }), env);
   assert.equal(response.status, 502); assert.ok(!(await response.text()).includes('vendor-secret-error'));
 });
+
+test('integration verifies the default-branch configuration against the Cloudflare instance', async t => {
+  const config = { source_repository:'source/app', analysis_repository:'host/scanners', publishing_repository:'owner/dashboard', launch_endpoint:'https://launcher.example', enabled_scanners:['ruff'] };
+  t.mock.method(globalThis, 'fetch', async url => {
+    if (url.endsWith('repos/host/scanners')) return reply({permissions:{push:true},default_branch:'trusted'});
+    if (url.includes('/contents/')) { assert.ok(url.endsWith('?ref=trusted')); return reply({encoding:'base64',content:Buffer.from(JSON.stringify(config)).toString('base64')}); }
+    return reply({state:'active'});
+  });
+  const connected = await (await worker.fetch(await request('/api/integration'), env)).json();
+  assert.equal(connected.ready,true); assert.equal(connected.workflow_branch,'trusted');
+  config.source_repository = 'wrong/source';
+  const mismatch = await (await worker.fetch(await request('/api/integration'), env)).json();
+  assert.equal(mismatch.ready,false); assert.equal(mismatch.configuration_matches,false);
+});
+
+test('exact request status remains confined to the configured discovery workflow and excludes raw run data', async t => {
+  let path = '.github/workflows/10-analysis-discovery.yml';
+  t.mock.method(globalThis, 'fetch', async url => {
+    if(url.endsWith('repos/host/scanners')) return reply({permissions:{push:true}});
+    assert.equal(url,'https://api.github.com/repos/host/scanners/actions/runs/42');
+    return reply({id:42,path,status:'completed',conclusion:'cancelled',run_attempt:2,updated_at:'2026-09-09',actor:{private:'excluded'}});
+  });
+  const status = await (await worker.fetch(await request('/api/runs/42'),env)).json();
+  assert.equal(status.conclusion,'cancelled'); assert.equal(status.attempt,2); assert.equal(status.actor,undefined);
+  path = '.github/workflows/unrelated.yml';
+  assert.equal((await worker.fetch(await request('/api/runs/42'),env)).status,404);
+});

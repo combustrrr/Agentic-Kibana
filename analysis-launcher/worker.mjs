@@ -88,6 +88,28 @@ async function route(request, env) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204 });
   const session = await unseal((request.headers.get('Authorization') || '').replace(/^Bearer /, ''), env.SESSION_KEY, 'session');
   const repo = await access(env, session.token); // Recheck current permissions for every API call.
+  if (request.method === 'GET' && url.pathname === '/api/integration') {
+    const [configFile, workflow] = await Promise.all([
+      github(`repos/${env.ANALYSIS_REPOSITORY}/contents/config/code-analysis/service.json?ref=${encodeURIComponent(repo.default_branch)}`, session.token),
+      github(`repos/${env.ANALYSIS_REPOSITORY}/actions/workflows/10-analysis-discovery.yml`, session.token),
+    ]);
+    if (configFile.encoding !== 'base64' || typeof configFile.content !== 'string') throw new Failure(502, 'Analysis configuration could not be read.');
+    const config = JSON.parse(new TextDecoder().decode(bytes(configFile.content.replace(/\s/g, ''))));
+    const matches = config.source_repository === env.SOURCE_REPOSITORY && config.analysis_repository === env.ANALYSIS_REPOSITORY && config.launch_endpoint === url.origin;
+    return json({ source_repository: env.SOURCE_REPOSITORY, analysis_repository: env.ANALYSIS_REPOSITORY,
+      publishing_repository: config.publishing_repository, workflow_branch: repo.default_branch,
+      workflow_state: workflow.state, configuration_matches: matches,
+      ready: matches && workflow.state === 'active', enabled_scanners: config.enabled_scanners || [],
+      checked_at: new Date().toISOString() });
+  }
+  if (request.method === 'GET' && /^\/api\/runs\/[1-9][0-9]*$/.test(url.pathname)) {
+    const id = url.pathname.split('/').at(-1);
+    const run = await github(`repos/${env.ANALYSIS_REPOSITORY}/actions/runs/${id}`, session.token);
+    if (run.path?.split('@')[0] !== '.github/workflows/10-analysis-discovery.yml') throw new Failure(404, 'This run is not an analysis request workflow.');
+    return json({ run_id: run.id, status: run.status, conclusion: run.conclusion, attempt: run.run_attempt,
+      updated_at: run.updated_at, checked_at: new Date().toISOString(),
+      url: `https://github.com/${env.ANALYSIS_REPOSITORY}/actions/runs/${id}` });
+  }
   if (request.method === 'GET' && url.pathname === '/api/targets') {
     const [branches, prs] = await Promise.all([pages(`repos/${env.SOURCE_REPOSITORY}/branches`, session.token), pages(`repos/${env.SOURCE_REPOSITORY}/pulls?state=open`, session.token)]);
     const checked_at = new Date().toISOString();

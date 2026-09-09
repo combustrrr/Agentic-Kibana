@@ -11519,3 +11519,11 @@
 - Published the wizard to the fork Testing branch and dashboard main. Pages run 34361723775 completed prepare, deploy, and cleanup successfully; the live UI matches the validated build and the current collection has five targets at 33,466,264 bytes (3.7% of the 900 MB safety threshold).
 - Verified compact mobile light-theme navigation. Stabilized the branch-picker browser test using keyboard selection; three repeated authenticated-launch scenarios passed. Existing commit persistence and new-report tracking scenarios passed after the layout adjustment.
 - No current report assets were deleted merely to reduce usage. This UI rollout does not certify previously unavailable scanner channels as operational.
+
+### 2026-09-09 - Integrated code-analysis application: start
+- Reviewing dashboard, authenticated Cloudflare gateway, and GitHub orchestration as one application. Implementing explicit connection and request lifecycle visibility without confusing discovery completion with scanner completion.
+
+### 2026-09-09 - Integrated application validation and gateway deployment
+- Added a Connections workspace that checks source, Cloudflare gateway, trusted workflow branch, publishing repository, and enabled channels against live configuration. Added exact discovery-run status through the authenticated gateway, separate from scanner and publication completion.
+- Cloudflare Worker version 9c61aafc-93bc-4ae5-9673-22f353dbcccf deployed successfully. Live connection endpoint rejects an unsigned browser-style request with 401. Existing credentials and storage architecture are unchanged.
+- Validation: production build, all 13 browser scenarios, all 10 Worker tests, and documentation checks passed. Gateway contract tests now run before each dashboard publication. Scanner-filter test waits for dropdown animation completion.

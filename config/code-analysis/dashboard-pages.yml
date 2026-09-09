@@ -27,6 +27,8 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: '22'
+      - name: Verify authenticated application contracts
+        run: node --test analysis-launcher/worker.test.mjs
       - name: Restore matching UI build
         id: ui
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
