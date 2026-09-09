@@ -11488,3 +11488,12 @@
 
 ### 2026-09-08 - Temporary verification directory cleanup blocker
 - Removed the deployment worktree and dashboard clone. The older `.tmp/live-upstream-verification` tree remains untracked because its sandbox-owned ACL denied deletion even after an elevated ownership/grant attempt; product and deployment files are unaffected.
+
+### 2026-09-09 - Issue explanation and relationship UX: start
+- Extending issue browsing with evidence-backed cause context, scanner provenance, related findings, and developer-selectable grouping without inventing unsupported causal claims.
+
+### 2026-09-09 - Issue explanation and relationship UX: complete
+- Added an evidence-backed Why this was reported section that identifies scanner families, rules, and source location while explicitly separating a detected condition from a proven root cause.
+- Added retained observation IDs/artifact provenance and navigable related findings derived from shared rules, files, directories, and scanners. Relationships are labeled as associations rather than causal claims.
+- Added scalable, collapsed grouping by rule, file, directory, or scanner, capped expanded rendering to 100 findings per group, and preserved search/filter behavior.
+- Production build, diff validation, and all 10 Playwright scenarios passed against the retained 21,189-finding dataset.
