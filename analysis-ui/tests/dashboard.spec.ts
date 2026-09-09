@@ -12,7 +12,10 @@ test('retained dataset preserves source identity, filters and issue provenance',
   await expect(page.locator('.ant-table-tbody > tr.ant-table-row').first()).toBeVisible();
   await page.locator('.issue-link').first().click();
   await expect(page.getByRole('region', { name: 'Issue detail' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Why this was reported' })).toBeVisible();
+  await expect(page.getByText('Detected condition, not a proven root cause')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Supporting observations' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Related findings' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open exact source revision' })).toHaveAttribute('href', /\/blob\/[a-f0-9]{40}\//);
   const url = page.url(); await page.reload();
   await expect(page.getByRole('heading', { name: 'Supporting observations' })).toBeVisible();
@@ -21,6 +24,17 @@ test('retained dataset preserves source identity, filters and issue provenance',
   await expect(page.getByRole('region', { name: 'Issue detail' })).not.toBeVisible();
   expect(new URL(page.url()).hash).not.toContain('issue=');
   expect(errors).toEqual([]);
+});
+
+test('developers can group findings by rule and inspect a relationship', async ({page}) => {
+  await page.goto('/');
+  await page.getByRole('tab', {name:/^Issues/}).click();
+  await page.getByLabel('Group issues').click();
+  await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({hasText:'Group by rule'}).click();
+  const group = page.locator('.issue-groups .ant-collapse-item').first();
+  await expect(group).toBeVisible();
+  await group.locator('.ant-collapse-header').click();
+  await expect(group.locator('.related-finding').first()).toBeVisible();
 });
 
 test('scanner failures remain separate from findings and navigation works on mobile', async ({ page }) => {

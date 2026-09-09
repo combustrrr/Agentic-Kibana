@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Alert, Button, ConfigProvider, Descriptions, Drawer, Empty, Grid, Input, Segmented, Progress, Select, Space, Statistic, Table, Tabs, Tag, Typography, theme } from 'antd';
+import { Alert, Button, Collapse, ConfigProvider, Descriptions, Drawer, Empty, Grid, Input, Segmented, Progress, Select, Space, Statistic, Table, Tabs, Tag, Typography, theme } from 'antd';
 import { CodeOutlined, GithubOutlined, SearchOutlined } from '@ant-design/icons';
 import 'antd/dist/reset.css';
 import './style.css';
@@ -30,12 +30,27 @@ function navigate(target: string, tab: string, issue = '') { location.hash = new
 function date(s?: string) { return s ? new Date(s).toLocaleString() : 'Unavailable'; }
 const colors: Record<string, string> = { CRITICAL: 'red', HIGH: 'volcano', MEDIUM: 'gold', LOW: 'blue', INFO: 'default', current: 'green', partial: 'orange', failed: 'red', scanning: 'blue', COMPLETED: 'green', CONFIGURED_COMPLETE: 'green', POLICY_FINDINGS: 'orange', NOT_AVAILABLE: 'orange', FAILED: 'red' };
 function Badge({ value }: { value: string }) { return <Tag className={`status-tag status-${value}`} color={colors[value]}>{states[value] || value.replaceAll('_', ' ')}</Tag>; }
+function directoryOf(file: string) { return file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : '(root)'; }
+type Relation = { label: string; reason: string; findings: Finding[] };
 
-function Evidence({ detail, source, error }: { detail?: Detail; source: string[]; error: string }) {
-  return <div className="evidence-content">        {detail ? <><Badge value={detail.severity}/><h2>{detail.message}</h2><p className="path">{detail.file}:{detail.line}</p>
+function Evidence({ detail, source, error, findings, openFinding }: { detail?: Detail; source: string[]; error: string; findings: Finding[]; openFinding: (id: string) => void }) {
+  const related = useMemo<Relation[]>(() => {
+    if (!detail) return [];
+    const others = findings.filter(f => f.id !== detail.id);
+    const relations = [
+      { label: 'Same rule or concept', reason: detail.rules.join(', '), findings: others.filter(f => f.rules.some(rule => detail.rules.includes(rule))) },
+      { label: 'Same file', reason: detail.file, findings: others.filter(f => f.file === detail.file) },
+      { label: 'Same directory', reason: directoryOf(detail.file), findings: others.filter(f => directoryOf(f.file) === directoryOf(detail.file)) },
+      { label: 'Same scanner', reason: detail.scanners.join(', '), findings: others.filter(f => f.scanners.some(scanner => detail.scanners.includes(scanner))) },
+    ];
+    return relations.filter(r => r.findings.length);
+  }, [detail, findings]);
+  return <div className="evidence-content">{detail ? <><Badge value={detail.severity}/><h2>{detail.message}</h2><p className="path">{detail.file}:{detail.line}</p>
+          <section className="explanation-block"><h3>Why this was reported</h3><p><strong>{detail.scanners.join(', ')}</strong> emitted {detail.rules.length ? <>rule <code>{detail.rules.join(', ')}</code></> : 'a finding'} at this source location. The message above is the scanner's retained explanation.</p><Alert type="info" showIcon title="Detected condition, not a proven root cause" description="Start with the highlighted code, then inspect its inputs, callers, configuration, and repeated uses before changing it. Similar findings below can reveal whether the condition is local or systematic."/></section>
           {detail.source_url && <a href={detail.source_url} target="_blank" rel="noreferrer">Open exact source revision</a>}
           {source.length ? <pre className="source">{source.slice(Math.max(0, detail.line - 6), Math.max(0, detail.line - 6) + 16).map((line, i) => <div key={i} className={Math.max(1, detail.line - 5) + i === detail.line ? 'highlight' : ''}><span>{Math.max(1, detail.line - 5) + i}</span>{line}</div>)}</pre> : <p>Source preview unavailable or withheld. Use the immutable source link when available.</p>}
-          <h3>Supporting observations</h3>{detail.origins.map(o => <div className="origin" key={o.observation_id}><strong>{o.scanner_family} | {o.rule}</strong><small>{o.file}:{o.start_line}</small><small>Artifact: {o.raw_artifact || 'Unavailable'}</small></div>)}
+          <h3>Supporting observations</h3><p>These retained observations identify which scanner and rule produced the issue.</p>{detail.origins.map(o => <div className="origin" key={o.observation_id}><strong>{o.scanner_family} | {o.rule}</strong><small>{o.file}:{o.start_line}</small><small>Observation: {o.observation_id}</small><small>Artifact: {o.raw_artifact || 'Unavailable'}</small></div>)}
+          <section className="relationships"><h3>Related findings</h3><p>Relationships are derived from the current report's scanner, rule, and source paths. They do not imply a shared defect.</p>{related.length ? related.map(relation => <div className="relation" key={relation.label}><div><strong>{relation.label}</strong><small>{relation.reason} · {relation.findings.length.toLocaleString()} related</small></div>{relation.findings.slice(0, 4).map(f => <Button type="link" className="related-finding" key={f.id} onClick={() => openFinding(f.id)}><Badge value={f.severity}/><span>{f.message}</span><small>{f.file}:{f.line}</small></Button>)}</div>) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No relationships found in the current report"/>}</section>
         </> : <Empty description={error || 'Issue evidence unavailable or loading...'}/>}</div>;
 }
 
@@ -52,7 +67,7 @@ function App() {
   const [directory, setDirectory] = useState('');
   const [index, setIndex] = useState<Index>(); const [error, setError] = useState(''); const [r, setRoute] = useState(route());
   const [report, setReport] = useState<Report>(); const [findings, setFindings] = useState<Finding[]>([]); const [detail, setDetail] = useState<Detail>(); const [source, setSource] = useState<string[]>([]);
-  const [query, setQuery] = useState(''); const [severity, setSeverity] = useState(''); const [scanner, setScanner] = useState(''); const [page, setPage] = useState(0); const [loading, setLoading] = useState(false);
+  const [query, setQuery] = useState(''); const [severity, setSeverity] = useState(''); const [scanner, setScanner] = useState(''); const [groupBy, setGroupBy] = useState('none'); const [page, setPage] = useState(0); const [loading, setLoading] = useState(false);
   useEffect(() => { const c = new AbortController(); const refresh = () => json<Index>('data/index.json', c.signal).then(value => { setIndex(value); setLastRefresh(new Date().toISOString()); }).catch(e => { if (e.name !== 'AbortError') setError(e.message); }); refresh(); const timer = window.setInterval(refresh, 60000); const change = () => setRoute(route()); window.addEventListener('hashchange', change); return () => { c.abort(); window.clearInterval(timer); window.removeEventListener('hashchange', change); }; }, [refreshTick]);
   const launchAuth = useLaunchAuth(index?.launch_endpoint);
   useEffect(() => {
@@ -68,6 +83,12 @@ function App() {
     json<Detail[]>(`data/${target.report}/details/${f.page}.json`, c.signal).then(async rows => { const d = rows.find(d => d.id === f.id); setDetail(d); if (d?.source) setSource(await json<string[]>(`data/${target.report}/${d.source}`, c.signal)); }).catch(e => { if (e.name !== 'AbortError') setError(e.message); }); return () => c.abort();
   }, [r.issue, findings, target?.report]);
   const filtered = useMemo(() => findings.filter(f => (!directory || (f.file.includes('/') ? f.file.slice(0, f.file.lastIndexOf('/')) : '(root)') === directory) && (!severity || f.severity === severity) && (!scanner || f.scanners.includes(scanner)) && `${f.message} ${f.file} ${f.rules.join(' ')}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => (ranks[a.severity] ?? 9) - (ranks[b.severity] ?? 9) || a.file.localeCompare(b.file)), [findings, query, severity, scanner, directory]);
+  const grouped = useMemo(() => {
+    if (groupBy === 'none') return [] as [string, Finding[]][];
+    const groups = new Map<string, Finding[]>();
+    filtered.forEach(f => { const key = groupBy === 'rule' ? f.rules[0] || 'No rule' : groupBy === 'scanner' ? f.scanners[0] || 'No scanner' : groupBy === 'file' ? f.file || 'No file' : directoryOf(f.file); groups.set(key, [...(groups.get(key) || []), f]); });
+    return [...groups].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+  }, [filtered, groupBy]);
   useEffect(() => setPage(0), [query, severity, scanner, directory]);
   const directories = useMemo(() => {
     const counts = new Map<string, number>();
@@ -154,19 +175,20 @@ function App() {
           <div className="filters"><Input aria-label="Search issues" prefix={<SearchOutlined/>} placeholder="Search message, file, or rule" allowClear value={query} onChange={e => setQuery(e.target.value)}/>
             <Select aria-label="Severity" value={severity} onChange={setSeverity} options={[{ value: '', label: 'All severities' }, ...Object.keys(ranks).map(s => ({ value: s, label: s }))]}/>
             <Select aria-label="Scanner" showSearch optionFilterProp="label" value={scanner} onChange={setScanner} options={[{ value: '', label: 'All scanners' }, ...[...new Set(findings.flatMap(f => f.scanners))].sort().map(s => ({ value: s, label: s }))]}/>
+            <Select aria-label="Group issues" value={groupBy} onChange={setGroupBy} options={[{ value: 'none', label: 'No grouping' }, { value: 'rule', label: 'Group by rule' }, { value: 'file', label: 'Group by file' }, { value: 'directory', label: 'Group by directory' }, { value: 'scanner', label: 'Group by scanner' }]}/>
             <span>{filtered.length.toLocaleString()} results</span>
           </div>
-          <div className={r.issue && screens.lg ? "findings-workspace split" : "findings-workspace"}><div className="findings-list"><Table<Finding> rowKey="id" size="middle" dataSource={filtered} scroll={{ x: r.issue && screens.lg ? undefined : 760 }} rowClassName={f => r.issue === f.id ? 'selected' : ''} locale={{ emptyText: 'No findings match these filters.' }} pagination={{ current: page + 1, pageSize: 50, showSizeChanger: false, onChange: p => setPage(p - 1), showTotal: total => `${total.toLocaleString()} findings` }} columns={r.issue && screens.lg ? [{title:'Findings',key:'compact',render:(_,f) => <><Badge value={f.severity}/><Button type="link" className="issue-link" onClick={() => navigate(target!.id, 'issues', f.id)}>{f.message}</Button><small>{f.file}:{f.line}</small><small>{f.scanners.join(', ')} | {f.rules.join(', ')}</small></>}] : [
+          <div className={r.issue && screens.lg ? "findings-workspace split" : "findings-workspace"}><div className="findings-list">{groupBy !== 'none' ? <Collapse className="issue-groups" items={grouped.map(([name, rows]) => ({ key: name, label: <span><strong>{name}</strong><Tag>{rows.length.toLocaleString()} findings</Tag></span>, children: <div className="group-findings">{rows.slice(0, 100).map(f => <Button type="link" className="related-finding" key={f.id} onClick={() => navigate(target!.id, 'issues', f.id)}><Badge value={f.severity}/><span>{f.message}</span><small>{f.file}:{f.line} · {f.scanners.join(', ')}</small></Button>)}{rows.length > 100 && <p>Showing the first 100 findings in this group. Narrow the filters to inspect more.</p>}</div> }))}/> : <Table<Finding> rowKey="id" size="middle" dataSource={filtered} scroll={{ x: r.issue && screens.lg ? undefined : 760 }} rowClassName={f => r.issue === f.id ? 'selected' : ''} locale={{ emptyText: 'No findings match these filters.' }} pagination={{ current: page + 1, pageSize: 50, showSizeChanger: false, onChange: p => setPage(p - 1), showTotal: total => `${total.toLocaleString()} findings` }} columns={r.issue && screens.lg ? [{title:'Findings',key:'compact',render:(_,f) => <><Badge value={f.severity}/><Button type="link" className="issue-link" onClick={() => navigate(target!.id, 'issues', f.id)}>{f.message}</Button><small>{f.file}:{f.line}</small><small>{f.scanners.join(', ')} | {f.rules.join(', ')}</small></>}] : [
             { title: 'Severity', key: 'severity', width: 120, render: (_, f) => <Badge value={f.severity}/> },
             { title: 'Issue and source', key: 'issue', render: (_, f) => <><Button type="link" className="issue-link" onClick={() => navigate(target!.id, 'issues', f.id)}>{f.message}</Button><small>{f.file}{f.line ? `:${f.line}` : ''}</small></> },
             { title: 'Scanner / rule', key: 'scanner', width: 240, render: (_, f) => <>{f.scanners.join(', ')}<small>{f.rules.join(', ')}</small></> }
-          ]}/></div>
-          {r.issue && screens.lg && <section className="evidence-panel" aria-label="Issue detail"><div className="pane-heading"><h2>Issue detail</h2><Button onClick={() => navigate(target!.id, 'issues')}>Close issue</Button></div><Evidence detail={detail} source={source} error={error}/></section>}
+          ]}/>}</div>
+          {r.issue && screens.lg && <section className="evidence-panel" aria-label="Issue detail"><div className="pane-heading"><h2>Issue detail</h2><Button onClick={() => navigate(target!.id, 'issues')}>Close issue</Button></div><Evidence detail={detail} source={source} error={error} findings={findings} openFinding={id => navigate(target!.id, 'issues', id)}/></section>}
           </div>
         </>}
       </>}
       <Drawer title="Issue detail" open={!!r.issue && r.tab === 'issues' && !screens.lg} onClose={() => navigate(target?.id || '', 'issues')} size="min(850px, 100vw)" destroyOnHidden>
-        <Evidence detail={detail} source={source} error={error}/>
+        <Evidence detail={detail} source={source} error={error} findings={findings} openFinding={id => navigate(target?.id || '', 'issues', id)}/>
       </Drawer>
       <footer>{index?.metrics && <span>Site data and UI: ~{(index.metrics.site_bytes / 1000000).toFixed(1)} MB / {(index.metrics.site_limit_bytes / 1000000).toFixed(0)} MB limit. </span>}Findings are scanner observations, not confirmed defects. Viewing this page never starts a scan.</footer>
     </main>
