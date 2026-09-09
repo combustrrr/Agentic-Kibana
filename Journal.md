@@ -11581,3 +11581,8 @@
 - Added daily self-hosted Renovate policy, immutable generated-workflow synchronization, official Scorecard checksum updates, and read-only native compatibility checks. Only canary-covered stable Python patch updates qualify for auto-merge; major/vendor/action updates remain reviewable.
 - Tests: 57 service regression tests, five native scanner canaries, workflow policy, 93-page documentation consistency, and both Renovate config validators pass. Updater requires repository-scoped SCANNER_UPDATE_TOKEN and the required compatibility branch check.
 
+
+### 2026-09-09 — Scanner maintenance session end
+- Published fork Testing 93e5736a and dashboard efc9e13. GitHub compatibility run 34371836814 passed all service checks and native canaries. Fork Testing now requires the Scanner compatibility check with strict up-to-date status checks; administrator enforcement remains off.
+- Automatic maintenance is implemented but not operational until SCANNER_UPDATE_TOKEN is configured with repository-scoped workflow/PR maintenance access. Existing scanner/vendor tokens cannot substitute for this. Triggered 34372044252 to verify the explicit missing-access failure path. No scanner version upgrade is claimed from this session.
+
