@@ -11509,3 +11509,12 @@
 - Add daily Renovate maintenance, generated-workflow synchronization, Scorecard checksum verification, and read-only native canaries. Tested stable patch updates may merge only with the required Scanner compatibility check; other upgrades remain reviewable.
 - Validation: 57 regression tests, five native scanner canaries, workflow policy, 93-page docs checks, and official Renovate JSON/CJS validation pass. Repository-scoped SCANNER_UPDATE_TOKEN remains required for live updater operation.
 
+
+### 2026-09-09 — Full analysis service separation start
+- User confirmed removing analysis code from the fork and updating the dedicated service repository. Migrate runtime wiring and credentials, preserve current report assets, and remove only analysis-owned product files.
+
+
+### 2026-09-09 — Product repository analysis removal verified
+- Remove analysis UI, launcher, scripts, contracts, scanner workflows, scanner fixtures, and service docs; preserve all removed files in the standalone repository. Product CI, docs, and release workflows remain, with their own independent policy checks.
+- Retain only shared PyYAML/Ruff CI requirements and external documentation links. Product verification: CI structural policy passed for three workflows/three Dockerfiles, 63 policy tests passed, and 80-page docs consistency passed.
+

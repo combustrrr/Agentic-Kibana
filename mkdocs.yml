@@ -97,7 +97,6 @@ extra:
 # The repository contains extensive engineering handoff and research material.
 # It remains versioned in Git, but is intentionally not part of the public site.
 exclude_docs: |
-  code-analysis/SESSION/SESSION_HANDOFF_2026-09-06.md
   AGNOSTIC_ARCHITECTURE.md
   ENVIRONMENT.md
   HANDOFF.md
@@ -179,20 +178,7 @@ nav:
           - Permissions: reference/permissions.md
           - Compatibility: reference/compatibility.md
           - Security invariants: reference/security.md
-      - Code analysis:
-          - Overview: code-analysis/README.md
-          - Issue Wall: code-analysis/MONITORING_UI.md
-          - Architecture: code-analysis/SERVICE_ARCHITECTURE.md
-          - Scanner and repository integrations: code-analysis/INTEGRATIONS.md
-          - Scanner maintenance: code-analysis/SCANNER-MAINTENANCE.md
-          - Authenticated analysis launching: code-analysis/AUTHENTICATED_LAUNCHING.md
-          - Production readiness: code-analysis/PRODUCTION_READINESS.md
-          - Data handling: code-analysis/DATA_HANDLING_INVENTORY.md
-          - External activation: code-analysis/EXTERNAL_ACTIVATION.md
-          - Snyk contribution: code-analysis/SNYK_UNIQUE_CONTRIBUTION.md
-          - Integration gate: code-analysis/UPSTREAM_INTEGRATION.md
-          - Current state: code-analysis/CURRENT_STATE.md
-          - Current handoff: code-analysis/SESSION/_HANDOFF_2026-09-02.md
+      - Code analysis dashboard: https://combustrrr.github.io/code-analysis-dashboard/
       - Develop and extend:
           - Overview: development/index.md
           - Backend: development/backend.md

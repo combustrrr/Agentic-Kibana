@@ -3,6 +3,10 @@
 Agentic SOC is a self-hosted, vendor-agnostic security operations platform that
 turns high-volume alerts into explainable, audited, human-reviewable cases.
 
+The external [code-analysis dashboard](https://github.com/combustrrr/code-analysis-dashboard)
+is maintained as a separate project. Its UI, scanner workflows, launcher, and report
+service are not part of this product repository.
+
 It connects to existing security data, normalises records to OCSF, correlates and
 risk-scores them deterministically, uses role-separated AI investigation, and applies
 operator policy through a deterministic case manager. The model can recommend a
