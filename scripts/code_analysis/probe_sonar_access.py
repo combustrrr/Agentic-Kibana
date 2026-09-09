@@ -18,7 +18,13 @@ def _request(url: str, token: str) -> tuple[int, object | None]:
         with urllib.request.urlopen(request, timeout=30) as response:
             return response.status, json.load(response)
     except urllib.error.HTTPError as error:
-        return error.code, None
+        # Retain a classified cause only, never an arbitrary provider response.
+        try:
+            document = json.load(error)
+            messages = ' '.join(str(row.get('msg', '')) for row in document.get('errors', []) if isinstance(row, dict))
+        except (ValueError, TypeError, AttributeError):
+            messages = ''
+        return error.code, {'access_failure': 'branch_entitlement' if 'not allowed to access data from non main branches' in messages.lower() else 'access_denied'}
 
 
 def probe(output: Path) -> dict[str, object]:
@@ -66,7 +72,7 @@ def probe(output: Path) -> dict[str, object]:
                 for row in users
                 if isinstance(row, dict)
             )
-        issue_status, _ = _request(f"{server}/api/issues/search?{issue_query}", token)
+        issue_status, issue_document = _request(f"{server}/api/issues/search?{issue_query}", token)
         project_query = urllib.parse.urlencode({'componentKeys': project, 'p': 1, 'ps': 1})
         project_status, _ = _request(f"{server}/api/issues/search?{project_query}", token)
         credentials[role] = {
@@ -79,6 +85,7 @@ def probe(output: Path) -> dict[str, object]:
             "browse_granted_to_current_user": browse_granted,
             "branch_issues_http_status": issue_status,
             "project_issues_http_status": project_status,
+            "access_failure": issue_document.get('access_failure', '') if isinstance(issue_document, dict) else '',
         }
     output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return result

@@ -11486,3 +11486,7 @@
 - Added an opt-in portable profile with no mandatory Python/JavaScript layout and generated workflows free of the original project harness. Repository-wide producers run; unsupported language/build/vendor channels remain explicitly NOT_AVAILABLE, never silently deferred.
 - Onboarding generates coordinated analysis/dashboard/Cloudflare overlays without overwriting an existing destination. GitHub App registration accepts a generic configurable name. Existing current-instance workflow generation is unchanged.
 - Tests: 47 portability/hosted/extension tests passed across Rust, Java, JavaScript-only and documentation-only fixtures; 92-page documentation check passed. These validate orchestration and configuration, not live scanner coverage for every language. Private source access and non-GitHub hosts remain documented integration requirements.
+
+### 2026-09-09 - Scanner execution and diagnostic repair
+- Restored isolated Snyk resolver sibling imports and explicit repository attribution. Sonar probes match the actual branch and distinguish entitlement denial from token failure; quota warnings alone do not prove Snyk failure.
+- Fifty local regressions and workflow-policy audit passed. Live all-channel verification follows; upstream posture access and Sonar branch entitlement remain explicit requirements.
