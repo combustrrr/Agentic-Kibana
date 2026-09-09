@@ -37,6 +37,19 @@ test('developers can group findings by rule and inspect a relationship', async (
   await expect(group.locator('.related-finding').first()).toBeVisible();
 });
 
+test('overview visualizes issue composition and offers cautious investigation priorities', async ({page}) => {
+  await page.goto('/');
+  await expect(page.getByRole('img', {name:'Finding distribution by severity'})).toBeVisible();
+  await expect(page.getByRole('img', {name:'Finding distribution by scanner overlap'})).toBeVisible();
+  await expect(page.getByRole('heading', {name:'Investigation priorities'})).toBeVisible();
+  await expect(page.getByText('Heuristic guidance')).toBeVisible();
+  const action = page.getByRole('button', {name:'Investigate cluster'}).first();
+  await expect(action).toBeVisible();
+  await action.click();
+  await expect(page.getByText('Group by rule', {exact:true})).toBeVisible();
+  await expect(page.getByText(/^Directory:/)).toBeVisible();
+});
+
 test('scanner failures remain separate from findings and navigation works on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/'); await page.getByRole('tab', { name: 'Scanners', exact: true }).click();

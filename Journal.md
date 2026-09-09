@@ -11463,3 +11463,6 @@
 
 ### 2026-09-09 - Issue explanation and grouping UX
 - Published scanner/rule cause context, retained observation provenance, related findings, and selectable rule/file/directory/scanner grouping. Build and all 10 browser scenarios passed.
+
+### 2026-09-09 - Developer visualizations and investigation priorities
+- Published accessible severity and scanner-overlap donuts plus cautious, severity-weighted investigation clusters derived from shared rules and directories. Guidance explicitly requires logical/runtime validation before code changes.
