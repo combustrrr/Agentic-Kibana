@@ -328,7 +328,8 @@ def publish(config: dict, output: Path) -> None:
     previous = json.loads(rel['body'] or '{}')
     state = reconcile(previous, inventory(config, scan_state), now())
     state.update(launch_endpoint=config.get('launch_endpoint'), source_repository=config['source_repository'], preferred_branch=config['preferred_branch'], analysis_repository=host,
-                 analysis_default_branch=scan_state.get('analysis_default_branch'))
+                 analysis_default_branch=scan_state.get('analysis_default_branch'),
+                 publishing_repository=repo)
     runs = {r['id']: r for r in scan_state['targets']}
     # Workflow completion notifications may be suppressed or delayed. Resolve the
     # unique persisted dispatch nonce, then collect that exact run and attempt.

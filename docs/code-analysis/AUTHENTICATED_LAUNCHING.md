@@ -130,3 +130,28 @@ popup and API to verify the launch interaction; they do not replace live App acc
 
 Protocol references: [GitHub App user authentication](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app),
 [Cloudflare Worker secrets](https://developers.cloudflare.com/workers/configuration/secrets/).
+## Developer launch wizard and current storage
+
+The launch wizard has four stages: Project, Revision, Review, and Results. Sign in
+with GitHub on the project step, then choose a branch, PR number, or full
+40-character commit SHA. Selections survive sign-in and back navigation. Review
+the repository and revision policy before submitting. A branch or PR resolves
+against fresh GitHub discovery when the workflow processes the request; a commit
+stays pinned to the entered SHA. Manual submission requests fresh scanner execution
+even when the same revision already has a report.
+
+After submission, select **View results on dashboard**. The request banner remains
+visible while published inventory refreshes every minute. Existing output does not
+count as a new result: the banner compares the report reference with the one present
+at submission. New output is labeled as a report for the selected target, not proof
+that a specific request completed; use the linked request and producing runs for
+that provenance. Publication runs about every ten minutes. Closing the banner or
+reloading the page clears this local request tracker; GitHub retains the run.
+
+The storage disclosure describes the currently published collection. It is not a
+history of every scan. Current reports remain per active branch and open PR, with
+one manual commit or closed-PR selection. After a successful deployment, cleanup
+deletes unreferenced managed report assets and preserves referenced or unrelated
+assets. There is no browser flush operation: clearing active reports would remove
+useful output and does not make a scan fresher. If the current collection exceeds
+the configured capacity, publication fails and retains the last working site.

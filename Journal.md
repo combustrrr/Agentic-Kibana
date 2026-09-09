@@ -11506,3 +11506,11 @@
 - Added investigation priorities ranked from repeated rule-and-directory clusters using severity-weighted retained findings. Each candidate links into pre-filtered, rule-grouped issues.
 - Kept guidance explicitly heuristic: shared scanner symptoms do not prove a common cause, and developers are directed to validate control flow, runtime behavior, tests, configuration, and data flow before changing logic.
 - Production build passed. The existing 10 Playwright scenarios passed in the full run and the added visualization/priority scenario passed after correcting its Ant Design selector.
+
+### 2026-09-09 - Analysis wizard, result tracking and storage clarity: start
+- Repairing selection persistence during authentication and keeping new scan requests visible until a newer report arrives. Verifying current-only asset cleanup and exposing storage semantics in the dashboard.
+
+### 2026-09-09 - Analysis wizard and storage validation
+- Replaced the launch form with Project, Revision, Review, and Results steps. Branches and PRs resolve their latest heads during processing; commits require a full SHA. Authentication preserves the selected revision.
+- Pending requests retain their workflow link and distinguish existing output from a newly published report. Current storage explains per-target replacement and automatic post-deployment cleanup; all five live report assets remain referenced.
+- Validation: production build, 12 browser scenarios against the retained 21,189 findings, 35 hosted-service tests, 8 launcher tests, and documentation checks passed. Added a regression proving cleanup retains active/shared and unrelated assets.
