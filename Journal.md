@@ -11498,3 +11498,8 @@
 ### 2026-09-09 — Snyk resolver path evidence
 - Focused live diagnostics identify ValueError in resolver path validation. Align Node and Python staging roots explicitly. Keep resolver diagnostics in a separate artifact to preserve the established Snyk evidence layout. Nine focused tests pass; repeat live validation follows.
 
+
+### 2026-09-09 — Snyk live repair verified
+- Diagnostic run 34368489309 at tooling 1430c9fd completed Snyk SCA and Code. All five manifests produced SARIF; Python results include 29 backend and 4 documentation findings. The prior quota-only diagnosis was incorrect: explicit shared Node/Python staging fixes resolver rejection.
+- 51 service regression tests and workflow policy checks pass. Full run 34366794113 verifies 22 usable channels before this Snyk fix. Sonar branch entitlement and upstream security-posture permissions remain external blockers; no open upstream PR is available for CodeRabbit acceptance.
+
