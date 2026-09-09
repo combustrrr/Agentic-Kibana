@@ -11518,3 +11518,7 @@
 - Remove analysis UI, launcher, scripts, contracts, scanner workflows, scanner fixtures, and service docs; preserve all removed files in the standalone repository. Product CI, docs, and release workflows remain, with their own independent policy checks.
 - Retain only shared PyYAML/Ruff CI requirements and external documentation links. Product verification: CI structural policy passed for three workflows/three Dockerfiles, 63 policy tests passed, and 80-page docs consistency passed.
 
+
+### 2026-09-09 — Repair extraction docs CI
+- CI identified a remaining fork-only PENDING_WORK.md analysis document outside product navigation. Preserve it in the standalone historical documents and remove it from product docs.
+
