@@ -185,6 +185,49 @@
       "deferred_channels": {},
       "preferred_branch": "Testing",
       "report_budget_bytes": 900000000
+    },
+    {
+      "id": "1360051890",
+      "source_repository": {
+        "id": 1360051890,
+        "full_name": "combustrrr/code-analysis-dashboard",
+        "private": false
+      },
+      "relationship": "observer",
+      "preferred_branch": "main",
+      "profile": {
+        "mode": "portable"
+      },
+      "enabled_scanners": [
+        "atheris",
+        "bandit",
+        "checkov",
+        "codeql",
+        "coderabbit-ai-advisory",
+        "coverage",
+        "eslint",
+        "github-actions-security",
+        "github-secret-protection-posture",
+        "gitleaks",
+        "hadolint",
+        "openssf-scorecard",
+        "osv",
+        "pyright",
+        "radon",
+        "ruff",
+        "sbom-license-provenance",
+        "schemathesis",
+        "semgrep",
+        "shipping-image-cves",
+        "snyk",
+        "sonarqube-cloud",
+        "trivy",
+        "typescript",
+        "vulture",
+        "xenon"
+      ],
+      "deferred_channels": {},
+      "report_budget_bytes": 900000000
     }
   ]
 }

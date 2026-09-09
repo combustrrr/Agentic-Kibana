@@ -11531,3 +11531,7 @@
 ### 2026-09-09 — Reusable scanner repair rollout
 - Updated immutable tooling pin after live source-import and JavaScript bootstrap failures; bounded report packing verified against retained evidence. Preserve independent product checks and upstream read-only boundary.
 
+
+### 2026-09-10 — Second source layout acceptance
+- Add the standalone application as a portable-profile read-only source on the authorized fork runner. Keep every scanner visible; unsupported profile adapters stay setup-required. Existing native and upstream current reports are published with exact provenance.
+
