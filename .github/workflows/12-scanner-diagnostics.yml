@@ -324,9 +324,16 @@ jobs:
 
           snyk-code.log
 
-
-          ${{ runner.temp }}/snyk-resolver-error.json'
+          '
         if-no-files-found: error
+        retention-days: 7
+    - name: Upload isolated resolver diagnostics
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: snyk-resolver-diagnostics
+        path: ${{ runner.temp }}/snyk-resolver-error.json
+        if-no-files-found: ignore
         retention-days: 7
     needs:
     - identity

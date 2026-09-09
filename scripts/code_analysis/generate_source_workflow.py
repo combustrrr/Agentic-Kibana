@@ -79,8 +79,6 @@ def generate(config=None):
                 if step.get('name') == 'Validate and normalize Gitleaks output':
                     step = {'name': 'Validate redacted Gitleaks output', 'run': 'jq -e \'(.runs | type) == "array"\' gitleaks-results.sarif > /dev/null'}
                 if name == 'snyk':
-                    if step.get('name') == 'Upload structured Snyk evidence':
-                        step['with']['path'] += '\n${{ runner.temp }}/snyk-resolver-error.json'
                     if step.get('name') in {'Resolve Python dependency manifests for Snyk SCA'}:
                         step['run'] = 'python -I .analysis-tooling/scripts/code_analysis/snyk_metadata.py --source "$GITHUB_WORKSPACE" --destination "$RUNNER_TEMP/snyk-metadata"'
                     if step.get('name') in {'Scan open-source dependencies', 'Scan source code'}:
@@ -190,6 +188,11 @@ def generate(config=None):
                     if 'run' in step and 'backend/ webui/src/' in step['run']:
                         step['run'] = 'semgrep --config=p/owasp-top-ten --config=p/secrets --json --output=semgrep-results.json .'
             job['steps'] = isolated
+            if name == 'snyk':
+                job['steps'].append({'name': 'Upload isolated resolver diagnostics', 'if': 'always()',
+                                     'uses': UPLOAD, 'with': {'name': 'snyk-resolver-diagnostics',
+                                     'path': '${{ runner.temp }}/snyk-resolver-error.json',
+                                     'if-no-files-found': 'ignore', 'retention-days': 7}})
             jobs[f'scanner-{number}-{name}'] = job
     from scripts.code_analysis.extensions import registry
     for extension in registry(config):

@@ -11557,3 +11557,7 @@
 ### 2026-09-09 — Scanner repair diagnostics
 - Live evidence still reports three failed Snyk Python manifests despite a successful advisory job. Added an exact-source vendor diagnostic workflow with no report publication and sanitized resolver exception evidence. Eight focused tests and workflow policy checks pass.
 
+
+### 2026-09-09 — Snyk resolver path evidence
+- Focused live diagnostics identify ValueError in resolver path validation. Align Node and Python staging roots explicitly. Keep resolver diagnostics in a separate artifact to preserve the established Snyk evidence layout. Nine focused tests pass; repeat live validation follows.
+
