@@ -236,6 +236,10 @@ and a local exact-manifest CLI check completed while displaying that warning. Th
 failed Python resolver needs its staged sibling modules on Python's import path.
 The inspection bootstrap permits only the temporary Snyk resolver directory outside
 the source checkout, preserving isolated startup and metadata-only dependencies.
+Node and Python use an explicit shared staging root. The vendor-only
+`12-scanner-diagnostics.yml` workflow accepts the same exact-source inputs and
+retains evidence without publishing a target report. Its green job conclusion is
+not completion evidence: inspect `snyk-status.json` and every manifest's SARIF.
 Each required manifest still needs valid SARIF; failures are not suppressed.
 
 Upstream secret-protection controls require upstream-authorized credentials; the
