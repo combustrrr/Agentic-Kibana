@@ -11471,3 +11471,8 @@
 - Replaced the launch form with Project, Revision, Review, and Results steps. Branches and PRs resolve their latest heads during processing; commits require a full SHA. Authentication preserves the selected revision.
 - Pending requests retain their workflow link and distinguish existing output from a newly published report. Current storage explains per-target replacement and automatic post-deployment cleanup; all five live report assets remain referenced.
 - Validation: production build, 12 browser scenarios against the retained 21,189 findings, 35 hosted-service tests, 8 launcher tests, and documentation checks passed. Added a regression proving cleanup retains active/shared and unrelated assets.
+
+### 2026-09-09 - Analysis wizard rollout: complete
+- Published the wizard to the fork Testing branch and dashboard main. Pages run 34361723775 completed prepare, deploy, and cleanup successfully; the live UI matches the validated build and the current collection has five targets at 33,466,264 bytes (3.7% of the 900 MB safety threshold).
+- Verified compact mobile light-theme navigation. Stabilized the branch-picker browser test using keyboard selection; three repeated authenticated-launch scenarios passed. Existing commit persistence and new-report tracking scenarios passed after the layout adjustment.
+- No current report assets were deleted merely to reduce usage. This UI rollout does not certify previously unavailable scanner channels as operational.
