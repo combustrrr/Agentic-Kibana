@@ -69,6 +69,7 @@ class ExtensionTests(unittest.TestCase):
         from scripts.code_analysis import generate_source_workflow as generator
         import yaml
         shutil.copytree('.github/workflows', self.root/'.github/workflows')
+        shutil.copytree('.ci', self.root/'.ci')
         config = h.load(Path('config/code-analysis/service.json'))
         vendor = {**self.extension, 'channel':'ext-vendor', 'name':'Vendor example', 'mode':'vendor',
                   'secrets':{'VENDOR_TOKEN':'VENDOR_ACCESS_TOKEN'}}

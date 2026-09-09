@@ -11571,3 +11571,13 @@
 - Published verified scanner fixes to fork Testing e8156be4 and synchronized dashboard tooling at 5970af8. Refresh request 34368971832 succeeded; subsequent full analysis/publication is asynchronous and not claimed complete here.
 - Snyk is live-verified complete. Sonar branch entitlement and upstream security-posture authorization cannot be granted by the current CLI identity. CodeRabbit awaits an actual reviewed upstream PR. No subscription was purchased and upstream was not modified.
 
+
+### 2026-09-09 — Scanner extensibility and automatic updates start
+- Audit extension isolation and scanner dependency maintenance; implement validated update automation and document expansion limits.
+
+
+### 2026-09-09 — Scanner maintenance implementation verified
+- Hardened extension registration/evidence types, built-in name collisions, isolated adapter working directories, and stale-result rejection. Tested 100 independent registrations and failed/healthy sibling isolation.
+- Added daily self-hosted Renovate policy, immutable generated-workflow synchronization, official Scorecard checksum updates, and read-only native compatibility checks. Only canary-covered stable Python patch updates qualify for auto-merge; major/vendor/action updates remain reviewable.
+- Tests: 57 service regression tests, five native scanner canaries, workflow policy, 93-page documentation consistency, and both Renovate config validators pass. Updater requires repository-scoped SCANNER_UPDATE_TOKEN and the required compatibility branch check.
+
