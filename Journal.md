@@ -11540,3 +11540,7 @@
 - Added an opt-in portable profile with no mandatory Python/JavaScript layout and generated workflows free of the original project harness. Repository-wide producers run; unsupported language/build/vendor channels remain explicitly NOT_AVAILABLE, never silently deferred.
 - Onboarding generates coordinated analysis/dashboard/Cloudflare overlays without overwriting an existing destination. GitHub App registration accepts a generic configurable name. Existing current-instance workflow generation is unchanged.
 - Tests: 47 portability/hosted/extension tests passed across Rust, Java, JavaScript-only and documentation-only fixtures; 92-page documentation check passed. These validate orchestration and configuration, not live scanner coverage for every language. Private source access and non-GitHub hosts remain documented integration requirements.
+
+### 2026-09-09 - Portable onboarding rollout: complete
+- Published portable configuration and generation tools to fork Testing (e62bfbc6) and dashboard main (34870e9). Dashboard publication run 34364709012 completed contract checks, deployment, and cleanup successfully using the existing UI build.
+- Current source configuration was preserved. New repositories require their own App/access setup, generated overlays, and live scanner acceptance; fixture tests establish portability of orchestration without claiming universal scanner coverage.
