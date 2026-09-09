@@ -142,9 +142,8 @@ class WorkflowPolicyTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "missing=\\['release.yml'\\]"):
                     policy._workflow_paths()
 
-    def test_analysis_workflows_are_explicitly_allowed_and_policy_checked(self) -> None:
-        self.assertEqual(len(policy.ANALYSIS_WORKFLOWS), 9)
-        self.assertEqual(policy.audit_analysis_workflows(), [])
+    def test_product_workflows_are_independent_of_external_analysis(self) -> None:
+        self.assertEqual(policy.EXPECTED_WORKFLOWS, {'ci.yml', 'docs.yml', 'release.yml'})
         self.assertEqual(
             {path.name for path in policy._workflow_paths()}, policy.EXPECTED_WORKFLOWS
         )

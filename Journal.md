@@ -11595,3 +11595,12 @@
 - Prepared dedicated-project migration at combustrrr/code-analysis-dashboard commit 1ece575, draft PR #1. Complete service sources now exist in the separate checkout; product runtime files were not copied.
 - Validation: 57 service tests, workflow audit, 10 launcher tests, and TypeScript/Vite build pass. Pending user choice: move the analysis host too, or retain a thin fork runner. No live host/configuration, credential, report asset, or product-file deletion occurred before that decision.
 
+
+### 2026-09-09 — Full analysis service separation start
+- User confirmed removing analysis code from the fork and updating the dedicated service repository. Migrate runtime wiring and credentials, preserve current report assets, and remove only analysis-owned product files.
+
+
+### 2026-09-09 — Product repository analysis removal verified
+- Remove analysis UI, launcher, scripts, contracts, scanner workflows, scanner fixtures, and service docs; preserve all removed files in the standalone repository. Product CI, docs, and release workflows remain, with their own independent policy checks.
+- Retain only shared PyYAML/Ruff CI requirements and external documentation links. Product verification: CI structural policy passed for three workflows/three Dockerfiles, 63 policy tests passed, and 80-page docs consistency passed.
+

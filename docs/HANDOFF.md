@@ -1,5 +1,10 @@
 # Developer & Agent Handoff — START HERE
 
+The code-analysis service has moved to
+[combustrrr/code-analysis-dashboard](https://github.com/combustrrr/code-analysis-dashboard).
+Develop its dashboard, scanners, launcher, and publishing workflows there; this
+repository owns the Agentic SOC product and its CI only.
+
 > **If you are a new chat session or a developer picking this up cold, read this file first,
 > then [`AGENTS.md`](../AGENTS.md) (the canonical rulebook).** `CLAUDE.md` is only a
 > forwarding entry point so Claude and Codex load the same instructions. This is the single
