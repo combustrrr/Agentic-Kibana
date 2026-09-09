@@ -4,7 +4,7 @@
 # --- Web framework / server ---
 fastapi==0.110.1
 uvicorn[standard]==0.29.0
-python-multipart==0.0.9
+python-multipart==0.0.31
 
 # --- Data models / config ---
 pydantic==2.6.4
@@ -33,13 +33,13 @@ redis==5.0.4
 
 # --- Orchestration (investigator graph). Used when importable; the
 #     pipeline degrades to a direct async implementation if absent. ---
-langgraph==0.0.48
-langchain-core==0.1.52
+langgraph==1.0.10rc1
+langchain-core==1.3.3
 
 # --- Utilities ---
 tenacity==8.2.3
 python-dateutil==2.9.0
-orjson==3.10.1
+orjson==3.11.6
 
 # Optional production vector store for RAG (Chroma). The suite ships with an
 # in-process cosine-similarity store by default so RAG works with zero extra
