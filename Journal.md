@@ -11586,3 +11586,12 @@
 - Published fork Testing 93e5736a and dashboard efc9e13. GitHub compatibility run 34371836814 passed all service checks and native canaries. Fork Testing now requires the Scanner compatibility check with strict up-to-date status checks; administrator enforcement remains off.
 - Automatic maintenance is implemented but not operational until SCANNER_UPDATE_TOKEN is configured with repository-scoped workflow/PR maintenance access. Existing scanner/vendor tokens cannot substitute for this. Triggered 34372044252 to verify the explicit missing-access failure path. No scanner version upgrade is claimed from this session.
 
+
+### 2026-09-09 — Separate analysis project migration start
+- Inventory the dashboard, orchestration, scanner tooling, and product references before extracting the service into its dedicated repository. Preserve current reports and working scanner access during cutover.
+
+
+### 2026-09-09 — Standalone extraction session checkpoint
+- Prepared dedicated-project migration at combustrrr/code-analysis-dashboard commit 1ece575, draft PR #1. Complete service sources now exist in the separate checkout; product runtime files were not copied.
+- Validation: 57 service tests, workflow audit, 10 launcher tests, and TypeScript/Vite build pass. Pending user choice: move the analysis host too, or retain a thin fork runner. No live host/configuration, credential, report asset, or product-file deletion occurred before that decision.
+
