@@ -11527,3 +11527,8 @@
 - Added a Connections workspace that checks source, Cloudflare gateway, trusted workflow branch, publishing repository, and enabled channels against live configuration. Added exact discovery-run status through the authenticated gateway, separate from scanner and publication completion.
 - Cloudflare Worker version 9c61aafc-93bc-4ae5-9673-22f353dbcccf deployed successfully. Live connection endpoint rejects an unsigned browser-style request with 401. Existing credentials and storage architecture are unchanged.
 - Validation: production build, all 13 browser scenarios, all 10 Worker tests, and documentation checks passed. Gateway contract tests now run before each dashboard publication. Scanner-filter test waits for dropdown animation completion.
+
+### 2026-09-09 - Integrated application rollout: complete
+- Pages run 34363426190 passed gateway contract verification, build, publication, deployment, and cleanup. Verified the live Connections screen and launch wizard in Chrome after deployment.
+- Published application code to fork Testing (d079c245) and dashboard main (bca50eb); deployed the compatible Cloudflare Worker first. No scanner rerun or vendor-entitlement claim was made during this integration rollout.
+- Live authenticated connection checks require the developer's GitHub sign-in. The UI exposes these checks directly; existing scanner-access blockers remain separate from application connectivity.
