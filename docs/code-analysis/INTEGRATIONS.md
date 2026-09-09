@@ -173,3 +173,51 @@ Validate a branch and a PR end to end before declaring the new instance operatio
 Check producer identity, failed/zero-result channels, source links, secret redaction,
 partial reports and publication recovery. Registrations do not prove scanners work;
 every active applicable scanner still needs usable live evidence.
+
+## Portable onboarding for another GitHub repository
+
+Use `config/code-analysis/portable-profile.example.json` for a source that does not
+share this application's Python/TypeScript layout. It requires no `backend`, `webui`,
+Python requirements file, or JavaScript package. The portable workflow enables the
+repository-wide Semgrep, Gitleaks, Trivy, Checkov, repository-posture, Scorecard, and
+PR CodeRabbit producers. CodeRabbit still requires actual matching PR review evidence;
+repository permissions and vendor availability remain visible in results.
+
+Other built-in channels remain `NOT_AVAILABLE` with a profile-configuration reason,
+not silently deferred or declared successful. Add tested scanner extensions for the
+repository's language/build/API/vendor checks. The portable profile is a reusable
+baseline, not a claim of complete language coverage. The original profile remains
+compatible but contains project-specific commands; copying it is not generic support.
+
+From the analysis-host template checkout, generate coordinated overlays:
+
+```shell
+python -m scripts.code_analysis.configure_instance --source team/project --analysis-host team/project-analysis --publishing-repository team/project-dashboard --preferred-branch main --profile config/code-analysis/portable-profile.example.json --bundle-directory new-instance --launch-endpoint https://project-launcher.example.workers.dev --dashboard-url https://team.github.io/project-dashboard/ --app-client-id YOUR_APP_CLIENT_ID --worker-name project-launcher
+```
+
+The destination must not exist. This generates:
+
+- `analysis/`: service configuration and discovery/exact-source workflows for a new
+  analysis-host repository created from this template.
+- `dashboard/`: the matching service configuration and Pages workflow for a copy of
+  the standalone UI/reporting service.
+- `launcher/wrangler.jsonc`: matching source/host/website identities and App client ID;
+  install this beside the copied `worker.mjs` in `analysis-launcher/`.
+
+Register a dedicated GitHub App with `register_github_app.py --app-name` and the new
+callback/website URLs. Apply the overlays to the corresponding new repositories,
+configure the App permissions and Worker secrets, and configure the publisher's
+existing repository-scoped access to its analysis host. Deploy the Worker, enable
+Pages, then use **Connections** to verify routing. No credentials are copied by the
+onboarding command, and the current instance is not switched or cleared.
+
+This is one configured source per reusable instance, not an unrestricted URL box or
+a multi-tenant service. Public GitHub sources are the current default. Private sources
+require explicit cross-repository checkout/API access and private report hosting;
+do not publish their findings to a public Pages instance. Other Git providers need
+an adapter for discovery, identity, source links, and authentication.
+
+Tests cover unrelated Rust, Java, JavaScript-only, and documentation-only trees,
+workflow isolation, unchanged original workflow generation, configuration agreement,
+and prevention of accidental overwrite. A new instance still needs a live branch/PR
+acceptance run before its scanner coverage can be called operational.

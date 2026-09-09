@@ -11481,3 +11481,8 @@
 - Added a Connections workspace that checks source, Cloudflare gateway, trusted workflow branch, publishing repository, and enabled channels against live configuration. Added exact discovery-run status through the authenticated gateway, separate from scanner and publication completion.
 - Cloudflare Worker version 9c61aafc-93bc-4ae5-9673-22f353dbcccf deployed successfully. Live connection endpoint rejects an unsigned browser-style request with 401. Existing credentials and storage architecture are unchanged.
 - Validation: production build, all 13 browser scenarios, all 10 Worker tests, and documentation checks passed. Gateway contract tests now run before each dashboard publication. Scanner-filter test waits for dropdown animation completion.
+
+### 2026-09-09 - Portable repository onboarding validated
+- Added an opt-in portable profile with no mandatory Python/JavaScript layout and generated workflows free of the original project harness. Repository-wide producers run; unsupported language/build/vendor channels remain explicitly NOT_AVAILABLE, never silently deferred.
+- Onboarding generates coordinated analysis/dashboard/Cloudflare overlays without overwriting an existing destination. GitHub App registration accepts a generic configurable name. Existing current-instance workflow generation is unchanged.
+- Tests: 47 portability/hosted/extension tests passed across Rust, Java, JavaScript-only and documentation-only fixtures; 92-page documentation check passed. These validate orchestration and configuration, not live scanner coverage for every language. Private source access and non-GitHub hosts remain documented integration requirements.

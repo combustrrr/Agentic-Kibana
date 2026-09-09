@@ -14,8 +14,9 @@ UPLOAD = 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02'
 PYTHON = 'actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1'
 
 
-def generate():
-    profile = json.loads((ROOT / 'config/code-analysis/service.json').read_text())['profile']
+def generate(config=None):
+    config = config or json.loads((ROOT / 'config/code-analysis/service.json').read_text())
+    profile = config['profile']
     inputs = {k: {'required': True, 'type': 'string'} for k in ('target', 'tooling_sha', 'request_id')}
     document = {'name': 'Exact Source Analysis', 'run-name': 'Source analysis ${{ inputs.request_id }}',
                 'on': {'workflow_dispatch': {'inputs': inputs}}, 'permissions': {'contents': 'read'},
@@ -33,6 +34,10 @@ def generate():
         path = next((ROOT / '.github/workflows').glob(f'0{number}-*.yml'))
         old = yaml.safe_load(path.read_text(encoding='utf-8'))
         for name, original in old['jobs'].items():
+            if profile.get('mode') == 'portable':
+                from scripts.code_analysis.applicability import PORTABLE_JOBS
+                if name not in PORTABLE_JOBS:
+                    continue
             if name == 'dependency-review':
                 # GitHub's host-PR gate is not an upstream-head scanner.
                 continue
@@ -174,10 +179,13 @@ def generate():
                 if 'with' in step:
                     step['with'] = {k: v.replace('.analysis-tooling', '${{ runner.temp }}/analysis-tooling') if isinstance(v, str) else v for k, v in step['with'].items()}
                 isolated.append(step)
+            if profile.get('mode') == 'portable' and name == 'semgrep':
+                for step in isolated:
+                    if 'run' in step and 'backend/ webui/src/' in step['run']:
+                        step['run'] = 'semgrep --config=p/owasp-top-ten --config=p/secrets --json --output=semgrep-results.json .'
             job['steps'] = isolated
             jobs[f'scanner-{number}-{name}'] = job
     from scripts.code_analysis.extensions import registry
-    config = json.loads((ROOT / 'config/code-analysis/service.json').read_text())
     for extension in registry(config):
         channel = extension['channel']
         steps = [{'uses': CHECKOUT, 'with': {'ref': '${{ inputs.tooling_sha }}', 'persist-credentials': False}},

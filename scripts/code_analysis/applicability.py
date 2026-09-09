@@ -17,6 +17,8 @@ GROUPS = {
     'schemathesis-fuzz': ['schemathesis'], 'atheris-state-machine': ['atheris'],
     'coderabbit': ['coderabbit-ai-advisory'],
 }
+PORTABLE_JOBS = {'semgrep', 'gitleaks', 'trivy', 'checkov', 'openssf-scorecard', 'workflow-security-posture', 'coderabbit'}
+
 PYTHON_JOBS = {'python-ruff', 'python-bandit', 'python-types', 'complexity',
                'dead-code', 'test-coverage', 'schemathesis-fuzz', 'atheris-state-machine'}
 
@@ -34,27 +36,32 @@ def selection(config: dict, source: Path) -> tuple[list[str], dict, list[str]]:
         if not path.is_relative_to(source.resolve()):
             raise ValueError('Profile path escapes selected source')
         return path.exists()
-    python = present(profile['python_root'])
-    javascript = present(profile['javascript_root'])
-    languages = (['python'] if python else []) + (['javascript-typescript'] if javascript else [])
-    absent = {}
-    for job in PYTHON_JOBS:
-        if not python:
-            absent[job] = 'Selected source has no configured Python project: ' + profile['python_root']
-    if not javascript:
-        absent['typescript-quality'] = 'Selected source has no configured JavaScript project: ' + profile['javascript_root']
-    if not languages:
-        absent['codeql'] = 'Selected source has neither configured language project'
-        absent['sonarqube-cloud'] = 'Selected source has neither configured language project'
-        absent['snyk'] = 'Selected source has neither configured language project'
-    if not present(profile['python_root'] + '/Dockerfile') or not present(profile['javascript_root'] + '/Dockerfile'):
-        absent['shipping-image-security'] = 'Selected source lacks the configured pair of shipping Dockerfiles'
-    if not present(profile['python_root'] + '/Dockerfile') and not present(profile['javascript_root'] + '/Dockerfile'):
-        absent['hadolint'] = 'Selected source has no configured shipping Dockerfiles to lint'
-    manifests = [profile['python_requirements'], profile.get('python_development_requirements'),
-                 profile['javascript_root'] + '/package-lock.json']
-    if not any(present(path) for path in manifests if path):
-        absent['osv-scanner'] = 'Selected source has none of the configured dependency manifests'
+    portable = profile.get('mode') == 'portable'
+    if portable:
+        languages = []
+        absent = {job: 'This channel needs a repository-specific scanner adapter, build profile, or vendor configuration; the portable profile does not execute the original repository harness.' for job in GROUPS if job not in PORTABLE_JOBS}
+    else:
+        python = present(profile['python_root'])
+        javascript = present(profile['javascript_root'])
+        languages = (['python'] if python else []) + (['javascript-typescript'] if javascript else [])
+        absent = {}
+        for job in PYTHON_JOBS:
+            if not python:
+                absent[job] = 'Selected source has no configured Python project: ' + profile['python_root']
+        if not javascript:
+            absent['typescript-quality'] = 'Selected source has no configured JavaScript project: ' + profile['javascript_root']
+        if not languages:
+            absent['codeql'] = 'Selected source has neither configured language project'
+            absent['sonarqube-cloud'] = 'Selected source has neither configured language project'
+            absent['snyk'] = 'Selected source has neither configured language project'
+        if not present(profile['python_root'] + '/Dockerfile') or not present(profile['javascript_root'] + '/Dockerfile'):
+            absent['shipping-image-security'] = 'Selected source lacks the configured pair of shipping Dockerfiles'
+        if not present(profile['python_root'] + '/Dockerfile') and not present(profile['javascript_root'] + '/Dockerfile'):
+            absent['hadolint'] = 'Selected source has no configured shipping Dockerfiles to lint'
+        manifests = [profile['python_requirements'], profile.get('python_development_requirements'),
+                     profile['javascript_root'] + '/package-lock.json']
+        if not any(present(path) for path in manifests if path):
+            absent['osv-scanner'] = 'Selected source has none of the configured dependency manifests'
     jobs, excluded = [], {}
     for job, channels in GROUPS.items():
         active = enabled.intersection(channels)
@@ -65,7 +72,7 @@ def selection(config: dict, source: Path) -> tuple[list[str], dict, list[str]]:
         else:
             for channel in channels:
                 excluded[channel] = {
-                    'status': 'NOT_APPLICABLE' if active else 'DEFERRED',
+                    'status': ('NOT_AVAILABLE' if portable else 'NOT_APPLICABLE') if active else 'DEFERRED',
                     'reason': absent[job] if active else deferred[channel],
                 }
     workflow_directory = source / '.github/workflows'
