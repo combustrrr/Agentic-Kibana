@@ -5,6 +5,8 @@ import runpy
 import subprocess
 import sys
 import tempfile
+import json
+import traceback
 
 
 def resolver_path(argument: str, source: Path) -> Path:
@@ -28,4 +30,14 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception as error:
+        # Only exception type and trusted stack locations, never environment values
+        # or arbitrary source/provider error text, enter diagnostic artifacts.
+        diagnostic = {'error_type': type(error).__name__,
+                      'frames': [{'file': frame.filename, 'line': frame.lineno, 'function': frame.name}
+                                 for frame in traceback.extract_tb(error.__traceback__)]}
+        path = Path(os.environ['RUNNER_TEMP']) / 'snyk-resolver-error.json'
+        path.write_text(json.dumps(diagnostic), encoding='utf-8')
+        raise

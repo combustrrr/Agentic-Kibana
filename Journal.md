@@ -11553,3 +11553,7 @@
 - Corrected the Snyk diagnosis: npm completed even while warning about quota; the failed surfaces were Python manifest resolution. Added an isolated bootstrap that permits Snyk's staged resolver helper imports without exposing repository Python paths. Explicit source URL attribution is retained.
 - Sonar returns a native non-main-branch entitlement denial despite a valid token, readable main-project issues, and successful Browse grant. Probes now inspect the exact vendor branch and retain that distinct reason. The current GitHub identity cannot read upstream secret-protection controls, and no posture credential is configured.
 - Tests: 50 hosted/extension/portability/access regressions and workflow-policy audit passed. Live repaired scanner execution follows; no subscription was purchased or organization deleted.
+
+### 2026-09-09 — Scanner repair diagnostics
+- Live evidence still reports three failed Snyk Python manifests despite a successful advisory job. Added an exact-source vendor diagnostic workflow with no report publication and sanitized resolver exception evidence. Eight focused tests and workflow policy checks pass.
+
