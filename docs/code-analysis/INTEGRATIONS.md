@@ -224,6 +224,9 @@ acceptance run before its scanner coverage can be called operational.
 
 ## Scanner access and Python resolver repair (2026-09-09)
 
+For adding independent channels and maintaining pinned scanner versions, see
+[Scanner maintenance](SCANNER-MAINTENANCE.md).
+
 Sonar's native API explicitly denies non-main-branch data for the current organization.
 Both configured tokens authenticate, main-project issues are readable, and a Browse
 grant succeeded. This is distinct from a missing/invalid token. The exact-source probe

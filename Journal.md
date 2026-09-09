@@ -11503,3 +11503,9 @@
 - Diagnostic run 34368489309 at tooling 1430c9fd completed Snyk SCA and Code. All five manifests produced SARIF; Python results include 29 backend and 4 documentation findings. The prior quota-only diagnosis was incorrect: explicit shared Node/Python staging fixes resolver rejection.
 - 51 service regression tests and workflow policy checks pass. Full run 34366794113 verifies 22 usable channels before this Snyk fix. Sonar branch entitlement and upstream security-posture permissions remain external blockers; no open upstream PR is available for CodeRabbit acceptance.
 
+
+### 2026-09-09 — Scanner extension and maintenance session
+- Isolate adapter working directories and reject stale or malformed evidence, preserving healthy sibling reports. Catalog regression covers 100 independent extensions.
+- Add daily Renovate maintenance, generated-workflow synchronization, Scorecard checksum verification, and read-only native canaries. Tested stable patch updates may merge only with the required Scanner compatibility check; other upgrades remain reviewable.
+- Validation: 57 regression tests, five native scanner canaries, workflow policy, 93-page docs checks, and official Renovate JSON/CJS validation pass. Repository-scoped SCANNER_UPDATE_TOKEN remains required for live updater operation.
+

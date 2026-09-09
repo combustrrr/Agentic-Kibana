@@ -6,6 +6,7 @@ publication privileges, persisted checkout credentials, or source-inherited tool
 from pathlib import Path
 import copy
 import json
+import re
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -155,10 +156,14 @@ def generate(config=None):
                         s['run'] = s['run'].replace('jq -n', 'if [[ "$EXPORT_READY" != true ]]; then\n  reason="Sonar native issue API is unavailable to the configured credential; analysis awaits export access"\nfi\njq -n')
                         s['run'] = s['run'].replace('jq -n', 'if [[ "$ACCESS_FAILURE" == branch_entitlement ]]; then\n  reason="Sonar organization denies non-main-branch data access; enable branch entitlement. Token validity and Browse permission do not resolve this restriction."\nfi\njq -n')
             if name == 'openssf-scorecard':
+                pin = json.loads((ROOT / '.ci/scorecard.json').read_text())
+                version, digest = pin['version'], pin['sha256']
+                if not re.fullmatch(r'\d+\.\d+\.\d+', version) or not re.fullmatch('[0-9a-f]{64}', digest) or pin['checksum_version'] != version:
+                    raise ValueError('Scorecard update requires a matching verified release checksum')
                 steps = [{'uses': CHECKOUT, 'with': {'ref': '${{ inputs.tooling_sha }}', 'persist-credentials': False}},
-                    {'name': 'Install verified Scorecard 5.5.0', 'run':
-                    'curl --fail --location --retry 3 https://github.com/ossf/scorecard/releases/download/v5.5.0/scorecard_5.5.0_linux_amd64.tar.gz -o scorecard.tar.gz\n'
-                    'echo "83b90a05c1540ef1390db1cd5711e5fd04be9c1d8537fb84d39d02092d6a8dff  scorecard.tar.gz" | sha256sum --check\n'
+                    {'name': f'Install verified Scorecard {version}', 'run':
+                    f'curl --fail --location --retry 3 https://github.com/ossf/scorecard/releases/download/v{version}/scorecard_{version}_linux_amd64.tar.gz -o scorecard.tar.gz\n'
+                    f'echo "{digest}  scorecard.tar.gz" | sha256sum --check\n'
                     'tar -xzf scorecard.tar.gz scorecard\n'},
                     {'name': 'Scan external repository at selected commit', 'id': 'scorecard', 'continue-on-error': True,
                      'env': {'GITHUB_AUTH_TOKEN': '${{ github.token }}', 'ENABLE_SARIF': 'true', 'SOURCE_SHA': '${{ fromJSON(inputs.target).head_sha }}'},

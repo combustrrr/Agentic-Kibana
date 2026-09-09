@@ -18,8 +18,12 @@ def run(channel: str) -> None:
     target = json.loads(os.environ['TARGET_JSON'])
     output = root / '.extension-output'
     output.mkdir(exist_ok=True)
-    request = output / 'request.json'
-    result = output / 'adapter-result.json'
+    work = output / channel
+    work.mkdir(exist_ok=True)
+    request = work / 'request.json'
+    result = work / 'adapter-result.json'
+    # A rerun must never consume an earlier successful adapter result.
+    result.unlink(missing_ok=True)
     write(request, {'target': target, 'producer_run_id': os.environ['GITHUB_RUN_ID']})
     envelope = {'schema_version': 'channel-evidence-v1', 'channel': channel,
                 'source_repository': target['source_repository'], 'source_sha': target['head_sha'],
@@ -39,16 +43,18 @@ def run(channel: str) -> None:
                 raise ValueError('Source checkout mismatch')
             command += ['--source', str(source)]
         # Do not retain arbitrary scanner output in public workflow logs.
-        completed = subprocess.run(command, cwd=output, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        completed = subprocess.run(command, cwd=work, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                    timeout=row.get('timeout_minutes', 15) * 60)
         if completed.returncode or result.is_symlink() or result.stat().st_size > 50_000_000:
             raise ValueError('Adapter execution failed')
         value = load(result)
+        if not isinstance(value, dict):
+            raise ValueError('Adapter result must be an object')
         # Vendor adapters must verify the native export's revision, not relabel a latest response.
         if value.get('source_repository') != target['source_repository'] or value.get('source_sha') != target['head_sha']:
             raise ValueError('Adapter source attribution mismatch')
         envelope.update({k: value[k] for k in ('status', 'reason', 'findings')})
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+    except (OSError, ValueError, KeyError, TypeError, RecursionError, subprocess.SubprocessError):
         pass
     write(output / (channel + '.channel-evidence'), envelope)
 
