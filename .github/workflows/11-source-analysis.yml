@@ -695,7 +695,8 @@ jobs:
 
           snyk-code.log
 
-          '
+
+          ${{ runner.temp }}/snyk-resolver-error.json'
         if-no-files-found: error
         retention-days: 7
     needs:
