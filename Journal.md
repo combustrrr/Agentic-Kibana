@@ -11527,3 +11527,7 @@
 - Install two minimal immutable shared-workflow wrappers and a reviewed multi-project profile. Native fork analysis and read-only upstream analysis have separate source IDs and reporting boundaries; no files or settings are changed upstream.
 - Product workflow policy explicitly validates the wrappers without importing the external service. CI structural policy passes for five workflows and three shipping Dockerfiles; product docs consistency passes.
 
+
+### 2026-09-09 — Reusable scanner repair rollout
+- Updated immutable tooling pin after live source-import and JavaScript bootstrap failures; bounded report packing verified against retained evidence. Preserve independent product checks and upstream read-only boundary.
+
