@@ -16,7 +16,6 @@ SHA_REF = re.compile(r"^[0-9a-f]{40}$")
 IMAGE_REF = re.compile(r"^.+@sha256:[0-9a-f]{64}$")
 CORE_WORKFLOWS = {"ci.yml", "docs.yml", "release.yml"}
 EXPECTED_WORKFLOWS = CORE_WORKFLOWS
-ANALYSIS_WRAPPERS = {'code-analysis-reconcile.yml', 'code-analysis-source.yml'}
 SHIPPING_DOCKERFILES = (
     ROOT / "backend" / "Dockerfile",
     ROOT / "webui" / "Dockerfile",
@@ -73,7 +72,7 @@ def _workflow_paths() -> list[Path]:
     paths = sorted({*WORKFLOW_DIR.glob("*.yml"), *WORKFLOW_DIR.glob("*.yaml")})
     names = {path.name for path in paths}
     missing = sorted(EXPECTED_WORKFLOWS - names)
-    unknown = sorted(names - EXPECTED_WORKFLOWS - ANALYSIS_WRAPPERS)
+    unknown = sorted(names - EXPECTED_WORKFLOWS)
     if missing or unknown:
         raise ValueError(
             "workflow allowlist drift; "
@@ -784,31 +783,10 @@ def _assert_webui_build_platforms(path: Path) -> None:
         )
 
 
-def _assert_analysis_wrapper(path: Path, workflow: dict[str, Any]) -> None:
-    if workflow.get('permissions') != {'contents': 'read'}:
-        raise ValueError(f'{path}: wrapper defaults must remain read-only')
-    trigger = workflow.get('on', workflow.get(True, {}))
-    if not set(trigger).issubset({'workflow_dispatch', 'schedule', 'workflow_run'}):
-        raise ValueError(f'{path}: unsupported wrapper trigger')
-    if not workflow.get('jobs'):
-        raise ValueError(f'{path}: missing reusable workflow calls')
-    allowed_permissions = {'contents', 'actions', 'checks', 'security-events'}
-    for job in workflow['jobs'].values():
-        if not re.fullmatch(r'combustrrr/code-analysis-dashboard/\.github/workflows/reusable-(?:reconcile|source|source-full)\.yml@[a-f0-9]{40}', job.get('uses', '')):
-            raise ValueError(f'{path}: wrapper must call immutable shared analysis tooling')
-        if set(job) - {'uses', 'with', 'permissions', 'secrets', 'if', 'name'}:
-            raise ValueError(f'{path}: wrapper cannot contain local execution steps')
-        if set(job.get('permissions', {})) - allowed_permissions:
-            raise ValueError(f'{path}: wrapper requests unsupported permissions')
-        if not isinstance(job.get('secrets', {}), dict) or set(job.get('secrets', {})) - {'SONAR_TOKEN','SONAR_API_TOKEN','SNYK_TOKEN','SECURITY_POSTURE_TOKEN'}:
-            raise ValueError(f'{path}: only explicit repository vendor secrets may be passed')
-
 def main() -> int:
     paths = _workflow_paths()
     for path in paths:
         workflow = _load(path)
-        if path.name in ANALYSIS_WRAPPERS:
-            _assert_analysis_wrapper(path, workflow)
         if path.name in CORE_WORKFLOWS:
             _assert_common(path, workflow)
         if path.name == "ci.yml":

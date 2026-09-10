@@ -11535,3 +11535,11 @@
 ### 2026-09-10 — Second source layout acceptance
 - Add the standalone application as a portable-profile read-only source on the authorized fork runner. Keep every scanner visible; unsupported profile adapters stay setup-required. Existing native and upstream current reports are published with exact provenance.
 
+
+### 2026-09-10 — Remove external analysis integration
+- Owner requires the code-quality service to execute and store results independently. Stop analysis scheduling here, remove managed analysis wrappers/configuration, and restore the product-only CI allowlist. Product backend/UI and existing product workflows remain unchanged.
+
+
+### 2026-09-10 — Product-only repository restored
+- Removed the two external-analysis workflow wrappers and project configuration; restored the original product-only CI contract. Validation passed for three product workflows and three shipping Dockerfiles. Analysis report migration is owned by the external service; historical records are retained until copies verify.
+
