@@ -32,7 +32,7 @@
  * has no touch path to the card at all — which is why the card's content is exported as
  * `MetricTrendBody` for the surface that press opens to restate.
  *
- * Coexisting with a docked panel: `forceClosed` holds the card shut and refuses every
+ * Coexisting with a modal panel: `forceClosed` holds the card shut and refuses every
  * open transition. A disclosure opened FROM the wrapped child needs it — the card opens
  * on focus (so the panel's focus return would otherwise pop it straight back), it renders
  * over the panel, and its dismissable layer would swallow the panel's Escape.
@@ -150,7 +150,33 @@ export function MetricTrendBody({
   );
 }
 
+/**
+ * The extra zones the hover PREVIEW shows around the trend — what the numeral counts, an
+ * optional small partition of it, and the affordance saying what a click will do.
+ *
+ * Preview-only: `MetricTrendBody` never renders these, because the drill-down panel that
+ * renders it is already the thing this affordance points at, and it states the population
+ * in its own heading.
+ *
+ * There is deliberately NO period-over-period delta chip here. The strip dropped those on
+ * purpose — a percentage whose baseline is not explainable at a glance — and the card
+ * already carries the honest form of the same fact: `first → latest` over a NAMED window.
+ * A chip would restate it with the baseline hidden again.
+ */
+export interface MetricPreview {
+  /** Short semantic label above the population sentence (e.g. "ACTIVE BACKLOG"). */
+  eyebrow?: string;
+  /** ONE plain sentence naming what the numeral counts. Rendered as plain text (#9). */
+  population?: string;
+  /** A small partition of the numeral: 2-3 cells, each already formatted. */
+  breakdown?: readonly { key: string; label: string; value: string }[];
+  /** What activating the tile does. Present on every tile, so the click is discoverable. */
+  affordance?: string;
+}
+
 export interface MetricHoverTrendProps extends MetricTrendSeries {
+  /** Extra preview zones. Omitted → the card is exactly the trend it has always been. */
+  preview?: MetricPreview;
   /**
    * Put the WRAPPER in the tab order (default true). Pass `false` when the child
    * already contains a focusable element (e.g. a clickable KpiTile button) so the
@@ -197,6 +223,7 @@ export function MetricHoverTrend({
   caption,
   format,
   colorToken = 'primary',
+  preview,
   focusable = true,
   toggleOnClick,
   forceClosed = false,
@@ -214,7 +241,7 @@ export function MetricHoverTrend({
   const [open, setOpen] = React.useState(false);
   /**
    * Wall-clock instant until which an OPEN transition is refused, set when `forceClosed`
-   * falls. See the "Coexisting with a docked panel" note above: Radix's open is deferred
+   * falls. See the "Coexisting with a modal panel" note above: Radix's open is deferred
    * by `openDelay`, so the timer armed by the dismissal's own focus return resolves after
    * the prop has already flipped back. A ref (not state) because refusing must not
    * re-render, and because the deferred callback reads it at call time.
@@ -234,9 +261,19 @@ export function MetricHoverTrend({
       return;
     }
     // Falling edge ONLY (never mount, where an immediate hover is legitimate): hold the
-    // refusal for one more `openDelay` so a timer armed by the focus return that
-    // accompanies the dismissal cannot resolve into a reopen.
-    if (wasForceClosed) suppressOpenUntilRef.current = Date.now() + openDelay;
+    // refusal past any open-timer armed by the focus return that accompanies the dismissal.
+    //
+    // The margin is TWO `openDelay`s, and the second one is not padding. When the panel was
+    // a docked section the parent restored focus SYNCHRONOUSLY, before the commit that
+    // dropped `forceClosed`, so the reopen timer was armed before this window even opened
+    // and always resolved inside it. The panel is now a modal, and a focus trap bounces a
+    // synchronous restore — so the restore moved to Radix's close-autofocus, which runs
+    // AFTER this commit. The reopen timer is therefore armed at ~the same instant the grace
+    // begins and resolves exactly ON its boundary; measured, the card reopened every time.
+    // One extra `openDelay` covers the teardown hop and timer coarseness with room to spare,
+    // and 320ms of "the card will not spring back the moment you closed the panel" is
+    // imperceptible next to a card appearing over the strip unbidden.
+    if (wasForceClosed) suppressOpenUntilRef.current = Date.now() + openDelay * 2;
   }, [forceClosed, openDelay]);
   const effectiveOpen = forceClosed ? false : open;
   const handleOpenChange = React.useCallback(
@@ -313,6 +350,22 @@ export function MetricHoverTrend({
         data-testid="metric-trend-card"
         className="w-72 p-3"
       >
+        {/* WHAT the numeral counts, above the series that moves it. Plain text (#9). */}
+        {preview?.eyebrow || preview?.population ? (
+          <div className="mb-2 min-w-0 border-b border-border/70 pb-2">
+            {preview.eyebrow ? (
+              <p className="truncate text-2xs uppercase tracking-widest text-muted-foreground">
+                {preview.eyebrow}
+              </p>
+            ) : null}
+            {preview.population ? (
+              <p className="mt-0.5 text-2xs leading-relaxed text-foreground">
+                {preview.population}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         <MetricTrendBody
           metric={metric}
           points={points}
@@ -321,6 +374,39 @@ export function MetricHoverTrend({
           format={format}
           colorToken={colorToken}
         />
+
+        {/* A small partition of the numeral. Each cell arrives already formatted, so this
+            never re-derives a share and never disagrees with the tile it explains. */}
+        {preview?.breakdown?.length ? (
+          <dl
+            data-testid="metric-trend-breakdown"
+            className="mt-2 grid min-w-0 grid-cols-3 gap-2 border-t border-border/70 pt-2"
+          >
+            {preview.breakdown.map((b) => (
+              <div key={b.key} className="min-w-0">
+                <dt className="truncate text-2xs text-muted-foreground" title={b.label}>
+                  {b.label}
+                </dt>
+                <dd className="mt-0.5 truncate font-mono text-2xs font-semibold tabular-nums text-foreground">
+                  {b.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+
+        {/* The click affordance. Decoration over an already-interactive tile: the card is
+            never the only route to the panel — activating the tile by keyboard opens it
+            directly, and on touch, where this card cannot be reached at all, the panel is
+            the surface that carries the same series. */}
+        {preview?.affordance ? (
+          <p
+            data-testid="metric-trend-affordance"
+            className="mt-2 border-t border-border/70 pt-2 text-2xs text-muted-foreground"
+          >
+            {preview.affordance}
+          </p>
+        ) : null}
       </HoverCardContent>
     </HoverCard>
   );

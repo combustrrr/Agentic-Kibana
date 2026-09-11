@@ -10,7 +10,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import { checkContrast } from '../../../../scripts/gate-contrast.mjs';
 import { HumanVsAiCard, HUMAN_VS_AI_HELP, type HumanVsAiPoint } from '../HumanVsAiCard';
@@ -54,6 +55,57 @@ describe('HumanVsAiCard', () => {
     expect(pcts.reduce((a, b) => a + b, 0)).toBe(100);
   });
 
+  it('gives the trend a fill box with a floor, and never stretches the no-series line', () => {
+    // The chart used to be pinned at `height={122}` inside a stretched flex column, so
+    // every spare pixel of the cell became dead space under it. It now FILLS
+    // (`MultiSeriesTrend fill` → `absolute inset-0`), which needs exactly two things from
+    // this wrapper and both are asserted here because jsdom has no layout engine and the
+    // resulting HEIGHT is therefore not assertable at all:
+    //   `relative`        — the positioned ancestor `inset-0` resolves against;
+    //   `min-h-[122px]`   — the floor, without which a flex item with no free space
+    //                       collapses to zero (the real case on every load tick where
+    //                       this card is the row's only child, and below `xl`);
+    //   `xl:min-h-[160px]` — the raised floor the two relocated prose lines paid for. It
+    //                       binds only where nothing stretches the card, and `xl` is
+    //                       exactly where this card is one narrow column beside the flow
+    //                       diagram — the width at which the chart was starved. Asserted
+    //                       WITH the base floor, never instead of it: dropping either one
+    //                       collapses a different case.
+    const { rerender } = render(
+      <HumanVsAiCard
+        totals={{ ai: 5, human: 2, system: 1, closed: 8 }}
+        series={SERIES}
+        windowLabel="last 24 hours · 1h buckets"
+      />,
+    );
+    const chart = screen.getByTestId('human-vs-ai-chart');
+    expect(chart).toHaveClass('relative', 'min-h-[122px]', 'xl:min-h-[160px]', 'flex-1');
+
+    // …and the chart INSIDE it is really in fill mode. jsdom cannot measure the resulting
+    // height — `src/test/setup.ts` says so, and that is honest — but the MODE is fully
+    // assertable, and the mode is the whole change: `fill` renders the chart box as
+    // `absolute inset-0` with NO inline height, which is the difference between sizing to
+    // this cell and sizing to a constant. Without this pair, reverting `fill` back to
+    // `height={122}` — the exact dead-space regression this card exists to fix — passes
+    // every gate in the repo.
+    const box = within(chart).getByRole('img', {
+      name: /closed by the agent versus by a human/i,
+    });
+    expect(box).toHaveClass('absolute', 'inset-0');
+    expect(box.style.height).toBe('');
+
+    // …and the empty arm does NOT take `flex-1`: one line of text stretched to fill the
+    // cell opened a gap three times the size of the one the chart used to leave.
+    rerender(
+      <HumanVsAiCard
+        totals={{ ai: 5, human: 2, system: 1, closed: 8 }}
+        series={null}
+        windowLabel="last 24 hours · 1h buckets"
+      />,
+    );
+    expect(screen.getByTestId('human-vs-ai-no-series')).not.toHaveClass('flex-1');
+  });
+
   it('passes an unmeasured bucket through as a GAP, never as a zero', () => {
     const { container } = render(
       <HumanVsAiCard
@@ -85,6 +137,41 @@ describe('HumanVsAiCard', () => {
       /records the LAST decider on a case, not proof of who did the work/i,
     );
     expect(HUMAN_VS_AI_HELP).toMatch(/acknowledges or re-tags moves into the human share/i);
+  });
+
+  it('keeps the #3 advisory reachable after it left the card face', async () => {
+    // The always-visible "Advisory only — the agent recommends; the deterministic case
+    // manager decides" paragraph was removed from the card at the operator's request. It
+    // is a RELOCATION, not a deletion, and this is the spec that says so: the sentence
+    // survives verbatim in HUMAN_VS_AI_HELP, and `alwaysPopover` makes the (?) a POPOVER
+    // trigger — reached below by click and by Enter. A Radix tooltip never opens on touch,
+    // which is why the length heuristic is not relied on; that the flag (and not the
+    // heuristic) is what forces the popover is pinned separately, with short text where the
+    // two disagree, in `HelpTip.test.tsx`.
+    render(
+      <HumanVsAiCard
+        totals={{ ai: 5, human: 2, system: 1, closed: 8 }}
+        series={SERIES}
+        windowLabel="last 24 hours · 1h buckets"
+      />,
+    );
+    const card = screen.getByTestId('human-vs-ai');
+    expect(within(card).queryByText(/never influences that/i)).toBeNull();
+
+    const trigger = screen.getByRole('button', { name: 'About Human vs AI attribution' });
+    await userEvent.click(trigger);
+    expect(await screen.findByRole('dialog')).toHaveTextContent(
+      /the agent recommends; the deterministic case manager decides/i,
+    );
+    expect(screen.getByRole('dialog')).toHaveTextContent(/never influences that/i);
+
+    // KEYBOARD too, not just pointer — the comment above claims Enter reaches it, so prove
+    // it rather than asserting a click and describing four input methods.
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    trigger.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(await screen.findByRole('dialog')).toHaveTextContent(/never influences that/i);
   });
 
   it('shows the caller-supplied reason (and em dashes) when attribution is unavailable', () => {
@@ -127,6 +214,45 @@ describe('HumanVsAiCard', () => {
       /Loading this window/i,
     );
     expect(within(card).queryByTestId('human-vs-ai-unavailable')).toBeNull();
+  });
+
+  it('RELOCATES the two face prose lines rather than deleting them', () => {
+    // Two static lines came off the face to give the chart its height back. Neither may
+    // simply vanish, and this is the guard that says so — the card's own suite, because
+    // the page-level file cannot open the popover the copy landed in.
+    render(
+      <HumanVsAiCard
+        totals={{ ai: 5, human: 2, system: 1, closed: 8 }}
+        series={SERIES}
+        windowLabel="last 24 hours · 1h buckets"
+        alertsIngested={125}
+      />,
+    );
+    const card = screen.getByTestId('human-vs-ai');
+
+    // 1. The subtitle. Off the visible face, but STILL describing the region to assistive
+    //    tech from an `sr-only` node INSIDE the section — never an IDREF at the popover,
+    //    which Radix portals with no `forceMount` and would dangle while closed.
+    const describedBy = card.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    const description = card.querySelector(`#${CSS.escape(describedBy!)}`);
+    expect(description).not.toBeNull();
+    expect(description).toHaveClass('sr-only');
+    expect(description).toHaveTextContent(/How this window’s cases were closed\./i);
+    // …and its full form, with the denominator it names, is in the help.
+    expect(HUMAN_VS_AI_HELP).toMatch(/How this window’s cases were closed, as a share of closed cases\./i);
+
+    // 2. The alerts caveat. The numeral keeps a POPULATION word on the face, because a
+    //    bare count beside a case cohort reads as part of it; the clause that says which
+    //    population moved to the help.
+    const alerts = within(card).getByTestId('human-vs-ai-alerts');
+    expect(alerts).toHaveTextContent('125 alerts ingested');
+    expect(alerts).not.toHaveTextContent(/ingest-hour tally/i);
+    expect(HUMAN_VS_AI_HELP).toMatch(/ingest-hour tally, not this case cohort/i);
+
+    // 3. The chart's ONLY axis caption stays on the face, bare. It is stated nowhere else
+    //    and cannot be inferred from the bars, so it did not travel with the prose.
+    expect(within(card).getByText('last 24 hours · 1h buckets')).toBeInTheDocument();
   });
 
   it('keeps the counts but drops the shares on a bounded sample', () => {

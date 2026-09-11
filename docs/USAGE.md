@@ -102,8 +102,8 @@ is cancelled and the new window loads, so the dashboard never blanks. Only a
 response whose echoed window still matches the selector is accepted; a slower
 earlier request cannot repaint those tiles beneath a new range.
 
-The next row uses the available height for a current-open-queue **Active Risk
-Index**, Open-above-Resolved severity rings, and exactly four **Latest Cases**.
+The next row uses the available height for the stacked open/resolved severity
+rings, the MTTD / first-human-response pair, and exactly five **Latest Cases**.
 Hovering or keyboard-focusing a latest row reveals bounded case detail without
 changing the selection. Open/Resolved controls drill into their lifecycle scopes;
 the combined Critical/High tile opens the selected-window case list without applying
@@ -114,9 +114,10 @@ opened → {auto-cleared by AI | escalated | closed by human}, with the six text
 and values aligned below the larger flow. The labels are authoritative: Auto-cleared
 and Escalated partition opened cases, while Closed by human is an analyst-owned subset
 of Escalated and must not be added as a third partition. Selecting an outcome applies the matching selected-window Cases filter;
-earlier stages open the selected-window Cases context. Burndown and the compact MTTD / first-human-
-response summary live below; full MTTA, MTTR, dwell, and other detail live under
-**Deeper analytics**. The page opens at **Last 24 hours** with visibility-aware
+earlier stages open the selected-window Cases context. The compact MTTD / first-human-
+response summary lives below; full MTTA, MTTR, dwell, and other detail live under
+**Deeper analytics**. Opened-versus-resolved backlog now lives on **Metrics → Posture**
+as **Closure vs arrival**, beside the aging series it is read against. The page opens at **Last 24 hours** with visibility-aware
 **LIVE** refresh every five seconds; choose Off, 5 seconds, 30 seconds, 1 minute, or
 5 minutes when another cadence is appropriate. **Expand** opens Noise Reduction in a
 near-fullscreen, horizontally scrollable view: the aggregate funnel remains the complete

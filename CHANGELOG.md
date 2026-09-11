@@ -12,6 +12,206 @@ History is reconstructed from `git log`.
 
 ## [Unreleased]
 
+**A KPI strip whose captions outweighed its numbers.** Each landing tile carried a two-line
+mono caption under a 24px numeral, so the sentence about the metric was visually heavier than
+the metric, and the row's six-to-eight words of standing prose were read once and then became
+furniture. The captions are gone from the face and the numerals step to 30px. What a numeral
+counts, and the "out of what" behind it, now live in the tile's help — which opens on click
+and is reachable by keyboard and touch — and in its drill-down.
+
+Two things deliberately did NOT move, because they are not prose. A **conditional bound** is
+visible exactly when it is true, so relocating it to a help surface a reader may never open
+would turn a floor into a fact: the tile now marks the NUMBER itself with `≥` and announces
+the full sentence to assistive technology. A **withheld** value takes the same grammar from
+the other side — the em dash carries the explanation, so False Positive Rate no longer shows a
+bare dash with nothing to account for it once its caption is gone. And a **degradation notice**
+("Posture unavailable", or the server's own account of a window it could not measure) still
+takes the face unconditionally: it is the one caption worth the strip's height.
+
+A sixth tile, **Auto Closed**, states the agent's own share of the work from the server's
+`auto_closed_cases` and `automation_rate` — never a client tally over a bounded page, and never
+divided by the neighbouring numeral, which counts a policy-INCLUSIVE population the rate itself
+strips. It is a SUBSET of Resolved / Closed rather than a sixth independent total, and the row
+must not read as a set that sums; it says so by sitting immediately beside that tile, sharing
+its accent against five otherwise-distinct ones, naming its own denominator, and carrying the
+containment sentence in its accessible name, its help and its drill-down population. Its
+drill-down deliberately declares `rows-read` rather than a store-resolved population, because
+there is no server-side attribution filter and the caveat that follows from that is TRUE.
+
+The tiles' numerals are now **bottom-aligned**. Measured in a browser at 1280px, six labels
+wrapped to one, two and three lines and put the six numbers at y = 26/40/26/54/40/26 — a 28px
+stagger across a row the eye reads as one instrument. Growing labels upward from a shared
+baseline is length- and locale-independent where a reserved label height is not. The scale
+context ("43 of 59 verdicted") stays OFF that row for a measured reason too: both it and the
+numeral are shrinkable, and flex shrinks the numeral first — restored beside a 30px numeral at
+six columns, "72%" rendered as "7…" and "44" as "4.". It is in the help instead.
+
+A real clipping defect went with them: the numeral had neither `min-w-0` nor `truncate`, and a
+grouped integer offers no min-content break, so an oversize value was hard-clipped by the
+tile's `overflow-hidden` with no ellipsis — "543,210" rendered as "543,21", a readable WRONG
+number. It now shrinks, then abbreviates through a caller-supplied formatter with the exact
+value kept in the accessible name.
+
+**The flow diagram grew, and stopped mislabelling itself.** The inline band goes 184 → 216px
+(+28% of drawable pipeline), which separates the conversion labels that overlapped on the
+right-hand side at 1280 and 1440. The constant and its wrapper class move together, because
+the height flows into a `preserveAspectRatio` viewBox: changing one alone letterboxes the
+drawing and drifts the percentage-positioned label overlay off its nodes. The in-SVG
+"FULL ALERT-TO-CASE FLOW" caption is deleted — it was inside an `aria-hidden` element so it
+was never announced, it restated the heading directly above it, and it rendered
+unconditionally while the nodes it captioned are gated, so a deployment with warming counters
+read "FULL" over a flow that starts at cases opened, directly under a banner saying the
+opposite. The √-scale sentence beside it moved to the popover that already restates it, but a
+persistent `√ scale` chip stays on the face carrying the sentence as its accessible name: an
+unlabelled non-linear axis is a misleading chart, not a tidy one.
+
+**Human vs AI** dropped a subtitle and a share-line prefix that its help now carries, giving
+its chart ~38px it did not have; the bucket-granularity label stays, because it is the only
+axis caption the series has. The dashboard's own containers reclaim 8px a side (+16px at every
+width) — the page cap does not bind below roughly 2218px, so the real reclaim was the caption
+row, not the container.
+
+**A caption that fired on every refresh tick.** The dashboard defaults to LIVE, and posture
+reloads while the previous rollup stays on screen; captioning those numerals `Loading …` said
+something false about them and, once it was the only caption a tile carried, made the strip
+grow and shrink by ~18px on every tick. A first load with nothing to show still says so.
+
+**A drill-down that had to be read past, and a warning that only one page could show.**
+The KPI deep-inspection panel docked below the landing strip and pushed the instrument band
+down the page; its row table was capped at a 320px window whatever the screen; and the
+Agent-health warning it shared the page with was visible from the dashboard and nowhere else.
+
+The drill-down is now a MODAL — a fixed page-in-page, the same width as the dashboard it
+explains, with four pinned bands around exactly one scroll region. Removing the 320px cap and
+the page behind it turns 320px of rows into 568px at a 900px-tall viewport, and the
+completeness footer stays on screen at 700px. This deliberately REVERSES the non-modal
+decision this file recorded, and the reasoning is preserved in the component rather than
+discarded: one half of that case — comparing a tile with its four neighbours — is answered by
+the in-panel metric switcher, which is why the switcher gets its own always-visible row and is
+never breakpoint-gated; the other half, tabbing on into the page, is a real cost, mitigated
+only by Escape returning focus to the exact tile that opened the panel.
+
+Agent health moved into the notification bell, pinned above the inbox and outside its
+scroller, so a degradation is visible from every route and a healthy deployment spends no
+dashboard space at all. The shell reads it once, at a stated 24-hour window, and speaks it
+through the console's one live region; the trigger's accessible label carries the state,
+because every badge on it is `aria-hidden`.
+
+Two smaller corrections travel with them. The page gutter was a ladder that made content
+NARROWER as the viewport grew — crossing 1536px cost 31px of usable width — and is now flat
+from 640px up, paired with the Case Manager bleed that is tuned to it. And the always-visible
+copy under the KPI tiles was carrying explanations rather than qualifiers: the tautologies are
+gone, the long sentences moved to per-tile help that opens on click (a tooltip never opens on
+touch), and the strip's shared "select a metric" line became a mark on every tile, derived
+from the same property that announces the popup to assistive technology.
+
+**Dark mode is re-skinned** from near-black-and-ultraviolet to a deep-navy command centre:
+`#0c1018` ground, `#121826` panels, a mid-blue primary, cool blue-grey text, amber warning and
+a fresher green success, with a blue-led chart ramp. Light mode is untouched. Every measured
+contrast ratio in the file was re-measured rather than re-stated, and the palette clears the
+same 96-axis WCAG gate and the three-dichromacy chart-separation gate as before.
+
+
+**A landing dashboard that read as five stacked bands.** The Cyber Defence Center put its
+widest instrument — the noise-reduction flow — below the fold in a second grid, kept its
+time controls at the far right of the masthead away from the title they qualify, and stacked
+the open and resolved snapshots so half the page's horizontal space went unused. The two
+bands are now ONE twelve-column band, led by the flow: flow and close attribution, then the
+case snapshots, the timing pair and the live queue.
+The masthead's controls moved into the header's `meta` slot, which renders inside the title
+row, so title and controls read as one cluster; the strip runs at the shipped compact
+density.
+
+The grid is `xl`, never `lg`, and the reason is measurable rather than aesthetic: the flow
+diagram hides its graph below 608px of container width and falls back to a text rail, and at
+the tightest supported desktop an eight-of-twelve cell clears that by a margin thin enough
+that the document scrollbar decides it. The horizontal padding is `px-3` for exactly that
+reason, which also puts every cell of the band on one 12px rail.
+
+Opening a case from the queue or a drill-down row no longer navigates away from the numerals
+that prompted the click — it mounts the shared case surface over the page. Closing it now
+returns keyboard focus to the row that opened it; it previously dropped focus on the document
+body, because this sheet is opened by state rather than by a trigger and the dialog primitive
+suppresses its own restore before focusing a trigger that does not exist. Every consumer of
+that surface benefits.
+
+The KPI drill-down became a workspace rather than a single-metric readout: a metric switcher
+that re-points the panel without closing it (carrying an operator-set range and their free
+text, but never an untouched default onto a population that has no window), four scalars
+computed over exactly the rows the table lists, a records table of fields the case really
+carries, a detection-source facet, and a CSV export of the listed rows that neutralises
+spreadsheet formula prefixes on log-derived text. The Cases-burndown chart left the dashboard
+for Metrics → Posture, where it already renders as "Closure vs arrival"; the chart, its wire
+field and its backend are untouched.
+
+**A one-stop dashboard that still asked to be scrolled.** Measured in a real browser rather
+than derived from class tokens, the Cyber Defence Center fitted on no screen: 1,149px of
+content in a 1,080px viewport, 1,181px at 1280×800 — and most of the excess was empty. One of
+the five KPI tiles carried a three-row close-attribution partition — four where the backend
+separates declared-benign policy closes — that the other four did not, so a single tile set the
+height of the whole strip (144px, of which 82 was that partition). The
+attribution card's trend was pinned at `height={122}` inside a stretched flex cell, so every
+spare pixel of the row became dead space beneath it. And the timing pair was a full-width row
+of its own, holding two small stats across the entire console, directly below a snapshot cell
+that was already 65px shorter than the row it sat in.
+
+The partition moved into that tile's own drill-down, first inside the scroller so it and the
+numeral it partitions are both on screen — the same reconciled memo, so the panel, the tile
+and the instrument card still cannot disagree, and a withheld partition (an outage, a partial
+one, a stale window) is withheld there too. The trend chart gained a fill mode that sizes to
+the box it is given instead of to a constant, with a floor at the height it used to be pinned
+to, so it can only grow into space that was already dead. The two case snapshots stack inside
+four columns instead of sitting side by side across eight, which is what their own
+`last:border-b-0` rule was written for and lets the severity legend use the full cell width;
+the timing pair became the middle cell of that row, its two stats stacked at `xl` only — below
+it they keep the two columns they had, because there the cell is the full page wide. The strip
+runs one step tighter (`py-2`, and the value row `mt-1` with a gutter that clears the corner
+overlay), a change every compact strip on the console takes deliberately.
+
+The result is 998px of content at 1920×1080: the page no longer scrolls there, with 81px of
+slack — enough to absorb the partial-coverage warning, which the measurement already included.
+At 900px-tall viewports it is still 113–145px over. Closing that would mean cutting the
+noise-reduction flow band or retiring a whole band from the landing surface, which is a product
+decision rather than a layout one, and it is stated here rather than engineered around
+silently.
+
+**Repairing a corpus that could only be repaired forward.** The precedent projection is a
+bounded window, so a change to the chunk TEXT repaired only what the window happened to
+re-select; everything older kept the old rendering permanently, and the migration path
+carried it across every future embedding change by re-embedding the stored text verbatim.
+No metadata key records a chunk's text generation, so re-render-and-compare is the only
+selector available — the shipped builder is its own oracle, which also means this class of
+drift cannot recur silently. A prose selector was never an option: the lower-trust tier
+legitimately renders the very phrase a substring match would have keyed on, so a text sweep
+would have deleted that entire tier on any deployment that enabled it.
+
+`RagService.repair_precedent_projection` is a separate, explicitly-invoked pass that reads
+the corpus once, classifies each chunk per trust tier, re-embeds and upserts in place where
+the rendering has moved, and reports the rest. Eviction is deliberately narrow — only a case
+positively absent from the case store, with the evicted payload written to the append-only
+trail before removal and the removal confirmed by re-read. An excluded or label-withdrawn
+case is reported, never deleted: those are operator decisions whose home is the exclusion
+API. Repair is idempotent and re-derivable, but it is **not** reversible to the prior
+rendering, and the prior rendering is by definition the stale one.
+
+**A drill-down that answered whole-population questions from one page.** The Overview KPI
+panel read the newest rows and then computed populations, facet menus and "highest risk"
+over them, so anything past the first page was unreachable and a cohort present only outside
+it could not be discovered. It now sorts server-side behind a route-level allowlist, pages by
+offset under a pinned head, resolves multi-status populations from the product's own status
+constants server-side, and seeds its severity menu from the whole-window histogram. The
+footer says which narrowings were evaluated over the rows read rather than the population,
+and the drill-through carries the operator's filters into Cases and discloses anything it
+had to drop.
+
+The allowlist is a security fix, not a nicety: the Elasticsearch case store interpolated the
+sort field directly into the query DSL, the SQL store allowlisted only by accident of a
+fallback, and the in-memory test double accepts any key — so the offline suite would have
+passed on a field that fails in production. Both bundled stores also gained a unique sort
+tiebreaker, without which offset paging over tied scores repeats and skips rows on real
+Elasticsearch and PostgreSQL while both offline backends hide it.
+
+
 **The self-running deployment that stopped closing cases.** A field report from a
 long-running autonomous instance traced a fall from roughly 96% auto-close to zero,
 with no operator-visible signal anywhere in the product. The cause was not one bug but

@@ -1,6 +1,11 @@
 import * as React from 'react';
 import { cn } from '@/lib/cn';
-import { ArrowDownRight, ArrowUpRight, type LucideIcon } from 'lucide-react';
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  SquareArrowOutUpRight,
+  type LucideIcon,
+} from 'lucide-react';
 import { CountUp } from './CountUp';
 import { HelpTip } from './HelpTip';
 
@@ -48,8 +53,12 @@ export type KpiAccent =
 export type KpiGoodDirection = 'up' | 'down' | 'none';
 
 /**
- * One row of a tile's in-place partition (see `KpiTileProps.breakdown`). Plain text
- * on both halves (#9) — the caller formats the number.
+ * One row of a labelled numeral partition (a `dt`/`dd` pair). Plain text on both halves
+ * (#9) — the caller formats the number.
+ *
+ * Consumed in the product by `KpiDrilldownSpec.partition` (KpiDrilldownPanel); also
+ * accepted by `KpiTileProps.breakdown` below, which currently has no caller. Do not
+ * delete this type with that prop.
  */
 export interface KpiBreakdownRow {
   /** Short band label (plain text). */
@@ -67,6 +76,42 @@ export interface KpiDelta {
   label?: string;
 }
 
+/**
+ * The hero ladder's two cut points, in CHARACTERS of the final formatted string.
+ *
+ * Derived from the tightest supported layout, not from taste. MEASURED in a browser: a
+ * six-cell strip on a 1280px viewport with the rail pinned gives each cell 143px of
+ * content. Inter's tabular figures at 600 weight run ~0.647 em, so at 30px that is
+ * ~19.4px a character (this half is a type-metric estimate, not a measurement): six
+ * characters plus the bound mark come to ~136px and fit, seven do not. The 24px step
+ * buys back roughly two more characters. Past that no step is legible at a glance, so
+ * the value abbreviates instead of shrinking further.
+ */
+const HERO_SHRINK_AT = 6;
+const HERO_ABBREVIATE_AT = 8;
+
+/**
+ * The FLOOR mark. `≥` and not a dagger: `†` (U+2020) is absent from the self-hosted
+ * `inter-latin-wght-normal.woff2` subset and would render from a fallback face at a
+ * different weight. This is the same mark the noise funnel already puts on a bounded
+ * open-cases count, so the console has one bound vocabulary rather than two.
+ */
+const BOUND_MARK = '≥';
+
+/** `format ?? String`, matching CountUp's historical default. */
+const rollFormatOf = (format: ((n: number) => string) | undefined, n: number): string =>
+  format ? format(n) : String(n);
+
+/**
+ * The hero numeral's size class for a given final formatted string. Pure and exported
+ * so the ladder's cut points are unit-testable without rendering a tile.
+ */
+export function numeralSize(text: string): string {
+  if (text.length <= HERO_SHRINK_AT) return 'text-4xl';
+  if (text.length <= HERO_ABBREVIATE_AT) return 'text-3xl';
+  return 'text-2xl';
+}
+
 export interface KpiTileProps {
   /** Metric label (plain text). */
   label: string;
@@ -74,6 +119,29 @@ export interface KpiTileProps {
   value: React.ReactNode;
   /** Optional sub-line under the value (plain text). */
   sub?: string;
+  /**
+   * A CONDITIONAL BOUND on this numeral, as a full sentence.
+   *
+   * Descriptive copy may be relocated to a help surface; a bound may not. It is
+   * visible exactly when it is true, so a reader who never opens the help would
+   * otherwise read a floor as a fact. This prop is the non-prose carrier that
+   * stays ON the numeral once the caption under it is gone, in ONE grammar with
+   * two states, chosen by whether there is a number to qualify at all:
+   *
+   *   FLOOR    (`countTo` is a number) — a `≥` mark immediately before the value.
+   *   WITHHELD (no number)             — the em dash itself becomes the mark, so a
+   *                                      rate that refuses to publish is not just a
+   *                                      bare dash with nothing to explain it.
+   *
+   * Both states carry the sentence to assistive tech as real text content in an
+   * `sr-only` sibling — never as an `aria-label` on a bare span (prohibited on the
+   * generic role) and never as a `title` alone (mouse-only, and banned as the sole
+   * carrier of a load-bearing caveat by the UI standard).
+   *
+   * The mark takes NO colour of its own: it inherits the numeral's already-gated
+   * accent, so it cannot become a second, ungated colour signal.
+   */
+  bound?: string;
   /** Optional leading icon. */
   icon?: LucideIcon;
   /** Colored accent — a soft icon chip (default variant) or the left bar (`bar`). */
@@ -108,23 +176,34 @@ export interface KpiTileProps {
   variant?: 'default' | 'bar' | 'strip';
   /** Compact command-surface rhythm for embedded telemetry bands. */
   density?: 'default' | 'compact';
+  /**
+   * Numeral weight WITHIN the compact rhythm.
+   *
+   * `density="compact"` is a shared console rhythm passed at nine call sites across
+   * six other pages, so enlarging its numeral wholesale would change all of them.
+   * `'hero'` is the opt-in for a landing strip that has given its caption row back
+   * to the number: it steps 24px → 30px (`text-4xl`, an existing token) and then
+   * steps DOWN again for a value too long to fit, rather than truncating one.
+   */
+  numeral?: 'default' | 'hero';
   /** When provided the tile becomes a keyboard-accessible button. */
   onClick?: () => void;
   /**
-   * DISCLOSURE state, for the (rare) caller whose `onClick` toggles a panel rather
-   * than navigating — the KPI drill-down on the landing strip is the only one today.
+   * For the (rare) caller whose `onClick` opens a MODAL rather than navigating — the KPI
+   * drill-down on the landing strip is the only one today.
    *
-   * Both default to `undefined` and are then NOT emitted at all, so the ~14 tiles that
+   * This replaced `ariaExpanded`/`ariaControls` when that drill-down became a dialog.
+   * `aria-expanded` is a DISCLOSURE semantic and is wrong on a dialog trigger, and
+   * `aria-controls` could only ever dangle: the dialog is portalled and does not exist in
+   * the DOM while it is closed.
+   *
+   * Defaults to `undefined` and is then NOT emitted at all, so the ~14 tiles that
    * navigate, filter, or do nothing keep their exact current accessible semantics: a
-   * plain button with no expanded state. Announcing `aria-expanded="false"` on a tile
-   * that opens a different PAGE would be a lie to assistive tech, which is why this is
-   * opt-in rather than derived from `onClick`.
-   *
-   * Pass `ariaControls` ONLY while the controlled region is actually in the DOM — a
-   * dangling `aria-controls` id is an `aria-valid-attr-value` violation.
+   * plain button with no popup claim. Announcing a popup on a tile that opens a different
+   * PAGE would be a lie to assistive tech, which is why this is opt-in rather than
+   * derived from `onClick`.
    */
-  ariaExpanded?: boolean;
-  ariaControls?: string;
+  ariaHasPopup?: 'dialog';
   /**
    * Stable id for the `data-testid="kpi-<id>"` anchor. When omitted it is derived
    * from the label (slugified), so every tile is test-addressable without churn.
@@ -139,6 +218,17 @@ export interface KpiTileProps {
   countTo?: number;
   /** Formatter for `countTo` (default `String`). e.g. `(n) => n.toLocaleString()`. */
   format?: (n: number) => string;
+  /**
+   * ABBREVIATING formatter, used only when the fully formatted value is too long to
+   * survive at any step of the hero ladder (see `numeral`). The exact value then moves
+   * to the numeral's `title` and to its accessible name, so nothing is lost — the tile
+   * shows `5.4k`, the reader can still get `5,423,100`.
+   *
+   * Deliberately a PROP rather than a hardcoded `fmtTokens` call: that helper is shared
+   * with money and percentages and rounds to whole units above 10,000, which is a
+   * caller's decision to make about its own metric, not this component's.
+   */
+  formatCompact?: (n: number) => string;
   /**
    * Round-7 W0.1 — an optional decorative trend sparkline under the value. Rendered
    * ONLY when at least 5 real points are supplied (fewer reads as noise) and always
@@ -160,9 +250,24 @@ export interface KpiTileProps {
   /** Accessible label for the help trigger (default `About <label>`). */
   helpLabel?: string;
   /**
+   * Told when this tile's help popover opens or closes.
+   *
+   * A tile can be wrapped in a hover trend card, and the help trigger is INSIDE that
+   * wrapper — so by the time the operator reaches the `?` the card is already open, and
+   * clicking would leave two floating surfaces over one tile. The host owns both, so the
+   * host is told and stands the card down.
+   */
+  onHelpOpenChange?: (open: boolean) => void;
+  /**
    * Optional PARTITION of the numeral, rendered inside the tile as labelled rows —
-   * the "of which" detail behind a total (e.g. the three-way close attribution behind
-   * a terminal-case count).
+   * the "of which" detail behind a total.
+   *
+   * NO CALLER PASSES THIS TODAY. Its one consumer was the landing strip's Resolved /
+   * Closed tile, whose close attribution moved to `KpiDrilldownSpec.partition`: on the
+   * strip face it was the only tile with a partition, so it set the height of all five
+   * cells. The slot is kept for a future in-place partition on a surface where one tile
+   * carrying extra rows costs nothing — if you add one, re-read the ARIA note below, and
+   * note that `padX`/`padBottom`/`breakdownIsSibling` exist only to serve this path.
    *
    * Supply the WHOLE partition or none. A partition rendered minus one band silently
    * folds that band's rows into a neighbour and over-states it; the residual therefore
@@ -278,6 +383,7 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
       label,
       value,
       sub,
+      bound,
       icon: Icon,
       accent = 'primary',
       delta,
@@ -285,16 +391,18 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
       goodDirection = 'up',
       variant = 'default',
       density = 'default',
+      numeral = 'default',
       onClick,
-      ariaExpanded,
-      ariaControls,
+      ariaHasPopup,
       testId,
       countTo,
       format,
+      formatCompact,
       spark,
       sparkMinPoints = 5,
       help,
       helpLabel,
+      onHelpOpenChange,
       breakdown,
       className,
     },
@@ -305,8 +413,45 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
     const bar = variant === 'bar';
     const strip = variant === 'strip';
     const compact = density === 'compact';
+    const hero = numeral === 'hero';
 
     const deltaFacts = delta ? resolveDelta(delta, goodDirection) : null;
+
+    /*
+     * HERO LADDER — pick the numeral size from the FINAL formatted string, then fall
+     * back to abbreviating rather than shrinking past legibility.
+     *
+     * A grouped integer offers no min-content break (UAX #14), so at 30px a long value
+     * is not wrapped, it is CLIPPED by the tile's `overflow-hidden` — and a clipped
+     * "543,210" reads as "543,21", a plausible WRONG number rather than an obvious
+     * failure. The ladder keeps the common case big and the rare case honest. It keys on
+     * string LENGTH, never on the metric's meaning, so it stays portable across deployments.
+     */
+    const heroText =
+      typeof countTo === 'number' && Number.isFinite(countTo)
+        ? rollFormatOf(format, countTo)
+        : typeof value === 'string'
+          ? value
+          : typeof value === 'number'
+            ? String(value)
+            : '';
+    const heroCompact =
+      hero &&
+      heroText.length > HERO_ABBREVIATE_AT &&
+      typeof formatCompact === 'function' &&
+      typeof countTo === 'number' &&
+      Number.isFinite(countTo);
+    const heroDisplayText = heroCompact ? formatCompact(countTo as number) : heroText;
+
+    /*
+     * Which of the bound grammar's two states applies. A bound qualifies a NUMBER, so
+     * the floor mark only appears where a number was actually published; where the value
+     * is withheld (an em dash) the dash carries the mark instead. Callers therefore never
+     * have to choose the state — the presence of a numeral decides it, and the two can
+     * never disagree with what is on screen.
+     */
+    const boundIsFloor =
+      Boolean(bound) && typeof countTo === 'number' && Number.isFinite(countTo);
 
     // The rendered numeral: roll to `countTo` when it's a finite integer, else the
     // caller-supplied `value` (string or node) unchanged. The roll is the lazy motion.dev
@@ -314,10 +459,14 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
     // LazyAnimatedNumber above). Both are handed the SAME formatter (`format ?? String`,
     // matching CountUp's historical `String` default) so the fallback→spring upgrade never
     // changes the displayed text. Both honour reduced motion by snapping to the target.
-    const rollFormat = format ?? ((n: number) => String(n));
+    // When the hero ladder has decided to abbreviate, BOTH the spring and its fallback
+    // are handed the abbreviating formatter, so the upgrade still never changes the text.
+    const rollFormat = heroCompact
+      ? (formatCompact as (n: number) => string)
+      : (format ?? ((n: number) => String(n)));
     const valueNode =
       typeof countTo === 'number' && Number.isFinite(countTo) ? (
-        <React.Suspense fallback={<CountUp value={countTo} format={format} as="span" />}>
+        <React.Suspense fallback={<CountUp value={countTo} format={rollFormat} as="span" />}>
           <LazyAnimatedNumber value={countTo} format={rollFormat} />
         </React.Suspense>
       ) : (
@@ -341,14 +490,62 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
         </div>
       ) : null;
 
-    // Inline help (?) — only on the non-clickable tile (see prop doc: no nested button).
-    const helpNode =
-      help && !clickable ? (
-        <HelpTip
-          text={help}
-          label={helpLabel ?? `About ${label}`}
-          className="-my-1 text-muted-foreground/70"
+    /**
+     * Inline help (?).
+     *
+     * On a NON-clickable tile it sits inside the tile, beside the label. On a CLICKABLE
+     * tile it cannot: a `<button>` inside a `<button>` is invalid DOM (React logs a
+     * `validateDOMNesting` warning, which `npm run test:strict` treats as a failure), and
+     * ARIA would swallow it into the trigger's name anyway. So it renders as a SIBLING of
+     * the trigger in the same cell — the same arrangement the (currently callerless)
+     * `breakdown` slot is built for.
+     *
+     * `alwaysPopover` because this is where always-visible disclosure copy was RELOCATED
+     * to: a tooltip never opens on touch, and a disclosure a tablet operator cannot reach
+     * has been deleted, not tidied.
+     */
+    const helpNode = help ? (
+      <HelpTip
+        text={help}
+        label={helpLabel ?? `About ${label}`}
+        alwaysPopover
+        onOpenChange={onHelpOpenChange}
+        className={clickable ? 'text-muted-foreground/70' : '-my-1 text-muted-foreground/70'}
+      />
+    ) : null;
+    const helpIsSibling = clickable && helpNode !== null;
+
+    /**
+     * The always-visible "this opens something" mark.
+     *
+     * It replaces a strip-level sentence that told the operator, once, in prose, that the
+     * tiles were selectable. A sentence under a five-tile row is read once and then becomes
+     * furniture; a mark ON the control is read every time, and — unlike the hover card that
+     * used to carry the same promise — it reaches touch and keyboard users, who never see a
+     * hover card at all.
+     *
+     * Decorative only (`aria-hidden`): the ACCESSIBLE claim is `aria-haspopup` on the
+     * button, so the two can never disagree, and it is deliberately tied to that same prop
+     * rather than to `onClick` — a tile that navigates elsewhere must not wear a mark that
+     * promises a panel.
+     */
+    const affordanceNode =
+      ariaHasPopup === 'dialog' ? (
+        <SquareArrowOutUpRight
+          data-testid={`${kpiTestId}-affordance`}
+          className="size-3 shrink-0 text-muted-foreground/60"
+          aria-hidden
         />
+      ) : null;
+    /** Anything that must sit ON the cell but OUTSIDE the trigger button. */
+    const cellOverlay =
+      helpIsSibling || (clickable && affordanceNode) ? (
+        // `pointer-events-none` on the cluster so the decorative mark never steals a click
+        // from the trigger underneath it; the help button re-enables them for itself.
+        <div className="pointer-events-none absolute right-2 top-2 z-10 flex items-center gap-0.5">
+          {helpIsSibling ? <span className="pointer-events-auto">{helpNode}</span> : null}
+          {affordanceNode}
+        </div>
       ) : null;
 
     // Scale context ("N of M" / "P% of N" / an em dash). Muted, tabular, plain text —
@@ -410,7 +607,10 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
 
     const inner = (
       <>
-        <div className="flex items-start justify-between gap-3">
+        {/* The corner overlay sits at the TOP-RIGHT, so only this row reserves space for
+            it. Reserving it on the whole trigger instead cost every sub-line ~40px and
+            ellipsized load-bearing captions such as the degraded open-stock line. */}
+        <div className={cn('flex items-start justify-between gap-3', cellOverlay && 'pr-10')}>
           <span
             className={cn(
               'inline-flex items-center gap-1 font-semibold uppercase tracking-wide',
@@ -421,7 +621,7 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
               <Icon className={cn('h-3.5 w-3.5 shrink-0', ACCENT_TEXT[accent])} aria-hidden />
             ) : null}
             {label}
-            {helpNode}
+            {helpIsSibling ? null : helpNode}
           </span>
           {Icon && !bar && !strip ? (
             <span
@@ -436,18 +636,68 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
             <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
           ) : null}
         </div>
-        <div className={cn('flex min-w-0 items-end gap-2', strip ? 'mt-2' : 'mt-3')}>
+        {/* NO corner gutter here, deliberately — see the note above the label row for why
+            reserving one is expensive.
+
+            All offsets below are from the CELL's top and were measured in a browser, not
+            derived. On the compact strip this row's BOX does start under the corner overlay
+            (the trigger's top padding is 8px; the overlay spans y 8→32). But the row is
+            `items-end`, so the only child that ever reaches the overlay's x-range — the
+            scale context, with its `mb-0.5` — sits at y 36→50: 4px BELOW the overlay, at
+            every strip width. A `pr-10` here therefore bought nothing, and cost the context
+            40px — enough to ellipsize "54 of 80 verdicted" at 1440px, recoverable only by
+            mouse-hovering the `title`, which is no recovery at all for touch or keyboard.
+
+            The one child that WOULD collide is a `delta` chip: its border box runs y 22→46
+            and, unlike text, it is visibly bordered. No `density="compact"` caller passes
+            one today. Re-measure before adding the first. */}
+        <div
+          className={cn(
+            'flex min-w-0 items-end gap-2',
+            strip ? (compact ? 'mt-1' : 'mt-2') : 'mt-3',
+            // …and the layout half: with the trigger a full-height flex column, `mt-auto`
+            // drops this row to the bottom of every cell, so the numerals share a baseline
+            // no matter how far the label above them wrapped.
+            hero && 'mt-auto',
+          )}
+        >
           <span
             className={cn(
               'font-semibold leading-none tracking-tight tabular-nums',
-              strip ? (compact ? 'text-2xl' : 'text-4xl') : 'text-3xl',
+              // `min-w-0` and `truncate` TOGETHER, never either alone: without `min-w-0`
+              // a flex item refuses to shrink below its content and the tile's
+              // `overflow-hidden` clips the numeral with no ellipsis; without `truncate`
+              // the shrunk box lets the text paint over its own row-mates.
+              'min-w-0 truncate',
+              strip
+                ? compact
+                  ? hero
+                    ? numeralSize(heroDisplayText)
+                    : 'text-2xl'
+                  : 'text-4xl'
+                : 'text-3xl',
               strip && (accent === 'critical' || accent === 'success')
                 ? ACCENT_TEXT[accent]
                 : 'text-foreground',
             )}
+            // WITHHELD arm of the bound grammar: there is no numeral to prefix, so the
+            // em dash itself is the mark. The exact sentence is still announced by the
+            // `sr-only` sibling below — `title` is the mouse affordance, never the only one.
+            data-bound={bound ? (boundIsFloor ? 'floor' : 'withheld') : undefined}
+            title={bound && !boundIsFloor ? bound : heroCompact ? heroText : undefined}
           >
-            {valueNode}
+            {boundIsFloor ? (
+              <span aria-hidden className="mr-0.5" data-testid={`${kpiTestId}-bound`}>
+                {BOUND_MARK}
+              </span>
+            ) : null}
+            {/* An abbreviated numeral is hidden from assistive tech and replaced by the
+                EXACT value below, so "5.4k" is a display decision and never a loss of
+                precision for a screen-reader user. */}
+            {heroCompact ? <span aria-hidden>{valueNode}</span> : valueNode}
           </span>
+          {heroCompact ? <span className="sr-only">{heroText}</span> : null}
+          {bound ? <span className="sr-only">{bound}</span> : null}
           {secondaryNode}
           {deltaNode}
         </div>
@@ -458,7 +708,13 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
               'block text-muted-foreground',
               strip
                 ? compact
-                  ? 'mt-1 line-clamp-1 font-mono text-2xs'
+                  ? // TWO lines on the compact strip. MEASURED: the strip's captions carry a
+                    // qualifier as well as a subject ("Window arrivals · policy-closed
+                    // included"), and at one line that clamped on every desktop below
+                    // 1920px — the widths this console is actually used at. The tile has
+                    // the room: the space under the caption was empty. Two lines is the
+                    // ceiling, so a caption still cannot push the strip's rhythm around.
+                    'mt-1 line-clamp-2 font-mono text-2xs'
                   : 'mt-1 truncate font-mono text-2xs'
                 : 'mt-2 text-xs',
               // The 4rem gutter exists ONLY to clear the absolutely-positioned strip
@@ -481,8 +737,21 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
      * height and the button drops its own bottom padding onto the sibling.
      */
     const breakdownIsSibling = clickable && breakdownNode !== null;
+    /**
+     * Does this tile need a CELL ROOT — a wrapper that is the grid cell, with the trigger
+     * inside it? Yes whenever something must render beside the trigger rather than within
+     * it: the partition (ARIA discards list semantics inside a button) or the corner
+     * overlay (a button inside a button is invalid DOM). The cell root then owns the cell's
+     * height and card chrome, so a wrapped tile never draws two borders or stacks the
+     * partition's height on top of the tile floor.
+     */
+    const needsCellRoot = breakdownIsSibling || cellOverlay !== null;
+    // `padX`/`padBottom` are read ONLY by the breakdown sibling below, so they are inert
+    // until something passes `breakdown` again. The compact strip's live density is the
+    // `px-3 py-2` on `base` plus the value row's `mt-1`; these two are kept in step with
+    // it so the partition path does not come back with a mismatched rhythm.
     const padX = strip ? (compact ? 'px-3' : 'px-4') : 'px-4';
-    const padBottom = strip ? (compact ? 'pb-3' : 'pb-5') : 'pb-4';
+    const padBottom = strip ? (compact ? 'pb-2' : 'pb-5') : 'pb-4';
     // The cell's minimum height belongs to whichever element IS the cell root, so a
     // wrapped tile does not add the partition's height on top of the tile floor.
     const minH = strip ? (compact ? 'min-h-0' : 'min-h-28') : null;
@@ -491,13 +760,13 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
     const chrome = strip ? null : 'rounded-lg border border-border bg-card';
     const base = cn(
       'relative min-w-0 overflow-hidden text-left',
-      breakdownIsSibling ? null : 'h-full',
-      breakdownIsSibling ? null : minH,
-      breakdownIsSibling ? null : chrome,
+      needsCellRoot ? null : 'h-full',
+      needsCellRoot ? null : minH,
+      needsCellRoot ? null : chrome,
       breakdownIsSibling && !strip && 'rounded-t-lg',
       strip
         ? compact
-          ? 'bg-transparent px-3 py-3'
+          ? 'bg-transparent px-3 py-2'
           : 'bg-transparent px-4 py-5'
         : 'p-4',
       // The sibling below carries the tile's bottom padding instead.
@@ -515,22 +784,33 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
           ref={ref as React.Ref<HTMLButtonElement>}
           type="button"
           onClick={onClick}
-          aria-expanded={ariaExpanded}
-          aria-controls={ariaControls}
+          aria-haspopup={ariaHasPopup}
           data-testid={kpiTestId}
           className={cn(
             base,
             'block w-full transition-colors hover:bg-accent/30',
+            /*
+             * HERO tiles BOTTOM-ALIGN their numeral, and this is the structural half of it.
+             *
+             * MEASURED in a browser at a 1280px viewport, six cells: the labels wrap to one,
+             * two and even three lines ("False Positive Rate"), which put the six numerals at
+             * y = 26 / 40 / 26 / 54 / 40 / 26 — a 28px stagger across a row the eye reads as
+             * one instrument. Reserving a fixed label height would have to reserve the WORST
+             * case on every tile and would still break on a longer label or another locale.
+             * Growing the labels upward from a common numeral baseline is length-independent,
+             * and it is what the row wanted anyway: the number is the thing being compared.
+             */
+            hero && 'flex h-full flex-col',
             !strip && !breakdownIsSibling && 'hover:border-primary/40',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-            breakdownIsSibling ? null : className,
+            needsCellRoot ? null : className,
           )}
         >
           {barEdge}
           {inner}
         </button>
       );
-      if (!breakdownIsSibling) return trigger;
+      if (!needsCellRoot) return trigger;
       // The <dl> sits BESIDE the trigger, inside the same cell: still visually part of
       // the tile, but a real definition list to assistive tech, and out of the
       // trigger's accessible name. The testid stays on the button — it IS the tile's
@@ -545,12 +825,15 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
           )}
         >
           {trigger}
-          <div
-            data-testid={`${kpiTestId}-breakdown`}
-            className={cn('min-w-0', padX, padBottom, strip ? 'bg-transparent' : null)}
-          >
-            {breakdownNode}
-          </div>
+          {cellOverlay}
+          {breakdownIsSibling ? (
+            <div
+              data-testid={`${kpiTestId}-breakdown`}
+              className={cn('min-w-0', padX, padBottom, strip ? 'bg-transparent' : null)}
+            >
+              {breakdownNode}
+            </div>
+          ) : null}
         </div>
       );
     }

@@ -130,16 +130,36 @@ describe('Overview — hover trendlines', () => {
     await waitFor(() =>
       expect(trendsMock).toHaveBeenCalledWith(24, expect.any(AbortSignal)),
     );
-    // The quiet discoverability line replaces the removed delta footnote. It is
-    // device-honest: the hover/focus copy shows only on hover-capable devices,
+    // The quiet discoverability line replaces the removed delta footnote. Its TREND
+    // half is device-honest: the hover/focus copy shows only on hover-capable devices,
     // while touch-only devices (hover: none) get the tap instruction — both spans
     // ship and CSS media picks exactly one.
-    expect(
-      await screen.findByText(/Hover or focus a metric for its last 24 hours · 1h buckets trend\./i),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Tap a metric for its last 24 hours · 1h buckets trend\./i),
-    ).toBeInTheDocument();
+    // The strip-level affordance SENTENCE is gone, and its two halves went to different
+    // places rather than to one shorter sentence.
+    //
+    // The SELECT half became a per-tile MARK, rendered from the same `ariaHasPopup` prop
+    // that carries the claim to assistive tech — so the visible promise and the announced
+    // one cannot disagree, and the promise is on the control rather than in a caption that
+    // is read once and then becomes furniture. It is on EVERY tile, which the old sentence
+    // could only assert collectively.
+    expect(screen.queryByTestId('kpi-strip-affordance')).toBeNull();
+    for (const id of [
+      'kpi-total-cases',
+      'kpi-total-critical',
+      'kpi-open-cases',
+      'kpi-false-positive-rate',
+      'kpi-resolved-closed',
+      // The Auto Closed subset tile. It carries no trend series, which makes it exactly
+      // the tile the affordance mark exists for: the strip-level sentence could only ever
+      // promise "some of these are selectable", while the mark is on every one of them.
+      'kpi-auto-closed',
+    ]) {
+      expect(await screen.findByTestId(`${id}-affordance`)).toBeInTheDocument();
+    }
+    // The TREND half was device-honest copy for a card only three of the six tiles have.
+    // It is redundant with the mark and could not be made true of all six.
+    expect(screen.queryByText(/Hover or focus one for its/i)).toBeNull();
+    expect(screen.queryByText(/Tap one for its/i)).toBeNull();
   });
 
   it('hover on the Total-Cases tile reveals the new-cases arrival series it measures', async () => {
@@ -299,8 +319,12 @@ describe('Overview — hover trendlines', () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
     const tile = await screen.findByTestId('kpi-total-cases');
-    // The discoverability footnote self-omits without a bucket payload.
-    expect(screen.queryByText(/Hover or focus a metric/i)).toBeNull();
+    // The per-tile mark does NOT depend on a trend payload — every tile opens a panel
+    // whether or not a series exists for it, which is precisely why the affordance moved
+    // off the shared footnote and onto the controls themselves.
+    expect(screen.queryByText(/Hover or focus one for its/i)).toBeNull();
+    expect(screen.getByTestId('kpi-total-cases-affordance')).toBeInTheDocument();
+    expect(screen.getByTestId('kpi-total-critical-affordance')).toBeInTheDocument();
 
     await userEvent.hover(tile);
     const card = await findTrendCard();

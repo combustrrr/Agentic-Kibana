@@ -11551,3 +11551,427 @@
 
 ### 2026-09-12 - Synchronize upstream Testing into product fork
 - User requested repository synchronization. Merge five upstream commits into fork Testing without changing upstream or restoring external analysis code. Preserve existing fork documentation and independent CI.
+### 2026-09-02 12:20Z — orchestrator (Opus) — Precedent corpus repair + KPI drill-down depth
+- Context: two asks from an operator brief — repair the stale precedent projection (Ask 1) and
+  give the Overview KPI drill-down real population depth (Ask 2). Run as a gated staged workflow:
+  recon → gate → spec → serial implement → blind tests → context-free verify → fix.
+- Did:
+  - **Stage 0 recon (2 read-only agents).** Established that Ask 1's EVICTION path already ships
+    end to end (library call, undo, routes, three window-derived caps, dry-run, per-case audit,
+    `rag:manage` gate, ~40 tests) and only REPAIR was missing; and that three of Ask 2's six
+    sub-asks already ship (the three-valued footer, the stores' sort half, the gate-series
+    backend). Also found two live hazards the brief did not: `cases.py` interpolates the sort
+    field straight into the query DSL with no allowlist and the in-memory double masks it, and
+    `UnconfirmedPrecedentConfig` feeds `_source_signature` unguarded with no pinning test.
+  - **Stage 0.5 gate.** Both lanes declared OpenAPI-visible changes and their file lists
+    intersected on five artefacts → ruled STRICTLY SERIAL, backend first. The five shared files
+    were removed from both lanes; the orchestrator regenerated the generated pair once at the
+    rejoin and wrote Journal/CHANGELOG itself.
+  - **Stage 1 `tmp/SPEC.md`** — 98 criteria (A1–A41, B1–B48, X1–X9), each tagged
+    `[CMD]`/`[TEST-FAKE]`/`[OPERATOR]`, containing **zero numeric literals** so no
+    reference-deployment number could reach a threshold, fixture or assertion.
+  - **Ask 1.** `RagService.repair_precedent_projection` — a separate, explicitly-invoked pass;
+    one-pass corpus read; four-way classification per trust tier; derive-and-compare selector
+    (`render(current builder, case) != stored text`), because no metadata key records a chunk's
+    text generation. Re-embed + upsert on the unchanged `doc_id`; narrow eviction only for a case
+    positively absent from the case store, payload audited before removal, removal verified by
+    re-read. Own collapse guard, truncation and embedding-space refusals, cap derived from the
+    configured window. `_preserved_resolved_case_items` now re-derives, closing the migration hole.
+  - **Ask 2.** Route-level sort allowlist above both stores (the ES store interpolates the field
+    into the DSL), a unique tiebreaker in both bundled stores asserted on emitted sort SHAPE,
+    bounded offset paging under a pinned head with dedupe and echoed effective limit, a scalar
+    `status_group` the server resolves from its own constants (never a client-sent list — the
+    query helper comma-joins arrays into one term that matches nothing), session/window-scoped
+    facet menus, a page-aware footer naming client-side narrowings, and a context-carrying
+    drill-through that discloses what it drops.
+  - **Stage 3.** 56 tests written from the spec alone by an agent barred from the nine
+    implementation files. **Zero divergences.** It cleared two candidate findings by measurement.
+  - **Stage 4.** One context-free verifier (diff + criteria only): **96 SATISFIED, 1 PARTIAL,
+    0 NOT SATISFIED, 1 DEFERRED**. It caught that the A33 migration fix re-derived TEXT but kept
+    STORED metadata while the repair merges both — so a migrated chunk could carry current text
+    beside a stale `rule_identity`/`trust_class`, and the text-only selector would then read it
+    CURRENT forever. Fixed structurally: the helper returns the whole projected item, so a caller
+    cannot adopt half a rendering. Also fixed: repair success was inferred from a write call that
+    returns its input length regardless of what persisted (now verified by read-back, with
+    unverified reported rather than refused); the diagnostics staleness read now shares the
+    neighbouring TTL cache; two report fields renamed to what they count.
+- Tests: backend **3621 passed, 4 skipped, 3 deselected**, exit 0 (HEAD was 3494 collected/188
+  files; now 193 files). Console **319 files / 2289 passed**, zero stderr. `gates` 6/6, `lint`
+  0/0, `build` clean (entry 393.16 kB), `check:types` no drift **with `TLSOC_REQUIRE_TYPEGEN=1`**
+  so it could not skip silently. **#3 re-verified: `case_manager.py` md5
+  `212873cd13d822a7b64752635285ff1f`; `risk.py`, `signatures.py` and
+  `deploy/docker-compose.agnostic.yml` at zero diff.** P5 audit clean — only two existing test
+  files touched, two removed lines total, one a comment and one the sanctioned derived-Tab-budget
+  re-pin.
+- Status: done, awaiting review. No close-rate target was set, measured or claimed anywhere;
+  delivering withheld evidence may lower a close rate and that is the system getting more correct.
+- Next: the optional gate-series histogram (B40) was deliberately skipped — its backend ships with
+  zero consumers, and wiring it needs a new panel fetch that would disturb six existing test
+  mocks. Two accepted-and-documented items: the migration's per-case read fan-out, and the head
+  pin's exclusion from the narrowing disclosure.
+
+### 2026-09-07 09:45Z — Claude (orchestrator + 12 recon / 1 test-author / 6 verify sub-agents) — Cyber Defence Center layout rebuild
+- Context: operator brief to rebuild the landing dashboard — flow-led lattice, masthead
+  controls beside the title, compact strip, burndown demoted, in-place case sheet, shell
+  search centred, plus a hover preview and a deep-inspection drill-down.
+- Did (6 commits on `Testing`, `a1d0d1a`→`027e4ac`):
+  - **Lattice.** The `lg:` INSTRUMENT and `xl:` OPERATIONS bands merged into ONE `xl`
+    twelve-column band of three rows: noise flow (8) + Human-vs-AI (4); open + resolved
+    snapshots (8, split 2-up at `xl`) + latest-case queue (4); MTTD/response full width.
+    The grid MUST stay `xl:` — the flow's own `@[38rem]/noise` query needs 608px of
+    container width or it silently swaps the graph for a text rail.
+  - **Masthead** `actions=` → `meta=` (one word; `actions` renders a sibling of the left
+    cluster inside the header's `sm:justify-between` row, `meta` renders inside the title
+    row). Right half intentionally empty, per operator. KPI strip at `density="compact"`.
+  - **Burndown** removed from Overview (section + memo + import; `noUnusedLocals` forces
+    all three). `BurnDownChart`, the `burndown` field/type and the backend are UNTOUCHED —
+    it lives on Metrics → Posture as "Closure vs arrival". Docs re-pointed.
+  - **Case sheet.** The two call sites that carried a `caseId` now mount the SHARED
+    `CaseDetail` over the page; the other twelve `navigate('cases')` sites open filtered
+    LISTS and were left alone. Mount is conditional because `CaseDetail` calls `useAuth()`
+    above its own empty-state return and no Overview spec supplies a provider.
+  - **Shell search** centred (`w-full … max-w-* mx-auto`, not `flex-1` — a flex item cannot
+    both absorb free space and be centred by auto margins) and widened to `lg:max-w-2xl`.
+    Separate commit: one `AppShell` wraps all 37 in-shell routes.
+  - **Drill-down** extended (never forked): metric switcher, four stat cards over the rows
+    the table lists, real records table, detection-source facet, CSV export of listed rows.
+  - **Defects found and fixed beyond the brief** — case-sheet close dropped focus on
+    `<body>` (WCAG 2.4.3: Radix `preventDefault`s its own restore then focuses a null
+    `triggerRef`, since every consumer opens this sheet by state, not a `SheetTrigger`);
+    a leaked Radix hover timer popped the row preview over the just-opened sheet and ate
+    the first Escape; the in-source 608px arithmetic omitted the root scrollbar (~3px real
+    margin, not ~10px — `px-3` now buys 8px back and puts all five cells on one 12px rail);
+    four honesty defects in the panel; and five a11y defects incl. two WCAG 2.5.3
+    label-in-name and a keyboard-unreachable table scroller.
+- Tests: Console **322 files / 2304 passed**, exit 0, zero stderr. `typecheck` clean,
+  `lint` **0 errors 0 warnings**, `gates` 6/6, `build` clean (entry **393.04 kB** of the
+  400 kB ceiling; the bundle-first-paint gate, which skips without a `dist/`, actually
+  RAN). `check:types` no drift with `TLSOC_REQUIRE_TYPEGEN=1` so it could not skip.
+  Backend `test_ws_be_dashboard_metrics.py` green. **#3 re-verified: `case_manager.py`
+  md5 `212873cd13d822a7b64752635285ff1f`; `backend/` and `deploy/` at ZERO diff.**
+  No new npm dependency.
+- Method: 12 recon agents verified every file:line in the brief against HEAD before any
+  edit (the brief was accurate bar a handful of drifted line numbers, one FALSE claim, and
+  a `PageContainer` max-width it got wrong). Tests were written by an agent given the
+  requirements but not the diff. Six adversarial lenses then audited the merged tree
+  context-free; two converged independently on the same two layout defects.
+- Status: done, awaiting review. Not pushed at time of writing.
+- Next: three PRE-EXISTING a11y defects were reported and deliberately left — SnapshotCard's
+  donut total and legend are inside a button with an explicit `aria-label` (name-from-contents
+  suppressed, numbers unannounced); MTTD/Respond definitions ride a native `title` on a
+  non-focusable div; snapshot trendlines have no touch path. Also unfixed by choice: a range
+  change still clears status/severity facets via the universe reset, and `Cases`/`Scans` carry
+  the same latent hover-preview defect (their `forceClosed` opt-in is a separate change).
+  Not built, with reasons stated: a dual-axis arrivals-vs-clearance chart (no sub-60-minute
+  bucketing exists anywhere in this system) and numbered pagination (the panel accumulates
+  under a pinned head; its footer already refuses an unproven exact total).
+  One further PRE-EXISTING finding survived adversarial adjudication on a SPLIT vote and is
+  recorded rather than fixed: on a band-disjoint tile (`total-critical`) the severity menu is
+  seeded from the window's whole-cohort tally, so it offers bands the listed population cannot
+  contain and selecting one yields the empty state. One judge reproduced it live; the other
+  refuted the DIAGNOSIS on the ground that the rows-read fallback offers the same impossible
+  options (and `statusUniverse`/`sourceUniverse` are built from the same unfiltered page), so
+  suppressing the histogram for narrowed specs would move the symptom rather than remove it.
+  Both are right about their half: it is a shared property of the rows-read facet derivation,
+  it shows a truthful empty list rather than a wrong one, and it wants one deliberate change
+  across all three menus rather than a partial fix here.
+
+### 2026-09-07 16:10Z — Console agent — KPI drill-down becomes a modal; health moves to the bell; width reclaimed; dark mode re-skinned
+- Context: six operator requests against `Testing` @ `8ecba49` — (1)+(2) retire the dashboard's
+  Agent-health banner into the notification bell, (3)+(4) turn the KPI deep-inspection panel
+  into a real modal with a fixed page-in-page shell, (5) relocate always-visible disclosure
+  copy to reachable help surfaces, (6) reclaim horizontal width — plus a dark-mode re-skin to
+  a supplied reference (deep navy, blue-led) replacing the near-black/ultraviolet palette.
+- Did:
+  - **Modal (#2).** `KpiDrilldownPanel` now renders `<DialogContent>` (no fork of `ui/dialog`,
+    no new dep): `aria-modal`, `aria-labelledby`, and an `aria-describedby` that RESOLVES to a
+    visible population sentence rather than dangling. Fixed `h-[92dvh] max-h-[900px]` (the
+    pixel cap is load-bearing — it evicts the base `max-h-[85dvh]`, which twMerge keeps),
+    width mirroring `PageContainer` `wide`. Four `shrink-0` bands around exactly ONE
+    `min-h-0 flex-1 overflow-auto` scroller, with the completeness footer as its SIBLING.
+    `max-h-80` on the row table is gone: measured 568px of rows at 900px viewport height vs
+    320px before, and the footer stays visible at 700px. The hand-rolled Escape containment
+    guard is deleted — Radix owns Escape and the scrim.
+  - **Focus return — the brief's recommended route was MEASURED WRONG and abandoned.** A
+    synchronous restore from the parent is bounced by the trap, and Radix's null-`triggerRef`
+    `onCloseAutoFocus` then drops focus on `<body>`; measured on BOTH close paths. Adopted the
+    repo's own `CaseDetail` precedent (`onCloseAutoFocus` + a `restoreFocusTo` getter). That
+    moved the restore after the commit that drops `forceClosed`, so the trend card reopened on
+    the boundary of `MetricHoverTrend`'s one-`openDelay` grace; widened to two, and re-measured.
+  - **Health → bell (#4).** `useHealthDiagnosticsData` hoisted into the shell at a FIXED 24h
+    window, fed to `NotificationBell` as an optional prop so the bell stays provider-free.
+    Pinned section OUTSIDE the inbox scroller, a third trigger marker, the state spelled into
+    the trigger's `aria-label` (the badges are `aria-hidden`), and an announcement through the
+    shell's one live region, gated on the degradation ID set. `HealthDegradationIndicator` and
+    its spec deleted; coverage re-homed to the reducer, the bell and the shell.
+  - **Width (#5).** `CONTENT_INSET` flattened to `px-4 sm:px-6` — the old ladder made content
+    NARROW as the viewport widened (‑15px at 640, ‑15px at 1024, ‑31px at 1536). Paired with
+    `CaseManager`'s bleed (`w-auto sm:-mx-2`), which is tuned to it; a source-string assertion
+    now pins the two together, since no gate can see either.
+  - **Disclosure (#3).** Per the operator table. `KpiTile` gained a SIBLING help trigger for
+    clickable tiles (a nested button is invalid DOM) using a new `HelpTip alwaysPopover` — a
+    tooltip never opens on touch, and a disclosure a tablet cannot reach is deleted, not tidied.
+    The strip-level affordance sentence became an always-visible per-tile mark derived from the
+    same `ariaHasPopup` prop that carries the claim to AT.
+  - **Dark theme.** `.dark` re-valued to the navy reference: canvas `#0c1018`, card `#121826`,
+    primary `#709df0`, cool-grey text, amber warning, fresh green success, blue-led chart ramp.
+    Every in-file ratio comment re-measured; light mode untouched.
+- Tests: Console **325 files / 2341 passed**, zero stderr and zero captured console output.
+  `gates` 6/6 (contrast 96 axes both themes, CVD, login accents). `lint` 0 errors 0 warnings.
+  `tsc --noEmit` clean. `build` clean — entry **396.08 kB** against the 400 kB ceiling, which
+  the first build BREACHED at 400.04 kB: the fix was to move the diagnostics reader off the
+  eager graph behind a dynamic import (`components/HealthWatch.tsx`), the pattern route-motion
+  already uses, NOT to raise the ceiling. **#3 re-verified: `case_manager.py` md5
+  `212873cd13d822a7b64752635285ff1f`; `backend/` and `deploy/` at ZERO diff.** No new npm dep.
+- Method: two recon agents produced a 1,500-line per-assertion rewrite inventory before any
+  spec was touched; two more rewrote the seven affected spec files from that inventory without
+  reading the implementation diff. The whole stack was then run locally (`run-demo.sh`, seeded
+  demo data) and driven with Playwright — which is how four defects invisible to jsdom were
+  found and fixed: tile captions ellipsised at every width below 1920px, the sticky table
+  header was transparent (a background on `<thead>` is not reliably painted) and sat 12px below
+  the scroll port, and the help popover opened on top of the hover trend card.
+- Status: done. Committed to `Testing`; not pushed at time of writing.
+- Next: the specs record two things deliberately left. A cross-test harness hazard now has a
+  documented workaround rather than a fix — user-event memoises its `pointer-events` verdict on
+  `document.body`, which survives RTL cleanup, so a test that ends with a Radix layer open
+  poisons the next file. And `overview.a11y.test.tsx` keeps one document-wide `[inert]` probe
+  that cannot currently fail (Radix uses `aria-hidden`); it is retained only as a negative guard
+  beside the positive `aria-hidden` shape that carries the real proof.
+
+### 2026-09-08 09:20Z — Claude (orchestrator + 4 recon / 3 adversarial-verify sub-agents) — The dashboard fits on one page, measured in a real browser
+
+- Context: five operator asks against the Cyber Defence Center — (1)+(2) stack the Open /
+  Resolved snapshots and fill the freed space with MTTD and the response clock, (3) fix the
+  Human-vs-AI card's dead space and drop the duplicated advisory line, (4) compact the KPI
+  strip (asked three times), (5) move the close-attribution partition off the tile face —
+  under one standing instruction: **no scrolling, it is a one-stop dashboard**.
+- Method note first, because it changed every decision: the session started stale at `2c38720`
+  while `origin/Testing` had already moved to `1ca36a6` (#111 + #112). Fast-forwarded before
+  reading anything; a recon fleet launched against the old tree was stopped and re-run. Then
+  the whole stack was brought up locally (`uvicorn` + `vite`, live Demo Mode, API login) and
+  driven with Playwright, so **every height in this entry is MEASURED in Chromium, not derived
+  from class tokens**. That is what turned a "roughly height-neutral" plan into a real fit: the
+  brief estimated item 5 at −38px; it is −64. It also killed two proposals that arithmetic had
+  made look safe, and caught one defect no gate could see (below).
+- Did:
+  - **Item 5 — the partition moved into the drill-down.** `KpiDrilldownSpec.partition`
+    (`readonly KpiBreakdownRow[]`), rendered FIRST inside the panel's one scroll region, above
+    the trend and deliberately NOT folded into the stat cards below — those are computed over
+    the listed rows and carry a caption that says so; a whole-window rollup under it would be a
+    fresh mislabel. `Overview` passes the SAME `closeBreakdown` memo through
+    `drilldown.partition`, so the panel, the tile and the instrument card still cannot drift,
+    and every withholding guard (outage, partial partition, stale window, zero residual kept
+    visible, declared-benign only when reported) travels unchanged. The `<dl>` is `max-w-sm`:
+    uncapped in a 1760px panel the label and its value land ~1500px apart and stop reading as a
+    partition. `KpiTile.breakdown` itself is KEPT — only this page's use of it is gone.
+  - **Item 4 — compact strip density.** `py-3`→`py-2`, `pb-3`→`pb-2`, value row `mt-2`→`mt-1`
+    on `strip+compact`, plus a `pr-10` gutter on the value row when the corner overlay is
+    present. The gutter is not optional: measured, the value row's box overlaps the overlay's
+    last 6px at `py-2`. `pr-10` REPLACES `px-3`'s right padding rather than adding to it, so
+    content stops 40px short against an overlay whose left edge is 46px short — 6px, the same
+    clearance the label row's own `pr-10` has been shipping. `density="compact"` is SHARED:
+    Tuning's health strip and six other call sites take the same tighter rhythm deliberately.
+  - **Items 1+2 — the lattice went from three rows to two.** Row 2 is now 4/4/4: snapshots ·
+    MTTD/Respond · live queue. The snapshots stack (which is what their own
+    `border-b … last:border-b-0` was written for, so both caller overrides were deleted rather
+    than inverted), the timing pair became the middle cell, and the old full-width row 3 is
+    gone with the row-2 `border-b` that used to be its top rule. `Respond` keeps its label: it
+    reads `mtta_minutes`, and calling it MTTR would present time-to-first-human-action as
+    time-to-resolve.
+  - **Item 3 — the dead space, then the text.** `MultiSeriesTrend` gained `fill?: boolean`
+    (`absolute inset-0`, no inline height, BOTH render arms) so a chart can size to a flex cell
+    instead of to a constant; the card's wrapper is `relative … min-h-[122px] flex-1`, the floor
+    being the height it used to be pinned to. Measured, the chart went 208.5px → 230.5px into
+    space that was previously dead. The no-series `<p>` lost `flex-1` (it opened a gap three
+    times worse). The on-face §3 advisory was deleted at the operator's request and survives
+    verbatim in `HUMAN_VS_AI_HELP` behind a new `alwaysPopover` — click/Enter/Space/tap, never
+    a touch-unreachable tooltip.
+  - **Two beyond the five, both to serve the standing "fit it" instruction, both disclosed:**
+    the snapshot donut 136px/`w-36` → 112px/`w-28` (the ~58px hole still clears `1.2K`, the
+    widest string `fmtSnapshotCenter` can emit) — that is −48px and it only became the row's
+    governor once the cards stacked; and the live queue 4 → 5 rows, which is real content in
+    ~85px that was blank and is FREE (five rows measure ~316px against a 349px row). The noise
+    cell also went `py-4` → `py-3`, aligning its heading with the `p-3` card beside it.
+- Verify: three context-free adversarial agents on the merged tree (vacuous/deleted assertions,
+  false comments, regression hunt). An earlier adversarial reviewer caught the one real defect:
+  the timing restack was written UNPREFIXED, which would have cost ~107px below `xl`, where the
+  cell is the full page wide. It is now `grid-cols-2 … xl:grid-cols-1 xl:divide-x-0 xl:divide-y`
+  with `pr-4 xl:pr-0 xl:pb-3` / `pl-4 xl:pl-0 xl:pt-3` — `divide-x-0` is mandatory, the two
+  divide utilities write different edges and do not cancel. Confirmed in the browser: 2 columns
+  and a `border-b` at 1100px and 820px. Two of its other findings were rejected against
+  measurement rather than argument (`pr-10` clears; the fill chain resolves).
+- Tests: **326 files / 2,353 passed**, zero stderr and zero captured console output
+  (`test:strict`). `gates` 6/6. `lint` 0/0. `build` clean, entry **396.08 kB** against the
+  400 kB ceiling. Every touched assertion was RE-POINTED, never deleted — including the four
+  that would otherwise have gone vacuous once `kpi-resolved-closed-breakdown` stopped existing.
+  New coverage where the move created a gap: the modal axe run now opens `kpi-resolved-closed`
+  with a four-band fixture (`overview.a11y.test.tsx` used to seed the payload precisely so axe
+  saw that `<dl>`), `HumanVsAiCard` proves the advisory is reachable by click, and
+  `charts-soc.test.tsx` pins `fill` on both arms plus the byte-identical default.
+  **#3 re-verified: `case_manager.py` md5 `212873cd13d822a7b64752635285ff1f`; `backend/`,
+  `deploy/`, `updater/` and `scripts/` at ZERO diff.** No new npm dep.
+- Measured result (Chromium, demo data, sidebar pinned, partial-coverage warning present):
+  1920×1080 **1,149px → 999px, no scrolling, 81px of slack**; 1600×900 1,149 → 1,013;
+  1440×900 and 1280×800 1,181 → 1,045. KPI strip 144 → 80; lattice 794.5 → 708.5.
+- Second pass, after the adversarial fleet reported (all fixed, all free — the measured
+  heights are byte-identical before and after):
+  - **`pr-10` REMOVED.** Two reviewers disagreed about it, so it was settled in the browser
+    rather than by argument. `px-3` is on the trigger and `pr-10` was on the value row —
+    different elements, so they ADD to a 52px inset, not 40. But the row is `items-end`, and
+    the only child that reaches the overlay's x-range (the scale context, `mb-0.5`) measures
+    at y 36→50 from the cell top against an overlay ending at 32: **4px of clearance with no
+    gutter at all**. The gutter bought nothing and cost the context 40px, which ellipsized
+    "54 of 80 verdicted" at 1440px — recoverable only by mouse-hovering the `title`, i.e. not
+    at all for touch or keyboard. Item 4's live density is therefore `py-2` + `mt-1` only.
+  - **The reconciliation the move broke, restored on the face.** The Resolved / Closed numeral
+    is policy-INCLUSIVE; the Human-vs-AI card publishes bands over the policy-EXCLUSIVE
+    `terminal_cases`. The partition's `Declared benign` row was the only on-page bridge, and
+    it went one level down with the rest. The tile's sub now reads `Incl. N declared benign`
+    when the server reports a non-zero count and says nothing when it does not — conditional
+    exactly like the bounded-sample caption, and free (this tile is not the strip's tallest).
+    Guarded both ways.
+  - Comment/doc corrections, all caused or worsened by this change: the `(?)` doc that still
+    claimed HelpTip's LENGTH heuristic decides the presentation; `KpiTileProps.breakdown` and
+    `KpiBreakdownRow` naming the caller that just left (the prop is kept, and now says it has
+    none); the drill-down block comment, which asserted a co-visibility reason that does not
+    hold (the numeral is in a PINNED band, not co-scrolled), claimed markup parity that the
+    `max-w-sm` cap had already broken, and described the two surfaces as having coexisted;
+    "four rows" where the partition is three unless the backend separates policy closes;
+    "rail" for a cell that is no longer one; the donut floor arithmetic (~93px, not ~104) plus
+    the two things that margin is really carrying (`fmtTokens` is not bounded at 4 chars, and
+    a px hole against a rem numeral is WCAG 1.4.4 headroom); `DEMO.md`'s "Third row" and
+    in-tile partition; `docs/USAGE.md`, `docs/analyst/overview.md` and
+    `docs/getting-started/demo.md`. Two dead test selectors (`:not([data-testid*="-breakdown"])`)
+    and a `KpiTile.secondary.test.tsx` block that passed `ariaExpanded`, a prop removed in
+    #112 and invisible because tsconfig excludes tests from `tsc`.
+- Third pass — the mutation reviewer. It did not read the diff and argue; it INJECTED each
+  regression into a sandboxed `git archive` and watched. Every relocated contract came back
+  live (12 of 12: bands and values, the zero residual, declared-benign-only-when-reported,
+  both withholdings, the `<dl>` axe shape, advisory reachability, DOM order, the donut
+  tokens, the five-row queue, `py-2`, and "the face carries no partition"). What it found
+  instead were the NEW tokens, which nothing guarded:
+  - `mt-1` could be reverted to `mt-2` with the whole suite green — the strip would quietly
+    re-grow. Now asserted beside `py-2` in the density guard.
+  - **The chart actually FILLING had no guard at its call site.** Reverting `fill` to
+    `height={122}` — the precise dead-space regression this change exists to fix — passed
+    every gate. The height is genuinely unassertable in jsdom, but the MODE is not: the card
+    spec now pins `absolute inset-0` and an empty inline height on the chart box.
+  - `alwaysPopover` was inert (the help text is already over the 80-char threshold) and
+    absent from every assertion in the repo, so deleting it as "unused" was invisible —
+    which is exactly the trap its own comment describes. `HelpTip` had NO test file at all;
+    it has one now, pinning the switch where the flag and the heuristic disagree (short
+    text): tooltip without it, popover with it, by click, Enter and Space.
+  Both new guards were mutation-tested here before committing: each fails on its injected
+  regression and passes on revert. Also removed one assertion that could not fail (a
+  `queryByText('4')` sitting after an exact band-by-band `toEqual`) rather than leaving it
+  as decoration, restored a live anchor guard the partial-partition spec had lost, tied the
+  donut-abbreviation spec to the ring size its own title cites, and corrected two test
+  titles/comments that claimed more than their bodies did.
+- Rejected against measurement rather than argument: that `pr-10` under-clears by 6px (it
+  clears, but is unnecessary); that the `fill` chain would not resolve; that the timing
+  restack needed `xl:order-*`.
+- **Pre-existing flake, NOT from this change, worth knowing:**
+  `spec-independent-drilldown.test.tsx > B30 (status options accumulate across pages and
+  reset on a metric swap)` failed 2 of 4 full-suite runs for the reviewer, on two different
+  trees, and passed every isolated re-run; all six of my own full-suite runs were green. It
+  is load-sensitive, not caused by anything here.
+- Status: done. Committed on `claude/overview-one-page-fit` and pushed — `Testing` is a
+  PROTECTED branch requiring the `CI passed` aggregate, so a direct push is rejected by the
+  remote and the only route in is a pull request. Screenshots went to the operator first, per
+  instruction; the PR is deliberately NOT raised and awaits their word.
+- Next: **1440×900 and below still scroll by 113–245px, and that is a product decision, not a
+  layout one.** The two remaining consumers are the noise-reduction flow band
+  (`NoiseFunnel.tsx` `h-[184px]`, row 1 = 357.5px) and the stacked snapshots (349px); closing
+  the gap means shrinking the flow diagram, retiring a band from the landing surface, or
+  accepting that Deeper analytics scrolls. Separately, `docs/analyst/overview.md` is stale from
+  #111/#112 — it still names Active Risk Index, "Escalated to Human" and "Auto-resolved" tiles
+  that no longer exist; only the one sentence this change invalidated was corrected here.
+
+### 2026-09-08 18:31Z — orchestrator (Opus) — Overview strip: sixth tile, prose off the face, hero numerals, taller flow
+
+- Context: operator ask in five parts — remove standing descriptive copy from the landing
+  tiles (1), enlarge the numerals (2), give the diagrams the reclaimed height (3), add a
+  sixth **Auto Closed** KPI (4), widen the page (5) — plus "make the dashboard read like a
+  competitor's". Base `f96fb51` (#113).
+- **This sandbox HAS a browser.** Chromium is preinstalled at `/opt/pw-browsers`, so the
+  work was driven against the real app (`scripts/run-demo.sh`, Demo Mode, auth on) with
+  `playwright-core` installed OUTSIDE the repo — no new webui dependency, no change to
+  `package.json`. That moved most of what the brief called unverifiable into things
+  actually measured here, and it twice overturned reasoning that had looked sound on paper.
+- Did:
+  - `KpiTile`: new `bound` — ONE grammar, two states: a `≥` FLOOR mark on a published
+    numeral, and the em dash ITSELF as the WITHHELD mark when a value is refused. The
+    sentence rides as `sr-only` text content (never `aria-label` on a bare span, which is
+    prohibited on the generic role; never `title` alone, which the UI standard bans as a
+    sole carrier). New opt-in `numeral="hero"` (24→30px with a length ladder) and
+    `formatCompact` (abbreviated numeral `aria-hidden`, exact value `sr-only`). Plus a real
+    clipping fix: the numeral had neither `min-w-0` nor `truncate`, so `overflow-hidden`
+    hard-clipped "543,210" to "543,21" — a readable WRONG number.
+  - `Overview`: `cohortSub()` split into `sub = postureSub` (STATE disclosures only) and
+    `boundSub()` (the conditional bound → the mark). Descriptive captions folded into each
+    tile's help; `scaleAside()` appends the live scale context to the same help from ONE
+    derivation. Sixth tile from `quality.auto_closed_cases` + `automation_rate`, adjacent to
+    Resolved / Closed and sharing its accent, with the containment sentence in its
+    accessible name, help and drill-down population; deliberately NO `populationResolvedBy`,
+    so the panel's TRUE `rows-read` caveat survives. Grid → `xl:grid-cols-6` with a
+    rewritten divider string. Both `PageContainer`s → `fluid` + `sm:-mx-2` (+16px).
+  - `HumanVsAiCard`: subtitle → `sr-only` + `aria-describedby`; "Share of closed cases ·"
+    and the alerts disclaimer → `HUMAN_VS_AI_HELP` (they were NOT already there — deleting
+    without adding would have lost them outright); `{windowLabel}` STAYS, it is the chart's
+    only axis caption.
+  - `NoiseFunnel`: inline band 184 → 216 (constant AND wrapper class together — the height
+    flows into a `preserveAspectRatio` viewBox, so moving one alone letterboxes the drawing
+    and drifts the percentage-positioned label overlay). Deleted the in-SVG "FULL
+    ALERT-TO-CASE FLOW" caption: `aria-hidden` so never announced, it restated the `h2`
+    above it, and it rendered unconditionally while the nodes it captions are gated — on a
+    warming deployment it asserted "FULL" directly under a banner saying otherwise. The
+    √-scale sentence moved to the popover, but a persistent `√ scale` chip keeps the
+    ENCODING disclosure on the face.
+- Measured in a real browser, not asserted:
+  - Divider math matches the geometric oracle (`right = i mod cols ≠ 0 ∧ i ≠ n`,
+    `bottom = i ≤ n − cols`) at 420/700/900/1400px, both in the running app and in a
+    synthetic harness compiled with this repo's own Tailwind. The shipped five-cell string
+    fails at exactly two cells once a sixth tile exists (`sm` bottom cell 5, `xl` right cell
+    6). The `:not()`s are load-bearing: at `md` the old rule won only by emission order at
+    equal (0,2,0) specificity. The harness also showed the FIVE-cell layout drawing a
+    hairline into empty space at 2 and 3 columns — six divides every breakpoint, so that
+    goes away rather than being inherited.
+  - Numeral baselines were staggered 26/40/26/**54**/40/26px at 1280, because labels wrap to
+    one, two and three lines. Hero tiles now bottom-align (`flex h-full flex-col` +
+    `mt-auto`) and all six sit at y=50 — length- and locale-independent, where a reserved
+    label height would not be.
+  - **`secondary` cannot ride beside a 30px numeral at six columns.** Both are shrinkable and
+    flex shrinks the NUMERAL first: restored and rendered, "72%" came out "7…" and "44" came
+    out "4.". My arithmetic had said it fit; the browser said otherwise. It is off the face,
+    and — because the drill-down switcher carries only `{key,label,value}` — `scaleAside()`
+    puts it in each tile's help, verified live ("Right now: 44 of 60 verdicted.").
+  - Strip height 94→82px at 1440, 94→68px at 1920, 94→96px at 1280. Strip width +16px.
+  - Keyboard: all six reachable, `aria-haspopup="dialog"`, Enter opens, Escape closes, focus
+    returns to the originating tile. No clipped numerals, no page errors, no horizontal
+    overflow at 390/1280/1440/1920. `overview.a11y` axe passes with six tiles.
+- Also fixed while here, both found only by looking: the LIVE refresh captioned every numeral
+  `Loading …` on each tick while a real measurement was on screen — false about the numbers,
+  and once it was the only caption a tile carried it reflowed the strip ~18px every few
+  seconds. It now fires only on a first load. And `docs/analyst/overview.md` still named tiles
+  retired in #111/#112; the enumeration, the trendline sentence and the `Loading …` sentence
+  this change invalidated were corrected.
+- **Honest cost:** #113 chased a one-page fit and this spends some of it back. Measured page
+  scroll overflow: 1280×800 **247px** (was ~245), 1440×900 **133px** (was ~113), 1920×1080
+  **0**. The flow band costs +32px; the strip's freed caption row returns 12–26px depending
+  on width. The operator asked for the bigger diagram, so the trade is deliberate, not a
+  regression that slipped through.
+- Tests: `npm run test:strict` **327 files / 2372 passed**, exit 0, zero stderr and zero
+  captured stdout (baseline at `f96fb51` was 326 / 2345 passed + 9 skipped). `npm run build`
+  (docs bundle + `tsc --noEmit` + Vite) clean — entry chunk 396.08 kB against the 400 kB
+  first-paint ceiling, `motion` still lazy at 83.85 kB off the entry path. `npm run gates`
+  all six ✓. `npm run lint -- --max-warnings=0` clean. Backend untouched.
+- Status: done and committed on `Testing`. `decide()` untouched; no backend change; no new
+  npm dependency (`playwright-core` lives in the session scratchpad, outside the repo).
+- Next: **browser acceptance across the full matrix is still owed** — I verified 390 / 1280 /
+  1440 / 1920 in both themes plus keyboard and axe, but not a real trackpad/touch device, not
+  Safari or Firefox, and not the bound/withheld marks against a genuinely truncated window
+  (they are pinned by jsdom specs, not seen). Two judgement calls are one-line reversible if
+  the operator disagrees: the scale context living in help rather than on the tile face, and
+  the funnel's +32px against #113's one-page goal.
+
+- Merged upstream Testing 231bb41f7eb1b707e25113c258eb8d5c7356b743; only conflict was additive Journal history, with both sides preserved. Backend and webui trees match upstream exactly. Fork retains only ci.yml, docs.yml and release.yml; analysis ownership remains external.

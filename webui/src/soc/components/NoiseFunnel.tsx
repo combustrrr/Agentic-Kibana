@@ -655,7 +655,25 @@ function buildLegacyLayout(
 
 const SIMPLE_INLINE_WIDTH = 800;
 const SIMPLE_EXPANDED_WIDTH = 1120;
-const SIMPLE_INLINE_HEIGHT = 184;
+/*
+ * The inline band's height, and the ONE place it is decided.
+ *
+ * 184 → 216 (+32px, roughly +28% of drawable pipeline: `pipelineHeight` runs
+ * `plotBottom − plotTop − nodePadding`, so 116 → 148). At 184 the conversion labels on the
+ * right-hand side of the flow overlapped each other at 1280 and 1440 — "Closed by human"
+ * sat on top of "Not analyst-closed" — because they are positioned as a PERCENTAGE of this
+ * height over an SVG that scales to fit.
+ *
+ * ⚠️ This constant and the wrapper's `h-[216px]` below MUST move together. The height flows
+ * into a `viewBox` drawn with `preserveAspectRatio="xMidYMid meet"`, so changing only the
+ * class letterboxes the drawing (16px of dead band top and bottom) and drifts the
+ * percentage-positioned HTML label overlay off the nodes it labels; changing only the
+ * constant overflows the SVG past its box.
+ *
+ * Hard ceiling 296: `expanded` is `height >= 300`, and crossing it would make this inline
+ * band adopt the 400px modal's padding and draw a SMALLER pipeline than before.
+ */
+const SIMPLE_INLINE_HEIGHT = 216;
 const SIMPLE_EXPANDED_HEIGHT = 400;
 const SIMPLE_NODE_W = 4;
 const SIMPLE_FLOW_KEYS = new Set([
@@ -1263,14 +1281,17 @@ function Header({
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="flex items-center gap-1.5">
-        <h3
+        {/* h2, matching every other band heading on the one page that renders this
+            component. It sits directly under the page h1, and since the flow became the
+            lattice's leading cell an h3 here would skip a level in the landing state. */}
+        <h2
           className={cn(
             'font-semibold text-foreground',
             flat ? 'text-2xs uppercase tracking-widest' : 'text-sm',
           )}
         >
           {flat ? 'Noise reduction flow' : 'Noise reduction'}
-        </h3>
+        </h2>
         <HelpTip
           label="What the noise-reduction funnel means"
           text={view === 'detailed' ? LEGACY_NOISE_FUNNEL_HELP_TEXT : NOISE_FUNNEL_HELP_TEXT}
@@ -1900,7 +1921,9 @@ export function NoiseFunnel({
           data-testid="noise-flow-band"
           className={cn(
             'relative w-full',
-            wideInspection ? 'h-[400px]' : 'hidden h-[184px] @[38rem]/noise:block',
+            // Pinned to SIMPLE_INLINE_HEIGHT / SIMPLE_EXPANDED_HEIGHT — see the note on
+            // those constants for why the class and the constant may never drift apart.
+            wideInspection ? 'h-[400px]' : 'hidden h-[216px] @[38rem]/noise:block',
           )}
         >
           {!simpleLayout.valid ? (
@@ -1936,18 +1959,14 @@ export function NoiseFunnel({
                   </clipPath>
                 </defs>
 
-                <text
-                  x={simpleLayout.width / 2}
-                  y={wideInspection ? 22 : 14}
-                  textAnchor="middle"
-                  fill={token('muted-foreground')}
-                  fontSize={wideInspection ? 12 : 10}
-                  fontWeight={600}
-                  letterSpacing="0.12em"
-                >
-                  FULL ALERT-TO-CASE FLOW
-                </text>
-
+                {/* The "FULL ALERT-TO-CASE FLOW" caption that used to sit here is gone, and
+                    not only for the ~20px it took off the top of every band. It was inside
+                    an `aria-hidden` <svg>, so it was never announced; it restated the <h2>
+                    directly above it; and it rendered UNCONDITIONALLY while the conversion
+                    nodes it captioned are gated on `fullPipeline`. On a deployment whose
+                    counters are still warming it therefore asserted "FULL" over a flow that
+                    starts at cases opened — with the coverage banner saying the opposite a
+                    few pixels above it. */}
                 {simpleLayout.conversionNodes.map((node) => (
                   <rect
                     key={`${node.key}-context-node`}
@@ -2346,8 +2365,21 @@ export function NoiseFunnel({
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-2">
+          {/* The SENTENCE moved to the popover; the MARK did not.
+              "Filled ribbons show the alert → cluster → case reduction. Ribbon thickness
+              uses a compressed (√) display scale." is a paragraph of prose about a picture
+              that has not changed, so it reads once and then becomes furniture — but it is
+              also an ENCODING disclosure, and an unlabelled non-linear axis is a misleading
+              chart, not a tidy one. So a persistent `√ scale` chip stays on the face,
+              carrying the full sentence as its accessible name, and the prose goes to the
+              popover that already restates it in more detail.
+
+              The two `data-disclosure-surface` spans and their container-query classes must
+              keep SHIPPING — the specs assert `not.toHaveClass('hidden')`, never
+              `toBeNull()`, because which surface is visible is decided by CSS at the
+              container width, not by React. The chip therefore lives INSIDE them. */}
           <p
-            className="text-2xs leading-relaxed text-muted-foreground"
+            className="flex min-w-0 flex-wrap items-center gap-x-1 text-2xs leading-relaxed text-muted-foreground"
             data-testid="noise-share-disclosure"
           >
             {simpleFlowDrawn ? (
@@ -2355,8 +2387,19 @@ export function NoiseFunnel({
                 data-disclosure-surface="flow"
                 className={cn(simpleRailIsFallback && 'hidden @[38rem]/noise:inline')}
               >
-                Filled ribbons show the alert → cluster → case reduction, and thickness uses
-                a compressed display scale.{' '}
+                <span
+                  data-testid="noise-scale-chip"
+                  className="inline-flex items-center rounded-sm border border-border/70 px-1 font-mono text-2xs text-muted-foreground"
+                >
+                  {/* The glyph is decorative on its own; the sentence beside it is the
+                      accessible name, as real text rather than an `aria-label` on a bare
+                      span (prohibited on the generic role) or a mouse-only `title`. */}
+                  <span aria-hidden>√ scale</span>
+                  <span className="sr-only">
+                    Filled ribbons show the alert → cluster → case reduction. Ribbon
+                    thickness uses a compressed (√) display scale.
+                  </span>
+                </span>{' '}
               </span>
             ) : null}
             {simpleRailRendered ? (
@@ -2364,13 +2407,22 @@ export function NoiseFunnel({
                 data-disclosure-surface="rail"
                 className={cn(simpleRailIsFallback && '@[38rem]/noise:hidden')}
               >
-                The aligned stage rail lists this window&apos;s stages in flow order.{' '}
+                Stage rail · flow order{' '}
               </span>
             ) : null}
-            Labels are the exact counts and units, and each percentage is that stage&apos;s
-            share of the stage it came from — clusters of alerts ingested, cases of clusters,
-            the case split of cases opened, and human closure of escalated cases. The first
-            stage is the baseline, so it shows an em dash.
+            <HelpTip
+              alwaysPopover
+              label="How to read these counts and percentages"
+              text={
+                "Labels are the exact counts and units. Each percentage is that stage's " +
+                'share of the stage it came from — clusters of alerts ingested, cases of ' +
+                'clusters, the case split of cases opened, and human closure of escalated ' +
+                'cases. The first stage is the baseline, so it shows an em dash. Ribbon ' +
+                'thickness is a square-root scale, so a thin ribbon is thicker than its ' +
+                'share: 4% of alerts ingested draws at about 20% of the full height.'
+              }
+              className="align-middle"
+            />
           </p>
           {validOpenCases ? (
             <button
