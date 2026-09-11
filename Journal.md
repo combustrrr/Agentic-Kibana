@@ -11548,3 +11548,6 @@
 - User requested updated implementation docs and handoffs in both repositories. Documentation-only fork update from Testing; preserve independent product CI and do not restore scanner implementation.
 
 - Updated README, AGENTS and product HANDOFF with current external-service ownership, deployed direct launch/filter/connection behavior, access/storage boundaries and named scanner exceptions. Product runtime and CI workflows are unchanged. Documentation consistency check passed for 80 public pages; version metadata passed. Existing unrelated local edits remain untouched.
+
+### 2026-09-12 - Synchronize upstream Testing into product fork
+- User requested repository synchronization. Merge five upstream commits into fork Testing without changing upstream or restoring external analysis code. Preserve existing fork documentation and independent CI.
