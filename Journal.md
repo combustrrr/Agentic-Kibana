@@ -11543,3 +11543,8 @@
 ### 2026-09-10 — Product-only repository restored
 - Removed the two external-analysis workflow wrappers and project configuration; restored the original product-only CI contract. Validation passed for three product workflows and three shipping Dockerfiles. Analysis report migration is owned by the external service; historical records are retained until copies verify.
 
+
+### 2026-09-11 - External analysis documentation and new-chat handoff
+- User requested updated implementation docs and handoffs in both repositories. Documentation-only fork update from Testing; preserve independent product CI and do not restore scanner implementation.
+
+- Updated README, AGENTS and product HANDOFF with current external-service ownership, deployed direct launch/filter/connection behavior, access/storage boundaries and named scanner exceptions. Product runtime and CI workflows are unchanged. Documentation consistency check passed for 80 public pages; version metadata passed. Existing unrelated local edits remain untouched.

@@ -301,3 +301,12 @@ version. Public repository documentation may describe a different channel.
 
 Release history is in [CHANGELOG.md](CHANGELOG.md); planned work is tracked in
 [ROADMAP.md](ROADMAP.md).
+
+## External code-analysis service
+
+Scanner execution, findings and dashboard development are owned by
+[code-analysis-dashboard](https://github.com/combustrrr/code-analysis-dashboard).
+This product fork is a read-only source and retains its own product CI/docs/release.
+For analysis setup, access, latest implementation and new-chat context, use the
+[service handoff](https://github.com/combustrrr/code-analysis-dashboard/blob/main/docs/HANDOFF.md).
+No analysis runtime or runner is required in the Agentic SOC product.

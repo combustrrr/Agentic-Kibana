@@ -1,9 +1,41 @@
-# Developer & Agent Handoff — START HERE
+# Developer & Agent Handoff - START HERE
 
-The code-analysis service has moved to
+## External code-analysis handoff (2026-09-11)
+
+The code-analysis application is owned, executed and stored in
 [combustrrr/code-analysis-dashboard](https://github.com/combustrrr/code-analysis-dashboard).
-Develop its dashboard, scanners, launcher, and publishing workflows there; this
-repository owns the Agentic SOC product and its CI only.
+For a new chat about analysis, start with its
+[current handoff](https://github.com/combustrrr/code-analysis-dashboard/blob/main/docs/HANDOFF.md).
+Do not develop or reinstall analysis code in this product repository.
+
+- This fork and `ARYDESTROYER/Kavach-AgenticSOC` are read-only analysis sources.
+  The service repository runs Actions and owns current-report Releases for both.
+  Only its own connected self-analysis reports native security/checks to itself.
+  Do not attribute observer results to unrelated fork commits or write upstream.
+- The fork retains independent product CI, Help Center/docs and release workflows.
+  Updating this documentation does not enable analysis workflows or change product
+  runtime, deployment, credentials or documentation publication behavior.
+- The [dashboard](https://combustrrr.github.io/code-analysis-dashboard/) uses Ant
+  Design with light/dark themes. Accepted service-repository collaborators sign in
+  with GitHub. Launch requires write access; configuration requires admin access.
+- Run analysis is one form: branch, PR or full 40-character commit SHA. Current
+  results open after publication. Issues supports severity/scanner/rule/file/directory,
+  source-location and scanner-overlap filters, grouping and immutable source evidence.
+  Connections verifies the selected project and both service execution workflows.
+- Reports live in current GitHub Release assets; Pages contains UI only. There is no
+  product database/VM/R2 dependency. Application login does not privatize public GitHub
+  assets. Automatic validated scanner-tooling adoption is working in the service.
+- Last UI/API rollout: service PR #17, commit
+  `479702f69c4ed28614b54e361f0c0b628b4fff99`, Pages run `34632779427`, Worker version
+  `13dc3e20-4d86-4350-9167-4223ed24ad04`. Read the service handoff/live profile for
+  newer evidence. Sonar non-main-branch entitlement and upstream posture permissions
+  remain incomplete; workflow success is not proof all scanners completed.
+- Owner login is confirmed; a second collaborator's live login is deferred. Parking
+  monitoring is removed. General independent-owner onboarding is not live-proven and
+  is outside the current Kavach-focused scope. Do not revive superseded plans.
+
+The product handoff below retains its original product-version verification date;
+this documentation update does not claim a new product release or revalidate it.
 
 > **If you are a new chat session or a developer picking this up cold, read this file first,
 > then [`AGENTS.md`](../AGENTS.md) (the canonical rulebook).** `CLAUDE.md` is only a

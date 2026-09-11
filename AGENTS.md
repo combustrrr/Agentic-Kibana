@@ -1,5 +1,11 @@
 # AGENTS.md — Agentic SOC (master context for all agents)
 
+> Code-analysis work belongs to `combustrrr/code-analysis-dashboard`. Read its
+> [current handoff](https://github.com/combustrrr/code-analysis-dashboard/blob/main/docs/HANDOFF.md)
+> for service tasks. This fork is a read-only analysis source; preserve independent
+> product CI and do not reintroduce analysis workflows, UI, scanner adapters or secrets.
+
+
 > **New here? Read [`docs/HANDOFF.md`](docs/HANDOFF.md) first** (where we are, how to
 > run it, what's done/next), then this file.
 >
