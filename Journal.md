@@ -11975,3 +11975,14 @@
   the funnel's +32px against #113's one-page goal.
 
 - Merged upstream Testing 231bb41f7eb1b707e25113c258eb8d5c7356b743; only conflict was additive Journal history, with both sides preserved. Backend and webui trees match upstream exactly. Fork retains only ci.yml, docs.yml and release.yml; analysis ownership remains external.
+
+
+### 2026-09-09 — Fork CI and native findings review
+- User clarified that separating dashboard ownership must preserve fork CI/CD and native GitHub security/quality reporting. Reviewed the retained product workflow and current code-scanning analyses.
+- Existing code-scanning records inspected still reference the September 7 Testing revision. Standalone upstream scans do not establish current fork-head results. A source-repository integration must bind publication to the actual fork commit while keeping shared scanner implementation in the service repository. Native reporting integration remains outstanding.
+
+
+### 2026-09-12 - Final documentation and temporary artifact cleanup
+- User requested commit/push of remaining work, current documentation and removal of temporary files. Preserve the historical September 9 note above as history; its proposed fork-native analysis integration is superseded by the service-only observer design. Product and documentation CI for upstream sync ccc711e3 both passed.
+
+- Removed obsolete publication worktree/clone, scanner-repair downloads and old product-side analysis UI dependencies/build/test output after verifying publication and path containment. Product documentation check passed for 80 public pages and version metadata passed. Historical local Journal note is included with its superseding current-design clarification. No runtime or workflow changes.

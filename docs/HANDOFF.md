@@ -1,5 +1,15 @@
 # Developer & Agent Handoff - START HERE
 
+## Synchronization checkpoint (2026-09-12)
+
+Fork Testing includes upstream Testing `231bb41f` through merge `ccc711e3`.
+Product CI `34635362172` and documentation CI `34635362297` passed. Fork main
+already matched upstream main. External analysis remains service-owned; no upstream
+writes occurred. Old local publication checkouts, scanner-repair downloads and the
+obsolete product-side analysis build are disposable and have been removed during
+handoff cleanup. Active code-analysis development and retained test data live in
+the standalone service checkout.
+
 ## External code-analysis handoff (2026-09-11)
 
 The code-analysis application is owned, executed and stored in
