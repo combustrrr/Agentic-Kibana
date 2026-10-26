@@ -12398,3 +12398,9 @@
 - Tests: backend 8,682 passed, 4 skipped; ruff 0.12.5 fatal selection clean; test:strict 525 files, 5,460 passed, 1 skipped; tsc and lint 0; check:types no drift; build clean; bundle-first-paint 23 passed; entry 371,876 B (+17 B, the confirmed flag; budget 372,027 B).
 - Status: done (pushed; review thread answered and resolved).
 - Next: the Workspace history rail still lists the other side's conversations after a Demo switch until its next refresh (component state, outside this finding).
+### 2026-10-26 09:37Z - Codex - Upstream synchronization integrated
+- Context: Complete the requested read-only upstream-to-fork synchronization.
+- Did: Fetched both remotes and merged upstream `Testing` at `c00deef1` into fork `Testing`; preserved both append-only Journal histories and retained fork-only workflows. No upstream write was attempted. Upstream and fork `main` were already identical at `c3f1fa37`.
+- Tests: Structural verification passed: upstream `Testing` is an ancestor of the merge; `backend/` and `webui/` match upstream exactly; fork and upstream `main` match exactly. Full test suites were not rerun locally; fork CI will validate the pushed merge.
+- Status: done
+- Next: Push `Testing` only to the fork (`origin`) and confirm remote/CI state.
