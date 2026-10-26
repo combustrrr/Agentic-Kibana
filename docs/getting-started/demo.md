@@ -52,11 +52,15 @@ human.
 2. Open **Case Manager**, compare the Overview, Timeline, Investigation, Threat,
    Collaboration, and Chat tabs, then try queue selection. The legacy **Cases**
    table remains available for comparison.
-3. Open **Sources** and inspect the five simulated source types and recent activity.
-4. Open **Detection & Rules**, Campaigns, Baseline, and Tuning to see the advisory
+3. Open **Workspace Chat**: the start screen says what changed in the demo data since
+   your last visit and suggests questions about it, such as your shift brief or a case
+   that needs a person. Pick one and watch each lookup run; add a chart to a report and
+   generate its summary. Demo answers and summaries are deterministic and cost nothing.
+4. Open **Sources** and inspect the five simulated source types and recent activity.
+5. Open **Detection & Rules**, Campaigns, Baseline, and Tuning to see the advisory
    automation loop.
-5. Open **Cost** and confirm model spend remains `$0`.
-6. Open **Audit** and trace the demo actions.
+6. Open **Cost** and confirm model spend remains `$0`.
+7. Open **Audit** and trace the demo actions.
 
 Use **Generate incident** in the Demo settings for an on-demand, cooldown-aware
 five-source storyline. A successful request emits exactly eight native records:

@@ -21,6 +21,11 @@
  * "Logs" page under the Triage nav group) and `UnifiedLogsSheet` (the same content in a
  * right Sheet, for an inline "browse everything" affordance). The default export is the
  * page view.
+ *
+ * `UnifiedLogsBody` also takes a STARTING query, window and source plus a header slot:
+ * the Logs page's chat deep link ("Open in Logs", SPEC §10.7) opens this same browser
+ * already set to the answer's exact filter, with its summary above the controls, so
+ * there is one log table, not a second copy for linked queries.
  */
 import * as React from 'react';
 import {
@@ -35,6 +40,7 @@ import {
 } from 'lucide-react';
 import { DASH, formatTimestamp } from '@/lib/format';
 import { cn } from '@/lib/cn';
+import { logRowKeys, pruneExpandedKeys } from '@/lib/log-row-keys';
 import {
   fetchUnifiedLogs,
   type UnifiedLogRow,
@@ -69,12 +75,59 @@ import {
   TableCell,
 } from '@/ui/table';
 import { CodeBlock } from '@/soc/components/CodeBlock';
+import type { AskAiChipProps } from '@/soc/components/AskAiChip';
+import { useAuth } from '@/soc/auth';
+import { useRoute } from '@/soc/router';
+import type { AskEntityKind } from '@/soc/components/ask-ai';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { SeverityBadge } from '@/soc/components/badges';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { PageContainer } from '@/soc/components/PageContainer';
 import { LoadingState } from '@/design-system';
+
+/**
+ * Round 12 WP-ASK: the "Ask AI" chip, loaded on demand so it never becomes a shared
+ * chunk every route's preload list (in the entry chunk) must name (see AskAiChip.tsx,
+ * "Loading"). The load starts when this module loads; the chip renders once it has
+ * arrived, and never if it cannot load (the chip is optional, so it fails soft).
+ */
+type AskAiChipModule = typeof import('@/soc/components/AskAiChip');
+let askAiChipModule: AskAiChipModule | null = null;
+const askAiChipLoad: Promise<AskAiChipModule | null> = import('@/soc/components/AskAiChip').then(
+  (loaded) => (askAiChipModule = loaded),
+  () => null,
+);
+/**
+ * A shell context, or null outside it. `useAuth` / `useRoute` read their context before
+ * they throw, so hook order is stable; the hook is looked up inside the guard too (a test
+ * double of the module may not export it).
+ */
+function useOptionalContext<T>(pick: () => () => T): T | null {
+  try {
+    return pick()();
+  } catch {
+    return null;
+  }
+}
+function AskAiChip(props: AskAiChipProps) {
+  const auth = useOptionalContext(() => useAuth);
+  const route = useOptionalContext(() => useRoute);
+  const [loaded, setLoaded] = React.useState(askAiChipModule);
+  React.useEffect(() => {
+    if (loaded) return undefined;
+    let live = true;
+    void askAiChipLoad.then((next) => {
+      if (live && next) setLoaded(next);
+    });
+    return () => {
+      live = false;
+    };
+  }, [loaded]);
+  return loaded ? (
+    <loaded.AskAiChip {...props} navigate={route?.navigate} hasPermission={auth?.hasPermission} />
+  ) : null;
+}
 
 /** Auto-refresh cadence for the "Live tail" switch (ms). */
 const LIVE_TAIL_INTERVAL_MS = 10_000;
@@ -180,16 +233,93 @@ const SourceStatusStrip: React.FC<{ sources: UnifiedLogSourceStatus[] }> = ({ so
 /* Shared body — the controls + status strip + rows table                     */
 /* -------------------------------------------------------------------------- */
 
-export const UnifiedLogsBody: React.FC = () => {
-  const [query, setQuery] = React.useState('');
+/** The time-range control's value for a starting window that is not a preset. */
+const LINKED_WINDOW = 'linked';
+
+export interface UnifiedLogsBodyProps {
+  /** The search to start with (a linked query); it stays editable. */
+  initialQuery?: string;
+  /**
+   * The window to start with (a linked query's exact bounds): `now`, `now-<n><unit>` or
+   * ISO-8601. A preset with no explicit end selects that preset; anything else becomes a
+   * one-off entry in the time-range control until another range is chosen.
+   */
+  initialFrom?: string;
+  initialTo?: string;
+  /** How that one-off window reads in the control (e.g. a readable UTC range). */
+  initialWindowLabel?: string;
+  /** Read only this source (a linked query's source). */
+  sourceId?: string;
+  /** Rendered above the controls (e.g. the linked query's summary). */
+  header?: React.ReactNode;
+  /** Every successful read's per-source status (a host names a linked source with it). */
+  onSources?: (sources: UnifiedLogSourceStatus[]) => void;
+}
+
+/** Why Live tail is off while a linked query's fixed past window is selected. */
+export const LIVE_TAIL_FIXED_WINDOW_REASON = 'This linked window is fixed in the past, so it never changes. Pick a time range to follow new events.';
+
+interface StartWindow {
+  /** A preset value, or {@link LINKED_WINDOW} for the starting one-off window. */
+  start: string;
+  linked: {
+    from: string | null;
+    to: string | null;
+    label: string;
+    /** It ends at an absolute instant already past, so re-reading it finds nothing new. */
+    fixed: boolean;
+  } | null;
+}
+
+/**
+ * Whether a window ending at `to` is closed in the past: `to` is an absolute instant (not
+ * `now` or `now-…`, the same rule as the Logs page's readable range) at or before now. An
+ * open end runs to now, and a relative one moves, so both still see new events.
+ */
+function endsInPast(to: string | undefined): boolean {
+  if (!to || to === 'now' || to.startsWith('now-')) return false;
+  const ms = Date.parse(to);
+  return Number.isFinite(ms) && ms <= Date.now();
+}
+
+function startWindow(from?: string, to?: string, label?: string): StartWindow {
+  if (!from && !to) return { start: 'now-1h', linked: null };
+  if (from && (!to || to === 'now') && TIME_RANGES.some((r) => r.value === from)) return { start: from, linked: null };
+  return {
+    start: LINKED_WINDOW,
+    linked: { from: from ?? null, to: to ?? null, label: label || `${from ?? '…'} → ${to ?? 'now'}`, fixed: endsInPast(to) },
+  };
+}
+
+export const UnifiedLogsBody: React.FC<UnifiedLogsBodyProps> = ({
+  initialQuery = '',
+  initialFrom,
+  initialTo,
+  initialWindowLabel,
+  sourceId,
+  header = null,
+  onSources,
+}) => {
+  const [query, setQuery] = React.useState(initialQuery);
   // The COMMITTED search term the fetch actually uses. Kept separate from the live
   // `query` input so typing does not refetch/skeleton-flash on every keystroke — the
   // search is manual (Enter / Refresh), matching the button contract below.
-  const [submittedQuery, setSubmittedQuery] = React.useState('');
-  const [start, setStart] = React.useState('now-1h');
-  const [liveTail, setLiveTail] = React.useState(false);
+  const [submittedQuery, setSubmittedQuery] = React.useState(initialQuery);
+  // The starting window is read once: a host that links somewhere else remounts the
+  // body (keyed), so a later prop change never silently swaps the analyst's range.
+  const [initialWindow] = React.useState(() => startWindow(initialFrom, initialTo, initialWindowLabel));
+  const [start, setStart] = React.useState(initialWindow.start);
+  const linkedWindow = start === LINKED_WINDOW ? initialWindow.linked : null;
+  const [liveTailPref, setLiveTail] = React.useState(false);
+  // Re-polling a window closed in the past every 10 s would only re-read the same rows.
+  // A relative or open-ended linked window (`from=now-6h`) still moves, so it can tail.
+  const liveTailBlocked = start === LINKED_WINDOW && !!initialWindow.linked?.fixed;
+  const liveTail = liveTailPref && !liveTailBlocked;
+  const onSourcesRef = React.useRef(onSources);
+  onSourcesRef.current = onSources;
 
   const [rows, setRows] = React.useState<UnifiedLogRow[]>([]);
+  const keys = React.useMemo(() => logRowKeys(rows), [rows]);
   const [sources, setSources] = React.useState<UnifiedLogSourceStatus[]>([]);
   const [partial, setPartial] = React.useState(false);
   const [count, setCount] = React.useState(0);
@@ -216,25 +346,23 @@ export const UnifiedLogsBody: React.FC = () => {
         const res = await fetchUnifiedLogs({
           limit: ROW_LIMIT,
           query: submittedQuery.trim() || undefined,
-          from: start || undefined,
-          to: 'now',
+          // A linked window keeps its exact bounds; an open-ended one runs to now.
+          from: linkedWindow ? (linkedWindow.from ?? undefined) : start || undefined,
+          to: linkedWindow ? (linkedWindow.to ?? (linkedWindow.from ? 'now' : undefined)) : 'now',
+          ...(sourceId ? { source_id: sourceId } : {}),
         });
         if (seq !== seqRef.current) return; // superseded by a newer request
         const logs = res.logs || [];
         setRows(logs);
         setSources(res.sources || []);
+        onSourcesRef.current?.(res.sources || []);
         setPartial(Boolean(res.partial));
         setCount(typeof res.count === 'number' ? res.count : logs.length);
         setAppliedLimit(typeof res.limit === 'number' ? res.limit : ROW_LIMIT);
         setTruncated(Boolean(res.truncated));
-        // Prune expanded ids that scrolled out of the window (ids are per-source
-        // unique; a source_id prefix keeps two sources' identical ids distinct).
-        setExpanded((prev) => {
-          const ids = new Set(logs.map((r) => rowKey(r)));
-          const next = new Set<string>();
-          for (const k of prev) if (ids.has(k)) next.add(k);
-          return next;
-        });
+        // Prune expanded rows that scrolled out of the window (keys are source, id
+        // and event time, so a refresh keeps the analyst's open row open).
+        setExpanded((prev) => pruneExpandedKeys(prev, logs));
       } catch (e) {
         if (seq !== seqRef.current) return;
         setError(e);
@@ -242,7 +370,7 @@ export const UnifiedLogsBody: React.FC = () => {
         if (showSkeleton && seq === seqRef.current) setLoading(false);
       }
     },
-    [submittedQuery, start],
+    [submittedQuery, start, linkedWindow, sourceId],
   );
 
   // Manual search: commit the live input. If the term is unchanged the load effect
@@ -290,6 +418,7 @@ export const UnifiedLogsBody: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-4">
+      {header}
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-2.5">
         <div className="relative min-w-[14rem] flex-1">
@@ -309,10 +438,11 @@ export const UnifiedLogsBody: React.FC = () => {
           />
         </div>
         <Select value={start} onValueChange={setStart}>
-          <SelectTrigger className="h-9 w-[11rem]" aria-label="Time range">
+          <SelectTrigger className={cn('h-9', initialWindow.linked ? 'w-auto min-w-[11rem] max-w-full' : 'w-[11rem]')} aria-label="Time range">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+            {initialWindow.linked ? <SelectItem value={LINKED_WINDOW}>{initialWindow.linked.label}</SelectItem> : null}
             {TIME_RANGES.map((r) => (
               <SelectItem key={r.value} value={r.value}>
                 {r.label}
@@ -320,16 +450,26 @@ export const UnifiedLogsBody: React.FC = () => {
             ))}
           </SelectContent>
         </Select>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" title={liveTailBlocked ? LIVE_TAIL_FIXED_WINDOW_REASON : undefined}>
           <Switch
             id="unified-live-tail"
             checked={liveTail}
             onCheckedChange={setLiveTail}
+            disabled={liveTailBlocked}
             aria-label="Auto-refresh every 10 seconds"
+            aria-describedby={liveTailBlocked ? 'unified-live-tail-reason' : undefined}
           />
-          <Label htmlFor="unified-live-tail" className="cursor-pointer text-xs">
+          <Label
+            htmlFor="unified-live-tail"
+            className={cn('text-xs', liveTailBlocked ? 'cursor-not-allowed text-muted-foreground' : 'cursor-pointer')}
+          >
             Live tail
           </Label>
+          {liveTailBlocked ? (
+            <span id="unified-live-tail-reason" className="sr-only">
+              {LIVE_TAIL_FIXED_WINDOW_REASON}
+            </span>
+          ) : null}
         </div>
         <Button
           variant="outline"
@@ -338,7 +478,7 @@ export const UnifiedLogsBody: React.FC = () => {
           disabled={loading}
           aria-label="Refresh log events"
         >
-          <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} aria-hidden /> Refresh
+          <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin motion-reduce:animate-none')} aria-hidden /> Refresh
         </Button>
       </div>
 
@@ -404,11 +544,16 @@ export const UnifiedLogsBody: React.FC = () => {
               description={
                 sources.length === 0
                   ? 'No browse-capable sources are enabled. Configure a source to see its logs here.'
-                  : 'No log events matched this window across your sources.'
+                  : linkedWindow
+                    ? // A link reopened later may point at events the source no longer keeps.
+                      'No log events matched this window across your sources. Older events may have aged out of the source since this link was made.'
+                    : 'No log events matched this window across your sources.'
               }
             />
           ) : (
-            <div className="overflow-hidden rounded-lg border border-border">
+            // `@container/ulog`: the row detail below sizes itself to the visible width of
+            // the table's horizontal scroll area (`100cqi`), so it never lands off-screen.
+            <div className="@container/ulog overflow-hidden rounded-lg border border-border">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -422,8 +567,8 @@ export const UnifiedLogsBody: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((r) => {
-                    const key = rowKey(r);
+                  {rows.map((r, index) => {
+                    const key = keys[index];
                     const isOpen = expanded.has(key);
                     return (
                       <React.Fragment key={key}>
@@ -439,7 +584,15 @@ export const UnifiedLogsBody: React.FC = () => {
                           </TableCell>
                           <TableCell className="font-mono text-xs">
                             {r.source_ip ? (
-                              <span className="break-all">{r.source_ip}</span>
+                              // An IPv4 address stays on one line so the Ask AI icon beside
+                              // it never squeezes it into a letter-per-line column; the
+                              // rule, host and user chips live in the row detail.
+                              <div className="group/ask flex items-center gap-1">
+                                <span className={cn('min-w-0', r.source_ip.length <= 15 ? 'whitespace-nowrap' : 'break-all')}>
+                                  {r.source_ip}
+                                </span>
+                                <AskAiChip kind="ip" value={r.source_ip} />
+                              </div>
                             ) : (
                               <span className="text-muted-foreground">{DASH}</span>
                             )}
@@ -487,13 +640,20 @@ export const UnifiedLogsBody: React.FC = () => {
                         {isOpen ? (
                           <TableRow id={`ulog-raw-${key}`}>
                             <TableCell colSpan={7} className="bg-muted/30 p-2">
-                              {/* _raw is UNTRUSTED source data → fenced, never markup. */}
-                              <CodeBlock
-                                value={r._raw ?? {}}
-                                wrap
-                                maxHeightClassName="max-h-80"
-                                caption={`raw event · ${r.source_name || r.source_id}`}
-                              />
+                              {/* The detail stays in the visible part of the table's scroll
+                                  area: on a phone the table scrolls sideways and the row is
+                                  expanded from its far-right Raw button, so a full-width
+                                  detail would start off-screen. */}
+                              <div className={ROW_DETAIL} data-testid="ulog-row-detail">
+                                <RowEntities row={r} />
+                                {/* _raw is UNTRUSTED source data → fenced, never markup. */}
+                                <CodeBlock
+                                  value={r._raw ?? {}}
+                                  wrap
+                                  maxHeightClassName="max-h-80"
+                                  caption={`raw event · ${r.source_name || r.source_id}`}
+                                />
+                              </div>
                             </TableCell>
                           </TableRow>
                         ) : null}
@@ -516,12 +676,45 @@ export const UnifiedLogsBody: React.FC = () => {
 };
 
 /**
- * A stable per-row key. Row `id` can collide across sources (two connectors may emit
- * the same event id), so we namespace by `source_id` to keep expansion state correct.
+ * A row's expanded detail: pinned to the left of the table's horizontal scroll area
+ * (`sticky`, 8 px in like the cell padding) and no wider than its visible width
+ * (`100cqi` of the `@container/ulog` wrapper, less both paddings).
  */
-function rowKey(r: UnifiedLogRow): string {
-  return `${r.source_id}::${r.id}`;
-}
+const ROW_DETAIL = 'sticky left-2 max-w-[calc(100cqi-1rem)]';
+
+/**
+ * The row's entities in its detail (Round 12 WP-ASK): source IP, host, user and rule,
+ * each with an "Ask AI" chip that opens a new chat asking the server's question about
+ * that value (a typed reference, never free text). Host and user have no table column,
+ * and the rule column is too narrow for a chip, so this is where those are asked about.
+ * Every value is UNTRUSTED source data (#9): a plain text node.
+ */
+const ROW_ENTITIES: ReadonlyArray<{ label: string; kind: AskEntityKind; pick: (r: UnifiedLogRow) => string | null }> = [
+  { label: 'Source IP', kind: 'ip', pick: (r) => r.source_ip },
+  { label: 'Host', kind: 'host', pick: (r) => r.host },
+  { label: 'User', kind: 'user', pick: (r) => r.user },
+  { label: 'Rule', kind: 'rule', pick: (r) => r.rule },
+];
+
+const RowEntities: React.FC<{ row: UnifiedLogRow }> = ({ row }) => {
+  const present = ROW_ENTITIES.map((entity) => ({ ...entity, value: entity.pick(row) })).filter(
+    (entity): entity is (typeof entity & { value: string }) => typeof entity.value === 'string' && entity.value.trim() !== '',
+  );
+  if (present.length === 0) return null;
+  return (
+    <dl className="mb-2 flex flex-wrap gap-x-6 gap-y-1 px-1 text-xs" data-testid="ulog-row-entities">
+      {present.map((entity) => (
+        <div key={entity.label} className="group/ask flex min-w-0 items-center gap-1.5">
+          <dt className="text-muted-foreground">{entity.label}</dt>
+          <dd className="flex min-w-0 items-center gap-1">
+            <span className="min-w-0 break-all font-mono text-foreground">{entity.value}</span>
+            <AskAiChip kind={entity.kind} value={entity.value} />
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+};
 
 /* -------------------------------------------------------------------------- */
 /* Standalone page (intended nav placement: top-level "Logs" under Triage)    */

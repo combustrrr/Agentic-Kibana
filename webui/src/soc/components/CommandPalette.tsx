@@ -8,7 +8,10 @@
  *   (b) debounce-queries GET /api/search?q= for cases + sources and lets the
  *       operator open one;
  *   (c) offers quick actions (New chat, Toggle theme, Go to Settings, Enable demo
- *       mode — admin only);
+ *       mode — admin only) and, LAST, the chat entries (Search chats, Open Reports, and
+ *       finally "Ask AI: <text>" — SPEC §10.4a), which load as a LAZY chunk so the entry
+ *       stays small. They render after every page/action/setting match so Enter on a
+ *       typed page name still opens that page (cmdk selects the first item);
  *   (d) remembers recently-jumped targets (localStorage) and surfaces them first.
  *
  * SECURITY (#9): every case/source title, entity value and source name returned by
@@ -42,7 +45,7 @@ import {
 } from '@/ui/command';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/ui/dialog';
 import { api } from '@/lib/api';
-import type { SearchResult } from '@/lib/types';
+import type { NavOpts, SearchResult } from '@/lib/types';
 import { useAuth } from '@/soc/auth';
 import { usePrefs } from '@/soc/prefs';
 import { useTheme } from '@/soc/theme';
@@ -53,6 +56,9 @@ import type { Navigate } from '@/soc/router';
 // Settings renderer — import from the COMPONENT-FREE meta module so the heavy Settings
 // component tree stays out of the first-paint entry chunk (Round-5 Coupling-A).
 import { searchJumpTargets } from '@/soc/pages/settings/settings-sections-meta';
+
+// The chat entries + chat search (chat revamp): lazy, never in the entry chunk.
+const PaletteSearch = React.lazy(() => import('@/soc/chat/report/PaletteSearch'));
 
 const RECENTS_KEY = 'tlsoc.cmdk.recents';
 const RECENTS_MAX = 6;
@@ -155,9 +161,11 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
 
   // Navigate + record the jump + close. Settings-section nav ids are valid PageIds.
   const go = React.useCallback(
-    (page: PageId, label: string) => {
+    (page: PageId, label: string, opts?: NavOpts) => {
       pushRecent({ page, label });
-      onNavigate(page);
+      // Plain jumps keep the one-argument call the shell (and its tests) rely on.
+      if (opts) onNavigate(page, opts);
+      else onNavigate(page);
       onOpenChange(false);
     },
     [onNavigate, onOpenChange],
@@ -249,6 +257,11 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
   );
   const showRecents = term.length === 0 && recents.length > 0;
   const isDiscoveryState = term.length === 0;
+  const matchNewChat = localMatch('new chat workspace investigate assistant');
+  const matchTheme = localMatch('toggle theme dark light appearance');
+  const matchSettings = localMatch('go to settings preferences configuration');
+  const matchDemo = canManageSettings && !demoActive && localMatch('enable demo mode synthetic sandbox');
+  const showActions = matchNewChat || matchTheme || matchSettings || matchDemo;
   const res = results;
 
   return (
@@ -338,53 +351,54 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
               <CommandSeparator />
             ) : null}
 
-            {/* Quick actions (filtered by the local substring match). */}
-            <CommandGroup heading="Actions">
-              {localMatch('new chat workspace investigate assistant') ? (
-                <CommandItem value="action-new-chat" onSelect={() => go('chat', 'Workspace')}>
-                  <MessageSquarePlus aria-hidden />
-                  <span>New chat</span>
-                </CommandItem>
-              ) : null}
-              {localMatch('toggle theme dark light appearance') ? (
-                <CommandItem
-                  value="action-toggle-theme"
-                  onSelect={() => {
-                    setThemeMode(isDark ? 'light' : 'dark');
-                    onOpenChange(false);
-                  }}
-                >
-                  {isDark ? <Sun aria-hidden /> : <Moon aria-hidden />}
-                  <span>{isDark ? 'Switch to light mode' : 'Switch to dark mode'}</span>
-                </CommandItem>
-              ) : null}
-              {localMatch('go to settings preferences configuration') ? (
-                <CommandItem
-                  value="action-go-settings"
-                  onSelect={() => go('settings', 'Settings')}
-                >
-                  <SettingsIcon aria-hidden />
-                  <span>Go to Settings</span>
-                </CommandItem>
-              ) : null}
-              {canManageSettings &&
-              !demoActive &&
-              localMatch('enable demo mode synthetic sandbox') ? (
-                <CommandItem
-                  value="action-enable-demo"
-                  onSelect={() => {
-                    void api.demo
-                      .enable()
-                      .then(() => refreshDemo())
-                      .catch(() => undefined);
-                    onOpenChange(false);
-                  }}
-                >
-                  <FlaskConical aria-hidden />
-                  <span>Enable demo mode</span>
-                </CommandItem>
-              ) : null}
-            </CommandGroup>
+            {/* Quick actions (filtered by the local substring match). The group renders
+                only when one of them matches, so a query never leaves an empty heading. */}
+            {showActions ? (
+              <CommandGroup heading="Actions">
+                {matchNewChat ? (
+                  <CommandItem value="action-new-chat" onSelect={() => go('chat', 'Workspace', { newChat: true })}>
+                    <MessageSquarePlus aria-hidden />
+                    <span>New chat</span>
+                  </CommandItem>
+                ) : null}
+                {matchTheme ? (
+                  <CommandItem
+                    value="action-toggle-theme"
+                    onSelect={() => {
+                      setThemeMode(isDark ? 'light' : 'dark');
+                      onOpenChange(false);
+                    }}
+                  >
+                    {isDark ? <Sun aria-hidden /> : <Moon aria-hidden />}
+                    <span>{isDark ? 'Switch to light mode' : 'Switch to dark mode'}</span>
+                  </CommandItem>
+                ) : null}
+                {matchSettings ? (
+                  <CommandItem
+                    value="action-go-settings"
+                    onSelect={() => go('settings', 'Settings')}
+                  >
+                    <SettingsIcon aria-hidden />
+                    <span>Go to Settings</span>
+                  </CommandItem>
+                ) : null}
+                {matchDemo ? (
+                  <CommandItem
+                    value="action-enable-demo"
+                    onSelect={() => {
+                      void api.demo
+                        .enable()
+                        .then(() => refreshDemo())
+                        .catch(() => undefined);
+                      onOpenChange(false);
+                    }}
+                  >
+                    <FlaskConical aria-hidden />
+                    <span>Enable demo mode</span>
+                  </CommandItem>
+                ) : null}
+              </CommandGroup>
+            ) : null}
 
             {/* Settings sections + setting-level cards (RBAC-filtered, from the lifted
                 settings-sections registry and intentionally search-only). Jumps write the FULL hash
@@ -457,6 +471,12 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
                 </CommandGroup>
               );
             })}
+
+            {/* Chat entries + chat search: last, so they never take the default Enter
+                from a page, action or setting the query names. */}
+            <React.Suspense fallback={null}>
+              <PaletteSearch query={query} go={go} />
+            </React.Suspense>
           </CommandList>
           <div
             className="flex items-center justify-between border-t border-border px-3 py-2 text-xs text-muted-foreground"

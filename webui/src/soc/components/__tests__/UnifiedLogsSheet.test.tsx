@@ -13,7 +13,7 @@
  * gating is the integrator's ProtectedRoute wrapper, out of this component's scope).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 const { fetchUnifiedLogsMock } = vi.hoisted(() => ({ fetchUnifiedLogsMock: vi.fn() }));
 
@@ -25,7 +25,7 @@ vi.mock('@/soc/UnifiedLogs.api', async () => {
   return { ...actual, fetchUnifiedLogs: fetchUnifiedLogsMock };
 });
 
-import { UnifiedLogsView } from '../UnifiedLogsSheet';
+import { UnifiedLogsBody, UnifiedLogsView } from '../UnifiedLogsSheet';
 import type { UnifiedLogsResponse } from '../../UnifiedLogs.api';
 
 const RESPONSE: UnifiedLogsResponse = {
@@ -211,5 +211,98 @@ describe('UnifiedLogsView', () => {
         screen.getByText(/No browse-capable sources are enabled/i),
       ).toBeInTheDocument(),
     );
+  });
+});
+
+describe('UnifiedLogsBody — a starting query, window and source (the Logs deep link)', () => {
+  beforeEach(() => {
+    fetchUnifiedLogsMock.mockReset();
+    fetchUnifiedLogsMock.mockResolvedValue(RESPONSE);
+  });
+
+  it('reads the exact linked bounds and source once, with the header above ONE table', async () => {
+    render(
+      <UnifiedLogsBody
+        initialQuery="failed"
+        initialFrom="2026-10-01T12:00:00Z"
+        initialTo="2026-10-08T12:00:00.250Z"
+        initialWindowLabel="2026-10-01 12:00:00 → 2026-10-08 12:00:00 UTC"
+        sourceId="src-elastic"
+        header={<p>Linked summary</p>}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText('benign heartbeat')).toBeInTheDocument());
+    expect(fetchUnifiedLogsMock).toHaveBeenCalledTimes(1);
+    expect(fetchUnifiedLogsMock).toHaveBeenCalledWith({
+      limit: 150,
+      query: 'failed',
+      from: '2026-10-01T12:00:00Z',
+      to: '2026-10-08T12:00:00.250Z',
+      source_id: 'src-elastic',
+    });
+    expect(screen.getByRole('textbox', { name: 'Search log events' })).toHaveValue('failed');
+    // The one-off window reads as its label in the time-range control.
+    expect(screen.getByRole('combobox', { name: 'Time range' })).toHaveTextContent('2026-10-01 12:00:00 → 2026-10-08 12:00:00 UTC');
+    expect(screen.getByText('Linked summary')).toBeInTheDocument();
+    expect(screen.getAllByRole('table')).toHaveLength(1);
+  });
+
+  it('selects the matching preset for an open-ended relative window', async () => {
+    render(<UnifiedLogsBody initialFrom="now-24h" />);
+    await waitFor(() => expect(fetchUnifiedLogsMock).toHaveBeenCalledWith(expect.objectContaining({ from: 'now-24h', to: 'now' })));
+    expect(screen.getByRole('combobox', { name: 'Time range' })).toHaveTextContent('Last 24 hours');
+    expect(fetchUnifiedLogsMock.mock.calls[0][0]).not.toHaveProperty('source_id');
+  });
+});
+
+describe('UnifiedLogsBody — repeated event ids', () => {
+  const twice = {
+    ...RESPONSE,
+    partial: false,
+    count: 3,
+    logs: [
+      { ...RESPONSE.logs[1], message: 'first copy' },
+      { ...RESPONSE.logs[1], ts: '2026-07-01T10:03:00Z', message: 'second copy' },
+      { ...RESPONSE.logs[1], source_id: 'src-wazuh', source_name: 'Wazuh EDR', message: 'other source' },
+    ],
+  } satisfies UnifiedLogsResponse;
+
+  it('renders both copies and expands only the one asked for', async () => {
+    fetchUnifiedLogsMock.mockReset();
+    fetchUnifiedLogsMock.mockResolvedValue(twice);
+    const errors = vi.spyOn(console, 'error');
+    render(<UnifiedLogsBody />);
+    await waitFor(() => expect(screen.getByText('second copy')).toBeInTheDocument());
+    expect(screen.getByText('first copy')).toBeInTheDocument();
+    // React reports a duplicate key through console.error.
+    expect(errors).not.toHaveBeenCalled();
+    const toggles = screen.getAllByRole('button', { name: 'Show raw event for evt-2' });
+    expect(toggles).toHaveLength(3);
+    fireEvent.click(toggles[1]);
+    expect(screen.getAllByTestId('ulog-row-detail')).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Hide raw event for evt-2' })).toHaveLength(1);
+    errors.mockRestore();
+  });
+
+  it('keeps the expanded row open when a refresh adds a newer copy of its id above it', async () => {
+    const older = { ...RESPONSE.logs[1], ts: '2026-07-01T10:04:00Z', message: 'older copy', _raw: { m: 'older copy' } };
+    const newer = { ...RESPONSE.logs[1], ts: '2026-07-01T10:09:00Z', message: 'newer copy', _raw: { m: 'newer copy' } };
+    fetchUnifiedLogsMock.mockReset();
+    fetchUnifiedLogsMock.mockResolvedValueOnce({ ...RESPONSE, partial: false, count: 1, logs: [older] });
+    render(<UnifiedLogsBody />);
+    await waitFor(() => expect(screen.getByText('older copy')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Show raw event for evt-2' }));
+    expect(screen.getByTestId('ulog-row-detail')).toHaveTextContent('older copy');
+
+    fetchUnifiedLogsMock.mockResolvedValueOnce({ ...RESPONSE, partial: false, count: 2, logs: [newer, older] });
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh log events' }));
+    await waitFor(() => expect(screen.getByText('newer copy')).toBeInTheDocument());
+    // The open detail is still the row the analyst expanded; the new row is closed.
+    const details = screen.getAllByTestId('ulog-row-detail');
+    expect(details).toHaveLength(1);
+    expect(details[0]).toHaveTextContent('older copy');
+    expect(details[0]).not.toHaveTextContent('newer copy');
+    const toggles = screen.getAllByRole('button', { name: /raw event for evt-2/ });
+    expect(toggles.map((t) => t.getAttribute('aria-expanded'))).toEqual(['false', 'true']);
   });
 });

@@ -36,7 +36,7 @@ script: another administrator may have changed a different section in the meanti
 
 The Console presents one searchable section rail, a single active-section heading,
 and flat divider-led setting groups. Theme selection is a compact **System / Light /
-Dark** control under **Account → Appearance & customization**. Personal theme changes
+Dark** control under **Settings → Account → Appearance & customization**. Personal theme changes
 apply immediately and follow the signed-in user; System follows the organization
 default when one is configured, otherwise the device preference.
 
@@ -75,9 +75,67 @@ point-in-time rollback in version 0.1.
   unless an operator explicitly enables it.
 - **Autopilot and budget:** the balanced profile enables broad collection and a
   default daily LLM budget backstop. A budget block routes work to a human; it does
-  not discard or silently close the case.
+  not discard or silently close the case. Chat is outside this budget; its only
+  spending bound is the optional daily chat spending limit (see
+  [Chat assistant](#chat-assistant)), which is off by default.
 - **Reset:** reset actions are separate, freshly authenticated, type-to-confirm
   operations. See [Reset and recovery](reset.md).
+
+## Chat assistant
+
+**Settings → General → Chat assistant** controls Workspace and Case Manager chat:
+
+- **Question limits.** **Limits per question** comes first. **Unlimited** (the default)
+  lets a question run until the assistant has answered or someone presses Stop, and
+  never cuts an answer short; loop guards still stop a question that is going nowhere
+  (the same lookup never runs twice, a question that stops making progress is asked to
+  answer, a model call that goes silent is retried once, and a very long investigation
+  wraps up with what it found). **Bounded** applies the per-question limits shown under
+  it: model calls, lookups, the token ceiling, and the time limit, with the answer
+  reserve, answer length, and results per step under **More limits**. Switching modes
+  keeps the values you set, so switching back is lossless.
+- **Spending.** **Daily chat spending limit** is off by default: the AI budget (daily
+  and monthly) covers automatic investigations and never pauses chat, so this limit is
+  chat's only spending bound, and there is no monthly chat limit. With a limit, chat stops
+  starting model calls once its spending since 00:00 UTC reaches the amount, and the
+  answer says so; 0 turns the limit off. Every chat call is still recorded in the cost
+  ledger.
+- **Answers.** One **Typed-out answers** control with three choices: **Off** (answers
+  arrive whole, and the composer's **Type out answers** switch is disabled and says
+  why), **Allowed (off by default)**, and **Allowed (on by default)** (answers appear
+  word by word until a viewer turns it off). A viewer's own choice in the composer
+  wins wherever typed-out answers are allowed. Then **Animate the logo while chat
+  works**: a thin ring turns around the logo while an answer is being written. A custom
+  logo itself never moves, and the Chat item in the navigation keeps its own indicator
+  either way.
+- **Suggestions.** **Suggest questions from live data** (on by default): "New chats open
+  with questions about your queue, SLA and sources, computed from data each viewer can
+  read. No AI cost." Each viewer sees only cards their own permissions allow, and a
+  viewer can still turn the suggestions off for themselves in the composer's Options
+  (see [Workspace Chat](../analyst/chat.md#turn-suggestions-off)). Turned off here, new
+  chats offer only the everyday questions, with no catch-up line; Case Manager chat
+  keeps its case questions, which name no data.
+- **Timeouts and capacity** (in both modes): how many lookups run side by side in one
+  step (in Bounded mode never more than the per-question lookup limit), how long one
+  lookup may take, how long a model call may go silent before it is retried (300
+  seconds by default), and how many questions may run at once per user (4) and in
+  total on this backend (16). Over those bounds a question waits and starts by itself.
+- **Indicator lookups:** how many indicators chat may send to enrichment providers per
+  question and per conversation (0 turns the lookup off, and chat's access list then
+  says it is turned off on this deployment), internal domain suffixes that are never
+  sent, and whether e-mail addresses may be sent.
+
+The editor accepts only values inside each knob's range, and the server clamps anything
+else, so a bad value can never reset other preferences. No setting here can let chat
+change anything: the assistant is read-only by construction. The keys are listed in the
+[configuration reference](../reference/configuration.md#chat-assistant-bounds).
+
+**Upgrading from an earlier build.** The first time a stored configuration is read, it
+moves to **Unlimited** unless an administrator had changed a per-question limit from
+its shipped value; then it stays **Bounded** with those values. The old defaults for
+the model call timeout (30 seconds, Unlimited only) and the questions-at-once bounds (2
+per user, 8 in total) move to the new ones; values an administrator had chosen are
+kept. This happens once and is never repeated.
 
 ## Updates and release channels
 

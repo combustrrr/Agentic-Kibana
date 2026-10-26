@@ -103,12 +103,18 @@ describe('KpiTile — the hero numeral', () => {
     expect(numeral(tile).parentElement).toHaveClass('mt-auto');
   });
 
-  it('always shrink-wraps the numeral, so a long value ellipsizes instead of clipping', () => {
-    // `min-w-0` and `truncate` TOGETHER, never either alone: without `min-w-0` a flex item
-    // refuses to shrink below its content and the tile's `overflow-hidden` clips it with no
-    // ellipsis; without `truncate` the shrunk box paints over its own row-mates.
+  it('never truncates the numeral and never breaks it inside its digits', () => {
+    // Round 12: an ellipsis on a numeral is a plausible WRONG number ("19" printed as
+    // "1…", "≥ 40" as "≥…"), and so is a digit split: `break-words` painted "≥77,77" over
+    // "7". `break-normal` keeps a grouped integer whole (and overrides an inherited
+    // `break-words`); a value too long for its row is stepped down by the fit guard
+    // (KpiTile.round12.test.tsx) instead.
     render(<KpiTile label="Total Cases" value="543,210" variant="strip" />);
-    expect(numeral(screen.getByTestId('kpi-total-cases'))).toHaveClass('min-w-0', 'truncate');
+    const span = numeral(screen.getByTestId('kpi-total-cases'));
+    expect(span).toHaveClass('min-w-0', 'max-w-full', 'break-normal');
+    expect(span).not.toHaveClass('break-words');
+    expect(span).not.toHaveClass('break-all');
+    expect(span.className).not.toMatch(/(^|\s)(truncate|text-ellipsis|whitespace-nowrap)(\s|$)/);
   });
 
   it('abbreviates a value too long for any step, keeping the exact value on the tile', () => {
@@ -189,10 +195,13 @@ describe('KpiTile — the bound marker', () => {
     expect(span.contains(mark)).toBe(true);
     expect(mark).toHaveTextContent('≥');
     expect(mark).toHaveAttribute('aria-hidden', 'true');
-    // The sentence is REAL TEXT in an `sr-only` sibling — never an `aria-label` on a bare
-    // span (prohibited on the generic role) and never a `title` alone (mouse-only).
+    // The sentence is REAL, VISIBLE text on the hero tile's one line under the numeral —
+    // never an `aria-label` on a bare span (prohibited on the generic role) and never a
+    // `title` alone (mouse-only). `getByText` also proves it is stated exactly ONCE: the
+    // `sr-only` twin is dropped when the line already shows it.
     const sentence = within(tile).getByText(BOUND);
-    expect(sentence).toHaveClass('sr-only');
+    expect(sentence).not.toHaveClass('sr-only');
+    expect(sentence).toHaveAttribute('data-kpi-line', 'bound');
     expect(span.contains(sentence)).toBe(false);
     expect(span).not.toHaveAttribute('title');
   });
@@ -217,9 +226,16 @@ describe('KpiTile — the bound marker', () => {
     expect(span).toHaveAttribute('title', 'Bounded sample · share unavailable');
     expect(within(tile).queryByTestId('kpi-false-positive-rate-bound')).toBeNull();
     expect(span).not.toHaveTextContent('≥');
-    // `title` is the mouse affordance, never the only carrier: the sentence is still text.
+    // `title` is the mouse affordance, never the only carrier: the sentence is still text,
+    // visible on the hero line.
     const sentence = within(tile).getByText('Bounded sample · share unavailable');
-    expect(sentence).toHaveClass('sr-only');
+    expect(sentence).not.toHaveClass('sr-only');
+    expect(sentence).toHaveAttribute('data-kpi-line', 'bound');
+  });
+
+  it('keeps the bound sr-only on a non-hero tile, which has no context line to show it', () => {
+    render(<KpiTile label="Open Cases" value="12" countTo={12} bound={BOUND} variant="strip" />);
+    expect(within(screen.getByTestId('kpi-open-cases')).getByText(BOUND)).toHaveClass('sr-only');
   });
 
   it('UNBOUNDED: no marker of any kind when no bound is in force', () => {
@@ -244,5 +260,74 @@ describe('KpiTile — the bound marker', () => {
     const tile = screen.getByTestId('kpi-open-cases');
     expect(numeral(tile)).toHaveAttribute('data-bound', 'floor');
     expect(within(tile).getByTestId('kpi-open-cases-bound')).toHaveTextContent('≥');
+  });
+});
+
+describe('KpiTile — the hero context line', () => {
+  const hero = { variant: 'strip', density: 'compact', numeral: 'hero' } as const;
+
+  it('shows the scale context on its own line under the numeral, never beside it', () => {
+    render(<KpiTile label="Total Critical" value="8" countTo={8} context="17% of 47 cases" {...hero} />);
+    const tile = screen.getByTestId('kpi-total-critical');
+    const line = within(tile).getByText('17% of 47 cases');
+    expect(line).toHaveAttribute('data-kpi-line', 'context');
+    // Not in the numeral's flex row, so it can never take width from the number.
+    expect(numeral(tile).parentElement!.contains(line)).toBe(false);
+  });
+
+  it('wraps the line in a two-line slot and never ellipsizes it (final review)', () => {
+    // One ellipsized line cut "1,234 of 1,876 verdicted" and a bound's "lower bound"
+    // qualifier at ordinary widths, with the rest only in a mouse-only `title`. The line
+    // wraps instead, and EVERY hero line reserves two lines so a caption that wraps never
+    // lifts its numeral above its neighbours' (the numeral row is `mt-auto`).
+    const { rerender } = render(
+      <KpiTile label="False Positive Rate" value="66%" context="1,234 of 1,876 verdicted" {...hero} />,
+    );
+    const lines = [
+      within(screen.getByTestId('kpi-false-positive-rate')).getByText('1,234 of 1,876 verdicted'),
+    ];
+    rerender(
+      <KpiTile label="Open Cases" value="12" countTo={12} bound="Lower bound · any arrival date" {...hero} />,
+    );
+    lines.push(within(screen.getByTestId('kpi-open-cases')).getByText('Lower bound · any arrival date'));
+    rerender(<KpiTile label="Total Cases" value="—" sub="Bounded sample · share unavailable" {...hero} />);
+    lines.push(within(screen.getByTestId('kpi-total-cases')).getByText('Bounded sample · share unavailable'));
+    for (const line of lines) {
+      expect(line).toHaveAttribute('data-kpi-line');
+      expect(line).toHaveClass('whitespace-normal', 'min-h-[2lh]');
+      expect(line.className).not.toMatch(/(^|\s)(truncate|text-ellipsis|whitespace-nowrap|line-clamp-\d)(\s|$)/);
+      // Nothing is cut, so there is no mouse-only copy of it either.
+      expect(line).not.toHaveAttribute('title');
+    }
+  });
+
+  it('gives the line to exactly one thing: state, then bound, then context', () => {
+    const { rerender } = render(
+      <KpiTile label="Total Cases" value="4" countTo={4} context="arrivals, last 24h" bound="Partial window · lower bound" {...hero} />,
+    );
+    let tile = screen.getByTestId('kpi-total-cases');
+    expect(tile.querySelectorAll('[data-kpi-line]')).toHaveLength(1);
+    expect(within(tile).getByText('Partial window · lower bound')).toHaveAttribute('data-kpi-line', 'bound');
+    expect(within(tile).queryByText('arrivals, last 24h')).toBeNull();
+
+    rerender(
+      <KpiTile label="Total Cases" value="4" countTo={4} context="arrivals, last 24h" bound="Partial window · lower bound" sub="Unavailable" {...hero} />,
+    );
+    tile = screen.getByTestId('kpi-total-cases');
+    expect(tile.querySelectorAll('[data-kpi-line]')).toHaveLength(1);
+    expect(within(tile).getByText('Unavailable')).toHaveAttribute('data-kpi-line', 'state');
+    // The bound is not on the line now, so its sentence is still announced, sr-only.
+    expect(within(tile).getByText('Partial window · lower bound')).toHaveClass('sr-only');
+  });
+
+  it('keeps hero numerals in ink: only a critical tile with a count turns red', () => {
+    const { rerender } = render(
+      <KpiTile label="Total Critical" value="8" countTo={8} accent="critical" {...hero} />,
+    );
+    expect(numeral(screen.getByTestId('kpi-total-critical'))).toHaveClass('text-critical-text');
+    rerender(<KpiTile label="Total Critical" value="0" countTo={0} accent="critical" {...hero} />);
+    expect(numeral(screen.getByTestId('kpi-total-critical'))).toHaveClass('text-foreground');
+    rerender(<KpiTile label="Auto Closed" value="3" countTo={3} accent="success" {...hero} />);
+    expect(numeral(screen.getByTestId('kpi-auto-closed'))).toHaveClass('text-foreground');
   });
 });

@@ -9,17 +9,41 @@ from __future__ import annotations
 
 import base64
 import binascii
+import math
 import re
-from datetime import datetime
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, get_args
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
+from typing_extensions import TypedDict
 
+# The answer-block contract module depends only on constants + pydantic (never on
+# this module), so importing its sanitiser/validators here cannot form a cycle.
+from .agents.blocks import (
+    BLOCK_ID_PATTERN,
+    BLOCKS_VERSION,
+    CASE_ID_PATTERN,
+    DOC_REF_PATTERN,
+    MAX_SECTION_BLOCKS,
+    PAGE_PATTERN,
+    TECHNIQUE_PATTERN,
+    clean_nav_opts,
+    display_text,
+    parse_persisted_blocks,
+    parse_timestamp,
+    strip_lone_surrogates,
+)
 from .config import Preferences
 
 if TYPE_CHECKING:  # avoid an import cycle (ocsf imports config/constants, not models)
     from .ocsf import OCSFEvent
 from .constants import (
+    INVISIBLE_TEXT_CLASS,
+    MAX_REPORT_ITEMS,
+    MAX_REPORT_NEXT_STEPS,
+    MAX_REPORT_NOTE_CHARS,
+    MAX_REPORT_SUMMARY_CHARS,
+    MAX_REPORT_TITLE_CHARS,
     ActionType,
     BatchJobState,
     CampaignStatus,
@@ -823,6 +847,73 @@ class DashboardLayout(BaseModel):
     updated_at: str = Field(default_factory=iso_now)
 
 
+MAX_CHAT_PROMPTS = 50
+MAX_CHAT_PROMPT_TITLE_CHARS = 60
+MAX_CHAT_PROMPT_TEXT_CHARS = 2_000
+CHAT_PROMPT_ID_PATTERN = r"^[A-Za-z0-9._:-]{1,64}$"
+_CHAT_PROMPT_ID_RE = re.compile(CHAT_PROMPT_ID_PATTERN)
+
+
+ChatPromptCategory = Literal["triage", "hunt", "ioc", "posture", "reporting", "app_help"]
+CHAT_PROMPT_CATEGORIES: tuple[str, ...] = get_args(ChatPromptCategory)
+
+#: Round 13 (SPEC-chat §3.2.1): the personal suggestion switches in ``UserPrefs.misc``
+#: (``chat_suggest_start``: start cards and the thread catch-up line;
+#: ``chat_suggest_follow_ups``: follow-up chips). Absent means on; a non-bool is removed.
+CHAT_SUGGEST_PREF_KEYS: tuple[str, ...] = ("chat_suggest_start", "chat_suggest_follow_ups")
+
+
+class ChatPrompt(BaseModel):
+    """One saved composer prompt (chat revamp SPEC §10.4). Plain user text: rendered
+    as text, sent as an ordinary user message (it is the user's own words).
+
+    Round 12 prompt library (SPEC §3.1): an optional ``category`` and a ``favorite``
+    star; ``{name}`` placeholders in ``text`` are filled in by the composer before
+    sending (client-side; the server stores the template as plain text)."""
+
+    id: str = Field(pattern=CHAT_PROMPT_ID_PATTERN)
+    title: str = Field(min_length=1, max_length=MAX_CHAT_PROMPT_TITLE_CHARS)
+    text: str = Field(min_length=1, max_length=MAX_CHAT_PROMPT_TEXT_CHARS)
+    category: ChatPromptCategory | None = None
+    favorite: bool = False
+
+
+def _repair_chat_prompts(value: Any) -> list[dict[str, Any]]:
+    """Lenient stored-prompt repair: sanitise + clamp, drop unusable or duplicate
+    entries, keep at most 50. A bad entry must never fail the WHOLE prefs bucket —
+    the store skips a bucket that fails validation, which would silently wipe the
+    user's saved views, dashboards and theme along with it."""
+    if not isinstance(value, (list, tuple)):
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in value:
+        if isinstance(item, ChatPrompt):
+            item = item.model_dump()
+        if not isinstance(item, dict):
+            continue
+        prompt_id = item.get("id")
+        if not isinstance(prompt_id, str) or not _CHAT_PROMPT_ID_RE.match(prompt_id) or prompt_id in seen:
+            continue
+        text = display_text(item.get("text"), MAX_CHAT_PROMPT_TEXT_CHARS, multiline=True).strip()
+        if not text:
+            continue
+        title = display_text(item.get("title"), MAX_CHAT_PROMPT_TITLE_CHARS) or display_text(
+            text, MAX_CHAT_PROMPT_TITLE_CHARS
+        )
+        seen.add(prompt_id)
+        entry: dict[str, Any] = {"id": prompt_id, "title": title, "text": text}
+        category = item.get("category")
+        if isinstance(category, str) and category in CHAT_PROMPT_CATEGORIES:
+            entry["category"] = category
+        if item.get("favorite") is True:
+            entry["favorite"] = True
+        out.append(entry)
+        if len(out) >= MAX_CHAT_PROMPTS:
+            break
+    return out
+
+
 class UserPrefs(BaseModel):
     """One user's PERSONAL preferences bucket (Wave 7). Every field is additive +
     defaulted so an empty/legacy bucket loads unchanged. Distinct from the ORG
@@ -838,7 +929,13 @@ class UserPrefs(BaseModel):
     * ``dashboards`` — the user's custom dashboards (Round 5 / G7), keyed by dashboard
       id; each is a :class:`DashboardLayout`. Additive + defaulted ``{}`` (mirrors
       ``saved_views``) so a legacy bucket loads unchanged.
-    * ``misc`` — a small catch-all UI-prefs bag (density, etc.).
+    * ``misc`` — a small catch-all UI-prefs bag (density, etc.). ``misc.chat_stream_mode``
+      is the viewer's D2 chat mode (``"steps"``/``"text"``; normalised on load, an
+      invalid value is removed so the org default applies). Round 13 (SPEC-chat
+      §3.2.1): ``misc.chat_suggest_start`` (start cards and the thread catch-up line)
+      and ``misc.chat_suggest_follow_ups`` (follow-up chips) are personal switches;
+      absent means on, and a value that is not a bool is removed on load.
+    * ``chat_prompts`` — the user's saved chat prompts (chat revamp SPEC §10.4).
     """
 
     saved_views: list[SavedView] = Field(default_factory=list)
@@ -848,7 +945,51 @@ class UserPrefs(BaseModel):
     pinned_view_ids: list[str] = Field(default_factory=list)
     dashboards: dict[str, DashboardLayout] = Field(default_factory=dict)
     misc: dict[str, Any] = Field(default_factory=dict)
+    chat_prompts: list[ChatPrompt] = Field(default_factory=list, max_length=MAX_CHAT_PROMPTS)
     updated_at: str = Field(default_factory=iso_now)
+
+    @field_validator("chat_prompts", mode="before")
+    @classmethod
+    def _chat_prompts(cls, value: Any) -> list[dict[str, str]]:
+        return _repair_chat_prompts(value)
+
+    @field_validator("misc", mode="before")
+    @classmethod
+    def _misc_chat_stream_mode(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        if "chat_stream_mode" not in value and not any(k in value for k in CHAT_SUGGEST_PREF_KEYS):
+            return value
+        out = dict(value)
+        if "chat_stream_mode" in out:
+            mode = out.get("chat_stream_mode")
+            normalised = mode.strip().lower() if isinstance(mode, str) else None
+            if normalised in ("steps", "text"):
+                out["chat_stream_mode"] = normalised
+            else:
+                out.pop("chat_stream_mode", None)
+        # Round 13 (SPEC-chat §3.2.1): the personal suggestion switches are bools or
+        # absent (absent = on). Anything else is removed, never coerced.
+        for key in CHAT_SUGGEST_PREF_KEYS:
+            if key in out and not isinstance(out[key], bool):
+                out.pop(key, None)
+        return out
+
+    @property
+    def chat_stream_mode(self) -> Literal["steps", "text"] | None:
+        """The viewer's D2 preference, or ``None`` (use ``chat_agent.default_stream_mode``)."""
+        mode = self.misc.get("chat_stream_mode")
+        return mode if mode in ("steps", "text") else None
+
+    @property
+    def chat_suggest_start(self) -> bool:
+        """Round 13: the viewer's "Suggestions when a chat starts" switch (default on)."""
+        return self.misc.get("chat_suggest_start") is not False
+
+    @property
+    def chat_suggest_follow_ups(self) -> bool:
+        """Round 13: the viewer's "Suggested follow-ups" switch (default on)."""
+        return self.misc.get("chat_suggest_follow_ups") is not False
 
 
 # --------------------------------------------------------------------------- #
@@ -1823,6 +1964,11 @@ class UsageDoc(BaseModel):
     # 1 means "answered, or failed, first time"; >1 means the retry budget was spent,
     # which is what separates an exhausted quota from a single rate-limit burst.
     attempts: int = 1
+    # True when the token counts on this row were ESTIMATED (chars/4) rather than read
+    # from provider usage: a provider that omitted usage, a stream interrupted after its
+    # first delta, or a request the caller abandoned (SPEC §6.3: billed input is never
+    # recorded as 0). Additive and defaulted, so every stored row loads unchanged.
+    usage_estimated: bool = False
 
 
 # --------------------------------------------------------------------------- #
@@ -1892,9 +2038,404 @@ class Cursor(BaseModel):
 # --------------------------------------------------------------------------- #
 # API request/response shapes (plugin contract)
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Chat revamp contracts (docs/research/2026-10-chat-revamp/SPEC.md §3, §4.5, §8,
+# §9.1). Mirrored in webui/src/lib/types.ts; the shared enums are pinned to
+# webui/src/soc/chat/chat-stream-events.contract.json by paired tests.
+#
+# Every PERSISTED field validates LENIENTLY: an unknown enum value coerces to its
+# fallback, an invalid sub-item is dropped, and an invalid optional sub-object
+# becomes ``None``. A stored answer replays even when one of its fields drifted
+# between releases; replay must never 503 because of presentation data. Every
+# string a client will display passes through ``display_text`` (strips C0/C1,
+# bidi and zero-width characters, bounds length; BLOCKS.md amendment 4).
+# --------------------------------------------------------------------------- #
+ChatStreamMode = Literal["steps", "text"]
+ChatScope = Literal["logs", "cases", "metrics", "intel", "docs", "platform"]
+ChatOrigin = Literal[
+    "user", "follow_up", "starter", "command", "continue",
+    # Round 12 (SPEC §3.1): a clarify-option pick and a step-inspector retry. Both carry the
+    # follow_up taint class (#9): their text is model-authored and may echo log values.
+    "clarify", "retry_step",
+]
+ChatStepKind = Literal["tool", "model"]
+ChatStepStatus = Literal["ok", "error", "denied", "timeout", "skipped", "cancelled"]
+ChatStepBasis = Literal["exact", "newest_n", "sample", "cached"]
+ChatAnswerKind = Literal["data", "product_help", "mixed", "conversation"]
+# Round 12 (final review): a reply to a chat COMMAND (``/compact``), not an answer. The
+# console shows it as a quiet note without answer actions, and it is never replayed or
+# summarised as part of the conversation.
+ChatCommand = Literal["compact"]
+TurnNoticeKind = Literal[
+    "partial", "cap", "budget", "provider", "breaker", "denied", "timeout", "cancelled",
+    "unsupported", "not_saved",
+    # Round 12 (SPEC D2/D4/D9): answered with what chat can read; the loop guard ended a
+    # repeated lookup; earlier context was summarised to keep going.
+    "limited", "stopped_repeating", "compacted",
+]
+CitationKind = Literal["doc", "case", "knowledge", "mitre", "query"]
+MemoryProposalOp = Literal["add", "remove"]
+ChatBudgetState = Literal["ok", "approaching", "reached"]
+TextStreamingReason = Literal["disabled_by_admin", "model_does_not_stream"]
+ReportTemplateName = Literal[
+    "investigation", "hunt", "ioc", "shift", "posture", "custom",
+    # Round 12 (SPEC D11).
+    "executive", "monthly", "infographic", "investigation_brief",
+]
+ReportItemKind = Literal["block", "section"]
+
+CHAT_STREAM_MODES: tuple[str, ...] = get_args(ChatStreamMode)
+CHAT_SCOPES: tuple[str, ...] = get_args(ChatScope)
+CHAT_ORIGINS: tuple[str, ...] = get_args(ChatOrigin)
+CHAT_STEP_KINDS: tuple[str, ...] = get_args(ChatStepKind)
+CHAT_STEP_STATUSES: tuple[str, ...] = get_args(ChatStepStatus)
+CHAT_STEP_BASES: tuple[str, ...] = get_args(ChatStepBasis)
+CHAT_ANSWER_KINDS: tuple[str, ...] = get_args(ChatAnswerKind)
+CHAT_COMMANDS: tuple[str, ...] = get_args(ChatCommand)
+TURN_NOTICE_KINDS: tuple[str, ...] = get_args(TurnNoticeKind)
+CITATION_KINDS: tuple[str, ...] = get_args(CitationKind)
+MEMORY_PROPOSAL_OPS: tuple[str, ...] = get_args(MemoryProposalOp)
+CHAT_BUDGET_STATES: tuple[str, ...] = get_args(ChatBudgetState)
+TEXT_STREAMING_REASONS: tuple[str, ...] = get_args(TextStreamingReason)
+REPORT_TEMPLATE_NAMES: tuple[str, ...] = get_args(ReportTemplateName)
+
+
 class ChatTurn(BaseModel):
     role: str  # "user" | "assistant"
     content: str
+    # Who authored a USER turn's text (SPEC §4.8.2; additive, optional). Client
+    # ``history`` is replayed text only, so the server cannot know who wrote it: a
+    # history turn counts as user-authored for the indicator taint rule ONLY when it
+    # says ``origin: "user"``. Absent (an older client), unknown, or any other origin
+    # (a follow-up chip, a starter, a slash command) is NOT user-authored, so a
+    # model-written follow-up never becomes authorising user text on a later turn.
+    # An unknown value is dropped, never a 422.
+    origin: ChatOrigin | None = None
+
+    @field_validator("origin", mode="before")
+    @classmethod
+    def _lenient_origin(cls, value: Any) -> Any:
+        return value if isinstance(value, str) and value in CHAT_ORIGINS else None
+
+
+# Bounds on chat presentation strings (display chips, labels, summaries).
+_STEP_LABEL_CHARS = 120
+_STEP_SUMMARY_CHARS = 600
+_STEP_PARAM_CHARS = 120
+_STEP_UNTRUSTED_PARAM_CHARS = 200
+_STEP_QUERY_CHARS = 4_096           # live; the persisted form keeps <= 1 kB (§7.5)
+_STEP_COVERAGE_CHARS = 200
+_STEP_MAX_PARAMS = 12
+_STEP_MAX_SOURCES = 20
+_FOLLOW_UP_CHARS = 140
+_MAX_FOLLOW_UPS = 3
+_MAX_STEPS = 64
+_MAX_CITATIONS = 40
+_MAX_CONSOLE_LINKS = 12
+_NOTICE_MESSAGE_CHARS = 400
+_CITATION_TITLE_CHARS = 200
+_CITATION_SNIPPET_CHARS = 280
+_CONSOLE_LABEL_CHARS = 80
+_MEMORY_PROPOSAL_CHARS = 500
+_MEMORY_PROPOSAL_MAX_IDS = 20
+
+_PARAM_KEY_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,40}$")
+_TOOL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_SAFE_ID_PATTERN = r"^[A-Za-z0-9._:-]{1,128}$"
+_SAFE_ID_RE = re.compile(_SAFE_ID_PATTERN)
+_CITATION_ID_PATTERN = r"^[A-Z][0-9]{1,3}$"
+_CONSOLE_LINK_ID_PATTERN = r"^[a-z0-9_]{1,40}:[a-z0-9_.-]{1,80}$"
+_GRANT_PATTERN = r"^[a-z_]{1,40}:[a-z_]{1,40}$"
+
+
+def _lenient_enum(value: Any, allowed: tuple[str, ...], fallback: Any) -> Any:
+    """Case-insensitive enum match; anything else takes ``fallback`` (persisted
+    enum fields never fail validation because a stored value drifted)."""
+    if isinstance(value, str):
+        candidate = value.strip().lower()
+        if candidate in allowed:
+            return candidate
+    return fallback
+
+
+def _lenient_model(model: type[BaseModel], value: Any) -> Any:
+    """``model.model_validate(value)``, or ``None`` when it is invalid (dropped)."""
+    if value is None or isinstance(value, model):
+        return value
+    try:
+        return model.model_validate(value)
+    except Exception:  # noqa: BLE001 -- an invalid optional sub-object is dropped
+        return None
+
+
+def _lenient_models(model: type[BaseModel], value: Any, limit: int) -> list[Any]:
+    """Validate a list item by item, DROPPING invalid items; keep at most ``limit``."""
+    if not isinstance(value, (list, tuple)):
+        return []
+    out: list[Any] = []
+    for item in value:
+        parsed = _lenient_model(model, item)
+        if parsed is None:
+            continue
+        out.append(parsed)
+        if len(out) >= limit:
+            break
+    return out
+
+
+# A turn may plan more steps than an answer keeps (an oversized ``tools`` batch is
+# one step per call, most of them ``skipped``). The bound trims by WEIGHT, never by
+# position: placeholders that ran nothing go first (newest first within a class), so
+# every model step and every executed tool call (at most ``max_tool_calls`` +
+# ``max_model_calls``, below the bound) survives, the run log stays complete, and
+# the per-conversation egress count (A13), derived from the stored indicator steps,
+# never loses a lookup that left the deployment.
+_STEP_INPUT_LIMIT = 4_096
+
+
+def _step_trim_rank(step: Any) -> int:
+    """Lower ranks are dropped first when a turn's steps exceed ``_MAX_STEPS``."""
+    if step.kind == "model":
+        return 6
+    if step.status == "skipped":
+        return 0
+    if step.status == "denied":
+        return 1
+    if step.status == "error":
+        return 2
+    if step.status == "cancelled":
+        return 3
+    if step.tool == "lookup_indicator":
+        return 5
+    return 4
+
+
+def _bounded_steps(value: Any) -> list[Any]:
+    """``ChatResponse.steps``: validated leniently, at most ``_MAX_STEPS`` kept."""
+    if not isinstance(value, (list, tuple)):
+        return []
+    steps = [s for s in (_lenient_model(ChatStep, item) for item in list(value)[:_STEP_INPUT_LIMIT]) if s is not None]
+    excess = len(steps) - _MAX_STEPS
+    if excess <= 0:
+        return steps
+    ranks = [_step_trim_rank(step) for step in steps]
+    dropped: set[int] = set()
+    for rank in range(7):
+        for position in range(len(steps) - 1, -1, -1):
+            if excess <= 0:
+                break
+            if ranks[position] == rank:
+                dropped.add(position)
+                excess -= 1
+        if excess <= 0:
+            break
+    return [step for position, step in enumerate(steps) if position not in dropped]
+
+
+def _display_list(value: Any, limit: int, chars: int) -> list[str]:
+    """A bounded list of display-sanitised, non-empty, single-line strings (non-string
+    items are dropped, never stringified)."""
+    if not isinstance(value, (list, tuple)):
+        return []
+    out: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        text = display_text(item, chars)
+        if text:
+            out.append(text)
+        if len(out) >= limit:
+            break
+    return out
+
+
+# --- §3.1 time window --------------------------------------------------------- #
+_RELATIVE_TIME_RE = re.compile(r"^now(?:-(\d{1,5})([mhdw]))?$")
+_RELATIVE_SECONDS = {"m": 60, "h": 3_600, "d": 86_400, "w": 604_800}
+# Round 12 (SPEC D7/P0-3): calendar months and years. ``now-6M`` is six MONTHS (an
+# upper-case M; a lower-case ``m`` stays minutes) and ``now-1y`` one year, in calendar
+# arithmetic (the day clamped to the target month), so a "6 months" chip is never six
+# minutes. Matched case-sensitively, after the prefix is lower-cased.
+_CALENDAR_RELATIVE_RE = re.compile(r"^now-(\d{1,4})([My])$")
+_TIME_EXPR_HELP = (
+    "expected 'now', 'now-<n>[m|h|d|w]' (m = minutes), 'now-<n>[M|y]' (M = months, y = years) "
+    "or an ISO-8601 timestamp"
+)
+
+
+def _months_before(moment: datetime, months: int) -> datetime | None:
+    """``moment`` moved back ``months`` calendar months (UTC; the day clamped to the
+    target month's length), or ``None`` before year 1."""
+    from calendar import monthrange
+
+    index = moment.year * 12 + (moment.month - 1) - months
+    year, month = divmod(index, 12)
+    month += 1
+    if year < 1:
+        return None
+    return moment.replace(year=year, month=month, day=min(moment.day, monthrange(year, month)[1]))
+
+
+def resolve_time_expr(expr: str, now: datetime | None = None) -> datetime | None:
+    """Resolve one composer time expression to an aware UTC datetime, else ``None``.
+    The grammar is deliberately narrow (SPEC §3.1): ``now``, ``now-<n>[m|h|d|w]``
+    (``m`` = minutes), ``now-<n>[M|y]`` (calendar months and years) or an ISO-8601
+    timestamp (a naive one is read as UTC). No ``now+``, no epoch numbers."""
+    if not isinstance(expr, str):
+        return None
+    reference = now or datetime.now(timezone.utc)
+    text = expr.strip()
+    calendar = _CALENDAR_RELATIVE_RE.match(text)
+    if calendar:
+        months = int(calendar.group(1)) * (12 if calendar.group(2) == "y" else 1)
+        return _months_before(reference, months)
+    match = _RELATIVE_TIME_RE.match(text.lower())
+    if match:
+        if match.group(1) is None:
+            return reference
+        try:
+            return reference - timedelta(
+                seconds=int(match.group(1)) * _RELATIVE_SECONDS[match.group(2)]
+            )
+        except OverflowError:
+            return None
+    # The ONE timestamp grammar shared with answer blocks and the webui
+    # (``blocks.TIMESTAMP_PATTERN``, pinned by the answer-blocks contract).
+    return parse_timestamp(text)
+
+
+# The serialised form of :class:`TimeRange` (``from`` is a keyword, hence the
+# functional syntax). ``typing_extensions`` because pydantic needs it before 3.12.
+TimeRangeWire = TypedDict("TimeRangeWire", {"from": str, "to": str})
+
+
+# Round 12 (SPEC D7/D7a): ``from: "all"`` is the composer's "All time" chip. It resolves
+# to the start of the epoch and never clamps a tool's window.
+TIME_RANGE_ALL = "all"
+_ALL_TIME_START = datetime(1970, 1, 1, tzinfo=timezone.utc)
+_RELATIVE_WORDS = {"m": "minute", "h": "hour", "d": "day", "w": "week", "M": "month", "y": "year"}
+
+
+def humanise_relative_window(amount: int, unit: str) -> str:
+    """"last 24 hours", "last 7 days", "last 30 days", "last 6 months" for a trailing
+    ``now-<amount><unit>`` window (never "last 720h"). Whole days read as days, so
+    ``now-720h`` is "last 30 days". ``unit`` is ``m`` (minutes), ``h``, ``d``, ``w``,
+    ``M`` (months) or ``y``."""
+    if unit == "h" and amount >= 48 and amount % 24 == 0:
+        amount, unit = amount // 24, "d"
+    if unit == "d" and amount == 1:
+        amount, unit = 24, "h"
+    if unit == "w" and amount == 1:
+        amount, unit = 7, "d"
+    if amount == 1 and unit in ("M", "y"):
+        return f"past {_RELATIVE_WORDS[unit]}"
+    word = _RELATIVE_WORDS.get(unit, unit)
+    return f"last {word}" if amount == 1 else f"last {amount:,} {word}s"
+
+
+class TimeRange(BaseModel):
+    """The composer time window ``{from, to}`` (SPEC §3.1).
+
+    Each bound is ``now``, ``now-<n>[m|h|d|w|M|y]`` (lower-case ``m`` is minutes,
+    ``M`` months, ``y`` years) or ISO-8601, and ``from`` may also be ``all``
+    (``{"from": "all"}``, the "All time" chip, Round 12, which never clamps); ``from``
+    must be strictly before ``to``, else 422. Round 12 (SPEC D7a): chat scope windows
+    have no span limit (:attr:`MAX_SPAN_DAYS` is ``None``). It applies to every
+    windowed chat tool; precedence is the model's explicit window from the user's
+    words, then this, then ``context.time_range``, then the tool's own default. Serialises as ``{"from",
+    "to"}`` (both keys, always) regardless of ``by_alias`` or ``exclude_defaults``, so
+    stored and wire shapes never diverge."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    MAX_SPAN_DAYS: ClassVar[int | None] = None
+
+    from_: str = Field(alias="from", min_length=1, max_length=40)
+    to: str = Field(default="now", min_length=1, max_length=40)
+
+    @field_validator("from_", "to", mode="before")
+    @classmethod
+    def _normalise(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if text.lower() in (TIME_RANGE_ALL, "all_time", "all time", "lifetime"):
+            return TIME_RANGE_ALL
+        # Relative expressions are canonicalised to lower case ("NOW-24H" → "now-24h"),
+        # except a month or year unit: "now-6M" is six MONTHS and must never become
+        # "now-6m" (six minutes); "now-1Y" is "now-1y".
+        lowered = text.lower()
+        if not lowered.startswith("now"):
+            return text
+        unit = text[-1:]
+        if unit in ("M", "y", "Y"):
+            calendar = lowered[:-1] + ("M" if unit == "M" else "y")
+            if _CALENDAR_RELATIVE_RE.match(calendar):
+                return calendar
+        return lowered
+
+    @field_validator("from_", "to")
+    @classmethod
+    def _grammar(cls, value: str, info: Any) -> str:
+        if value == TIME_RANGE_ALL and info.field_name == "from_":
+            return value
+        if resolve_time_expr(value) is None:
+            raise ValueError(_TIME_EXPR_HELP)
+        return value
+
+    @model_validator(mode="after")
+    def _window(self) -> "TimeRange":
+        start, end = self.resolve()
+        if start >= end:
+            raise ValueError("time_range.from must be before time_range.to")
+        if self.MAX_SPAN_DAYS is not None and end - start > timedelta(days=self.MAX_SPAN_DAYS):
+            raise ValueError(f"time_range spans at most {self.MAX_SPAN_DAYS} days")
+        return self
+
+    @property
+    def is_all_time(self) -> bool:
+        """True for the "All time" chip (``from: "all"``), which never clamps."""
+        return self.from_ == TIME_RANGE_ALL
+
+    # ``plain`` + a TypedDict return: the wire shape is always both keys, and the
+    # annotation is what gives ``openapi.json`` a typed ``{from, to}`` output schema
+    # (an untyped ``Any`` serializer renders as an empty object).
+    @model_serializer(mode="plain")
+    def _serialise(self) -> TimeRangeWire:
+        return {"from": self.from_, "to": self.to}
+
+    def resolve(self, now: datetime | None = None) -> tuple[datetime, datetime]:
+        """``(from, to)`` as aware UTC datetimes against one shared ``now``."""
+        reference = now or datetime.now(timezone.utc)
+        start = _ALL_TIME_START if self.is_all_time else resolve_time_expr(self.from_, reference)
+        end = resolve_time_expr(self.to, reference)
+        assert start is not None and end is not None  # guaranteed by _grammar
+        return start, end
+
+    def span_hours(self, now: datetime | None = None) -> float:
+        start, end = self.resolve(now)
+        return (end - start).total_seconds() / 3_600
+
+    def window_hours(self, *, lo: int = 1, hi: int = 720, now: datetime | None = None) -> int:
+        """The window as whole hours clamped to ``lo..hi`` (metrics, cases and cost
+        tools take ``window_hours``; SPEC §3.1 clamps it to 1..720)."""
+        hours = math.ceil(self.span_hours(now))
+        return min(max(hours, lo), hi)
+
+    def label(self) -> str:
+        """Short caption text: ``last 24 hours`` / ``all time`` for a trailing window,
+        else ``a → b``."""
+        if self.is_all_time:
+            return "all time" if self.to == "now" else f"all time → {self.to}"
+        if self.to == "now":
+            match = _RELATIVE_TIME_RE.match(self.from_) or _CALENDAR_RELATIVE_RE.match(self.from_)
+            if match and match.group(1):
+                return humanise_relative_window(int(match.group(1)), match.group(2))
+        return f"{self.from_} → {self.to}"
+
+
+def _lenient_time_range(value: Any) -> Any:
+    return _lenient_model(TimeRange, value)
 
 
 class ChatConversationMessage(BaseModel):
@@ -1930,10 +2471,86 @@ class ChatConversationSummary(BaseModel):
     model: str | None = None
     source_id: str | None = None
     source_name: str | None = None
+    # --- Chat revamp (SPEC §7.5; additive, legacy rows load with these defaults). ---
+    # Pinned conversations (<= 10) are exempt from the 50-conversation eviction.
+    pinned: bool = False
+    # The conversation's draft report, when one exists (§9.1).
+    report_id: str | None = None
+    # The last composer window used in this conversation (the scope chip).
+    time_range: TimeRange | None = None
+    # Cumulative usage, incremented per completed exchange so it survives trimming.
+    # ``None`` on legacy rows: the UI shows "—", never 0.
+    total_tokens: int | None = Field(default=None, ge=0)
+    total_cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    usage_turns: int | None = Field(default=None, ge=0)
+    # --- Round 12 (SPEC §3.1; additive). Live state for the history rail and the nav
+    # indicator (D13): a question is running, waiting for a clarify pick, or failed; an
+    # answer arrived that the owner has not opened yet.
+    status: Literal["idle", "running", "needs_input", "failed"] = "idle"
+    unread: bool = False
+
+    @field_validator("pinned", mode="before")
+    @classmethod
+    def _pinned(cls, value: Any) -> Any:
+        return value if isinstance(value, bool) else False
+
+    @field_validator("time_range", mode="before")
+    @classmethod
+    def _time_range(cls, value: Any) -> Any:
+        # A stored window that no longer validates (e.g. an absolute bound that has
+        # since aged past 90 days) is dropped, never fatal.
+        return _lenient_time_range(value)
+
+    @field_validator("total_tokens", "usage_turns", mode="before")
+    @classmethod
+    def _counter(cls, value: Any) -> Any:
+        if value is None or isinstance(value, bool):
+            return None
+        return value if isinstance(value, int) and value >= 0 else None
+
+    @field_validator("total_cost", mode="before")
+    @classmethod
+    def _cost(cls, value: Any) -> Any:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return float(value) if math.isfinite(value) and value >= 0 else None
 
 
 class ChatConversation(ChatConversationSummary):
     messages: list[ChatConversationMessage] = Field(default_factory=list)
+    # Round 12 (SPEC D4): the newest message id folded into the stored conversation summary.
+    summary_covers_through: str | None = None
+    # Round 12 (WP-API; additive): how many older messages of this conversation are
+    # not in ``messages`` (``GET /chat/conversations/{id}`` returns the newest window;
+    # read older ones with ``GET .../messages?before=<first message id>``). Never stored.
+    earlier_message_count: int = Field(default=0, ge=0)
+
+
+class ChatConversationMatch(BaseModel):
+    """Where a ``?q=`` search hit a conversation (SPEC §7.5 Search)."""
+
+    message_id: str | None = None
+    snippet: str = Field(default="", max_length=160)
+
+    @field_validator("snippet", mode="before")
+    @classmethod
+    def _snippet(cls, value: Any) -> str:
+        return display_text(value, 160)
+
+
+class ChatConversationSearchHit(ChatConversationSummary):
+    """A conversation summary returned by a content search (never persisted)."""
+
+    match: ChatConversationMatch | None = None
+
+
+def _clean_conversation_title(value: Any) -> str:
+    title = " ".join(str(value).split()).strip()
+    if not title:
+        raise ValueError("title is required")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in title):
+        raise ValueError("title must be plain single-line text")
+    return title
 
 
 class ChatConversationRenameRequest(BaseModel):
@@ -1942,12 +2559,28 @@ class ChatConversationRenameRequest(BaseModel):
     @field_validator("title")
     @classmethod
     def clean_title(cls, value: str) -> str:
-        title = " ".join(str(value).split()).strip()
-        if not title:
-            raise ValueError("title is required")
-        if any(ord(ch) < 32 or ord(ch) == 127 for ch in title):
-            raise ValueError("title must be plain single-line text")
-        return title
+        return _clean_conversation_title(value)
+
+
+class ChatConversationUpdateRequest(BaseModel):
+    """``PATCH /api/chat/conversations/{id}`` (SPEC §7.5 Pin): rename and/or pin.
+    At least one field is required; pinning never changes ``updated_at``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=1, max_length=80)
+    pinned: bool | None = None
+
+    @field_validator("title")
+    @classmethod
+    def clean_title(cls, value: str | None) -> str | None:
+        return None if value is None else _clean_conversation_title(value)
+
+    @model_validator(mode="after")
+    def _at_least_one(self) -> "ChatConversationUpdateRequest":
+        if self.title is None and self.pinned is None:
+            raise ValueError("provide title and/or pinned")
+        return self
 
 
 class ChatContext(BaseModel):
@@ -1968,6 +2601,27 @@ class ChatContext(BaseModel):
     case_id: str | None = None
     selection: str | None = None
     search_session: str | None = None
+
+
+# The revamp request fields are fingerprinted with ``exclude_defaults`` so a
+# pre-revamp request body hashes byte-identically (SPEC §3.1); ``stream_mode`` is
+# presentation only and never part of the identity.
+CHAT_REQUEST_FINGERPRINT_EXCLUDE: frozenset[str] = frozenset(
+    {"idempotency_key", "persist_conversation", "stream_mode"}
+)
+CHAT_REQUEST_REVAMP_FIELDS: frozenset[str] = frozenset(
+    {"scopes", "time_range", "origin", "continue_of", "topic"}
+)
+# A console_map topic id (``kpi:mtta``, ``settings:detection.detection-autoclose``):
+# ``<family>:<anchor>``, at most 40 + 1 + 80 characters: the console link id grammar
+# (one definition, also used by the ``GET /api/chat/topics/{topic_id}`` path).
+CONSOLE_TOPIC_ID_PATTERN = _CONSOLE_LINK_ID_PATTERN
+CHAT_TOPIC_MAX_CHARS = 121
+# ``ChatRequest.topic`` accepts a SUPERSET of that grammar (same characters, same
+# length bound, colon not required). The field is only a retrieval hint whose
+# unknown ids are ignored, while a 422 would fail the whole turn: every console_map
+# id must pass, and so must anything a client's own sender filter lets through.
+CHAT_TOPIC_PATTERN = rf"^[a-z0-9_:.-]{{1,{CHAT_TOPIC_MAX_CHARS}}}$"
 
 
 class ChatRequest(BaseModel):
@@ -1998,6 +2652,67 @@ class ChatRequest(BaseModel):
         max_length=128,
         pattern=r"^[A-Za-z0-9._:-]+$",
     )
+    # --- Chat revamp (SPEC §3.1; additive). ---
+    # D2 presentation mode for THIS turn: "steps" streams lookups + usage, "text" also
+    # streams the final answer word by word. Never part of the request identity.
+    stream_mode: ChatStreamMode = "steps"
+    # Composer @-scopes narrowing which tool families may run. Unknown values are
+    # DROPPED (an older/newer client never 422s on a scope it does not know).
+    scopes: list[ChatScope] = Field(default_factory=list, max_length=len(CHAT_SCOPES))
+    # The composer window chip (validated grammar, from < to, <= 90 days; else 422).
+    time_range: TimeRange | None = None
+    # Who authored the message text. Only "user" counts as user-authored for the
+    # indicator taint rule (§4.8): follow-up chips, starters and slash commands do not.
+    origin: ChatOrigin = "user"
+    # The assistant message id this turn continues after a cap notice.
+    continue_of: str | None = Field(default=None, max_length=128, pattern=_SAFE_ID_PATTERN)
+    # "Ask about this" (SPEC A7): the console_map topic this turn was started from. It
+    # is never prompt text: ``app_help`` pins that topic's glossary sections first and
+    # the $0 Help Center answer does the same. Part of the request identity (it changes
+    # retrieval) but, like the other revamp fields, only when set, so a body without
+    # it fingerprints exactly as before. A malformed id is 422; a well-formed id the
+    # corpus does not know is ignored.
+    topic: str | None = Field(default=None, max_length=CHAT_TOPIC_MAX_CHARS, pattern=CHAT_TOPIC_PATTERN)
+
+    @field_validator("topic", mode="before")
+    @classmethod
+    def _blank_topic(cls, value: Any) -> Any:
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("scopes", mode="before")
+    @classmethod
+    def _known_scopes(cls, value: Any) -> list[str]:
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, (list, tuple)):
+            return []
+        out: list[str] = []
+        for item in value:
+            scope = _lenient_enum(item, CHAT_SCOPES, None)
+            if scope and scope not in out:
+                out.append(scope)
+        return out
+
+    def fingerprint_payload(self) -> dict[str, Any]:
+        """The JSON-able identity of this request for idempotency (SPEC §3.1).
+
+        Pre-revamp fields are dumped exactly as before (minus the excluded keys); the
+        revamp fields are added only when they differ from their defaults, so a body
+        that does not use them fingerprints byte-identically to a pre-revamp body. The
+        same key is therefore valid across ``/chat`` and ``/chat/stream``."""
+        payload = self.model_dump(
+            mode="json",
+            exclude=set(CHAT_REQUEST_FINGERPRINT_EXCLUDE | CHAT_REQUEST_REVAMP_FIELDS),
+        )
+        # A history turn's ``origin`` is part of the identity only when the client set
+        # it, so a body whose history carries no origins hashes exactly as before.
+        for turn in payload.get("history") or ():
+            if isinstance(turn, dict) and turn.get("origin") is None:
+                turn.pop("origin", None)
+        payload.update(self.model_dump(
+            mode="json", include=set(CHAT_REQUEST_REVAMP_FIELDS), exclude_defaults=True,
+        ))
+        return payload
 
 
 class DiscoverLink(BaseModel):
@@ -2017,6 +2732,367 @@ class MemorySuggestion(BaseModel):
 
     text: str = ""
     reason: str = ""
+
+
+# --- §3.4 usage --------------------------------------------------------------- #
+class StepUsage(BaseModel):
+    """Usage of ONE model call (or one query-embedding call on a tool step).
+    ``estimated`` marks a provider that omitted usage or a call cancelled mid-stream
+    (input = provider count or chars/4, output = chars/4 of what was received)."""
+
+    input_tokens: int = Field(default=0, ge=0)
+    cache_read_tokens: int = Field(default=0, ge=0)
+    cache_write_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    cost: float = Field(default=0.0, ge=0, allow_inf_nan=False)
+    latency_ms: int = Field(default=0, ge=0)
+    estimated: bool = False
+    embedding_calls: int = Field(default=0, ge=0)
+    embedding_tokens: int = Field(default=0, ge=0)
+    embedding_cost: float = Field(default=0.0, ge=0, allow_inf_nan=False)
+
+    @property
+    def prompt_tokens(self) -> int:
+        """Everything sent (uncached + cache read + cache write; §3.4 definition)."""
+        return self.input_tokens + self.cache_read_tokens + self.cache_write_tokens
+
+    @property
+    def total_tokens(self) -> int:
+        return self.prompt_tokens + self.output_tokens + self.embedding_tokens
+
+
+class TurnUsage(BaseModel):
+    """Running/final usage of one turn: the sum of its model calls plus any
+    query-embedding calls. ``cost`` includes embedding cost; ``simulated`` marks Demo
+    Mode synthetic pricing; ``estimated`` is true when any part was estimated."""
+
+    calls: int = Field(default=0, ge=0)
+    embedding_calls: int = Field(default=0, ge=0)
+    input_tokens: int = Field(default=0, ge=0)
+    cache_read_tokens: int = Field(default=0, ge=0)
+    cache_write_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    # input + cache_read + cache_write + output (+ embedding tokens)
+    total_tokens: int = Field(default=0, ge=0)
+    cost: float = Field(default=0.0, ge=0, allow_inf_nan=False)
+    latency_ms: int = Field(default=0, ge=0)
+    model: str | None = None
+    pricing_source: str | None = None
+    simulated: bool = False
+    estimated: bool = False
+    context_window: int | None = Field(default=None, ge=0)
+    # The largest single prompt of the turn (hover-card detail only).
+    peak_prompt_tokens: int = Field(default=0, ge=0)
+
+    @classmethod
+    def from_steps(
+        cls,
+        model_calls: "Iterable[StepUsage]",
+        embeddings: "Iterable[StepUsage]" = (),
+        *,
+        model: str | None = None,
+        pricing_source: str | None = None,
+        simulated: bool = False,
+        context_window: int | None = None,
+        latency_ms: int | None = None,
+    ) -> "TurnUsage":
+        """Aggregate model-call usages and embedding usages into a turn total.
+        ``latency_ms`` defaults to the sum of the model calls' latencies."""
+        calls = list(model_calls)
+        embeds = list(embeddings)
+        input_tokens = sum(u.input_tokens for u in calls)
+        cache_read = sum(u.cache_read_tokens for u in calls)
+        cache_write = sum(u.cache_write_tokens for u in calls)
+        output = sum(u.output_tokens for u in calls)
+        embedding_tokens = sum(u.embedding_tokens for u in calls + embeds)
+        return cls(
+            calls=len(calls),
+            embedding_calls=sum(u.embedding_calls for u in calls + embeds),
+            input_tokens=input_tokens,
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
+            output_tokens=output,
+            total_tokens=input_tokens + cache_read + cache_write + output + embedding_tokens,
+            cost=round(sum(u.cost + u.embedding_cost for u in calls)
+                       + sum(u.cost + u.embedding_cost for u in embeds), 10),
+            latency_ms=sum(u.latency_ms for u in calls) if latency_ms is None else max(0, latency_ms),
+            model=model,
+            pricing_source=pricing_source,
+            simulated=simulated,
+            estimated=any(u.estimated for u in calls + embeds),
+            context_window=context_window,
+            peak_prompt_tokens=max((u.prompt_tokens for u in calls), default=0),
+        )
+
+
+# --- §3.3 steps --------------------------------------------------------------- #
+# Every invisible, bidi, tag and control character (``INVISIBLE_TEXT_RANGES``) and
+# every lone surrogate half: what ``visible_display_text`` writes as an escape.
+_VISIBLE_ESCAPE_RE = re.compile(f"[{INVISIBLE_TEXT_CLASS}]|[\ud800-\udfff]")
+# A ``\uXXXX`` escape (or the high half of an astral pair) a length bound cut.
+_PARTIAL_ESCAPE_RE = re.compile(r"(?:\\ud[89ab][0-9a-f]{2})?(?:\\(?:u[0-9a-f]{0,3})?)?$")
+
+
+def _escape_char(match: "re.Match[str]") -> str:
+    """``\\uXXXX``; an astral code point as its UTF-16 pair, as ``ensure_ascii``
+    (and the step inspector's JSON view) writes it."""
+    code = ord(match.group())
+    if code > 0xFFFF:
+        code -= 0x10000
+        return f"\\u{0xD800 + (code >> 10):04x}\\u{0xDC00 + (code & 0x3FF):04x}"
+    return f"\\u{code:04x}"
+
+
+def visible_display_text(value: Any, limit: int, *, multiline: bool = False) -> str:
+    """:func:`display_text` for a model- or log-derived value a person must read
+    EXACTLY (a run-log step's ``untrusted_params`` and ``query``, Round 12 P1-1): every
+    invisible, bidi, tag or control character and lone surrogate is WRITTEN as visible
+    ``\\uXXXX`` escape text instead of being deleted. Deleting it would show "admin" +
+    ZWSP as "admin" (the real account) and let a right-to-left override reorder what
+    the analyst reads, while the stored observation shows the escape (the model read
+    it through ``fence_block``'s ``ensure_ascii``). The escapes are ASCII, so the web
+    normalisers keep them. Line breaks fold to a space unless ``multiline``; the bound
+    never cuts an escape in half. Never raises."""
+    if isinstance(value, str):
+        text = value
+    elif isinstance(value, bool) or (isinstance(value, (int, float)) and math.isfinite(value)):
+        return display_text(value, limit)
+    else:
+        return ""
+    text = display_text(_VISIBLE_ESCAPE_RE.sub(_escape_char, text), 0, multiline=multiline)
+    if limit > 0 and len(text) > limit:
+        text = _PARTIAL_ESCAPE_RE.sub("", text[: max(0, limit - 1)]).rstrip() + "…"
+    return text
+
+
+def display_params(
+    value: Any,
+    *,
+    chars: int = _STEP_PARAM_CHARS,
+    strings_only: bool = False,
+    visible: bool = False,
+) -> dict[str, Any]:
+    """Whitelist-shaped display chips: safe keys (``[A-Za-z0-9_.:-]{1,40}``), scalar
+    values, display-sanitised text, at most 12 entries. ``strings_only`` renders
+    numbers as text (``untrusted_params`` is ``dict[str, str]``); ``visible`` writes
+    invisible characters as escapes (:func:`visible_display_text`) instead of deleting
+    them. Never raises."""
+    if not isinstance(value, dict):
+        return {}
+    def text_of(raw: str) -> str:
+        return visible_display_text(raw, chars) if visible else display_text(raw, chars)
+
+    out: dict[str, Any] = {}
+    for key, raw in value.items():
+        if len(out) >= _STEP_MAX_PARAMS:
+            break
+        if not isinstance(key, str) or not _PARAM_KEY_RE.match(key):
+            continue
+        if isinstance(raw, str):
+            out[key] = text_of(raw)
+        elif strings_only:
+            if isinstance(raw, (int, float)) and not isinstance(raw, bool) and math.isfinite(raw):
+                out[key] = text_of(str(raw))
+        elif raw is None or isinstance(raw, bool) or isinstance(raw, int):
+            out[key] = raw
+        elif isinstance(raw, float) and math.isfinite(raw):
+            out[key] = raw
+    return out
+
+
+class ChatStep(BaseModel):
+    """One row of a turn's run log (SPEC §3.3). Every string is engine-authored or
+    display-sanitised; ``untrusted_params`` and ``query`` may carry model/log-derived
+    values, which the UI renders as untrusted text/code and prompts fence."""
+
+    index: int = Field(ge=0)                       # display order, 1-based
+    ordinal: int | None = Field(default=None, ge=1)  # tool-call ordinal N (tN refs)
+    kind: ChatStepKind = "tool"
+    tool: str | None = None
+    label: str = Field(default="", max_length=_STEP_LABEL_CHARS)
+    params: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
+    status: ChatStepStatus = "ok"
+    duration_ms: int = Field(default=0, ge=0)
+    summary: str = Field(default="", max_length=_STEP_SUMMARY_CHARS)
+    untrusted_params: dict[str, str] = Field(default_factory=dict)
+    query: str | None = Field(default=None, max_length=_STEP_QUERY_CHARS)
+    rows: int | None = Field(default=None, ge=0)
+    basis: ChatStepBasis | None = None
+    coverage: str | None = Field(default=None, max_length=_STEP_COVERAGE_CHARS)
+    sources: list[str] = Field(default_factory=list, max_length=_STEP_MAX_SOURCES)
+    usage: StepUsage | None = None
+    group: int | None = Field(default=None, ge=0)
+    # --- Round 12 (SPEC §3.1; additive). Owner-scoped key for the step inspector
+    # (GET /api/chat/conversations/{id}/messages/{mid}/steps/{index}); progress of a long
+    # aggregate scan ("Counted 42,000 of 118,402 cases").
+    observation_ref: str | None = Field(default=None, max_length=200)
+    progress: ChatStepProgress | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _lenient(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        out["kind"] = _lenient_enum(out.get("kind"), CHAT_STEP_KINDS, "tool")
+        # An unknown stored status reads as a failure, never as a silent success.
+        out["status"] = _lenient_enum(out.get("status"), CHAT_STEP_STATUSES, "error")
+        out["basis"] = _lenient_enum(out.get("basis"), CHAT_STEP_BASES, None)
+        tool = out.get("tool")
+        out["tool"] = tool if isinstance(tool, str) and _TOOL_NAME_RE.match(tool) else None
+        out["label"] = display_text(out.get("label"), _STEP_LABEL_CHARS)
+        out["summary"] = display_text(out.get("summary"), _STEP_SUMMARY_CHARS)
+        out["params"] = display_params(out.get("params"), chars=_STEP_PARAM_CHARS, strings_only=False)
+        # Model- or log-derived values: invisible and bidi characters are written as
+        # visible escapes, never deleted, so the run log and the step inspector show
+        # exactly what was sent ("admin" + ZWSP never reads as "admin", #9, P1-1).
+        out["untrusted_params"] = display_params(
+            out.get("untrusted_params"), chars=_STEP_UNTRUSTED_PARAM_CHARS,
+            strings_only=True, visible=True,
+        )
+        query = out.get("query")
+        out["query"] = (
+            (visible_display_text(query, _STEP_QUERY_CHARS, multiline=True) or None)
+            if isinstance(query, str) else None
+        )
+        coverage = out.get("coverage")
+        out["coverage"] = (
+            (display_text(coverage, _STEP_COVERAGE_CHARS) or None)
+            if isinstance(coverage, str) else None
+        )
+        out["sources"] = _display_list(out.get("sources"), _STEP_MAX_SOURCES, 120)
+        out["usage"] = _lenient_model(StepUsage, out.get("usage"))
+        for name in ("ordinal", "rows", "group"):
+            raw = out.get(name)
+            if raw is not None and (isinstance(raw, bool) or not isinstance(raw, int) or raw < (1 if name == "ordinal" else 0)):
+                out[name] = None
+        duration = out.get("duration_ms")
+        if isinstance(duration, float) and math.isfinite(duration):
+            duration = int(duration)
+        out["duration_ms"] = duration if isinstance(duration, int) and not isinstance(duration, bool) and duration >= 0 else 0
+        return out
+
+
+# --- §3.5 citations, console links, memory proposals --------------------------- #
+class Citation(BaseModel):
+    """A source the answer cites by id (``D1`` doc, ``C2`` case, ``K3`` knowledge,
+    ``M1`` ATT&CK, ``Q1`` query). The model references ids only; the server resolves
+    them; the client re-validates every target."""
+
+    id: str = Field(pattern=_CITATION_ID_PATTERN)
+    kind: CitationKind
+    title: str = Field(min_length=1, max_length=_CITATION_TITLE_CHARS)
+    untrusted: bool = False
+    doc: str | None = Field(default=None, pattern=DOC_REF_PATTERN)
+    case_id: str | None = Field(default=None, pattern=CASE_ID_PATTERN)
+    technique: str | None = Field(default=None, pattern=TECHNIQUE_PATTERN)
+    snippet: str | None = Field(default=None, max_length=_CITATION_SNIPPET_CHARS)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _sanitise(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        if isinstance(out.get("kind"), str):
+            out["kind"] = out["kind"].strip().lower()
+        out["title"] = display_text(out.get("title"), _CITATION_TITLE_CHARS)
+        snippet = out.get("snippet")
+        out["snippet"] = (display_text(snippet, _CITATION_SNIPPET_CHARS, multiline=True) or None) if isinstance(snippet, str) else None
+        if isinstance(out.get("technique"), str):
+            out["technique"] = out["technique"].strip().upper()
+        if not isinstance(out.get("untrusted"), bool):
+            out["untrusted"] = True if "untrusted" in out else False
+        return out
+
+    @model_validator(mode="after")
+    def _target(self) -> "Citation":
+        # A citation is only useful with the target its kind names.
+        required = {"doc": self.doc, "case": self.case_id, "mitre": self.technique}
+        if self.kind in required and not required[self.kind]:
+            raise ValueError(f"a {self.kind} citation needs its target")
+        return self
+
+
+class ConsoleLink(BaseModel):
+    """A console destination resolved from ``console_map`` (never from model text).
+    ``allowed`` comes from the caller's grants; a disallowed link renders as plain
+    text naming the grant it ``requires``."""
+
+    id: str = Field(pattern=_CONSOLE_LINK_ID_PATTERN)
+    label: str = Field(min_length=1, max_length=_CONSOLE_LABEL_CHARS)
+    page: str = Field(pattern=PAGE_PATTERN)
+    opts: dict[str, str | int] = Field(default_factory=dict)
+    allowed: bool = False
+    requires: str | None = Field(default=None, pattern=_GRANT_PATTERN)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _sanitise(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        out["label"] = display_text(out.get("label"), _CONSOLE_LABEL_CHARS)
+        out["opts"] = clean_nav_opts(out.get("opts"))
+        # Fail closed: only an explicit True grants navigation.
+        out["allowed"] = out.get("allowed") is True
+        return out
+
+
+class MemoryProposal(BaseModel):
+    """A memory change the MODEL proposed (§4.8). Never executed by the engine: the
+    UI confirms it through the existing memory routes under ``memory:manage``.
+    ``remove`` takes exact entry ids only (no text matching from chat)."""
+
+    op: MemoryProposalOp
+    text: str | None = Field(default=None, max_length=_MEMORY_PROPOSAL_CHARS)
+    ids: list[str] = Field(default_factory=list, max_length=_MEMORY_PROPOSAL_MAX_IDS)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _sanitise(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        if isinstance(out.get("op"), str):
+            out["op"] = out["op"].strip().lower()
+        text = out.get("text")
+        out["text"] = (display_text(text, _MEMORY_PROPOSAL_CHARS) or None) if isinstance(text, str) else None
+        ids = out.get("ids")
+        out["ids"] = [
+            i for i in (ids if isinstance(ids, (list, tuple)) else [])
+            if isinstance(i, str) and _SAFE_ID_RE.match(i)
+        ][:_MEMORY_PROPOSAL_MAX_IDS]
+        return out
+
+    @model_validator(mode="after")
+    def _shape(self) -> "MemoryProposal":
+        if self.op == "add" and not self.text:
+            raise ValueError("an add proposal needs text")
+        if self.op == "remove" and not self.ids:
+            raise ValueError("a remove proposal needs exact entry ids")
+        return self
+
+
+# --- §4.5 notices -------------------------------------------------------------- #
+class TurnNotice(BaseModel):
+    """Why a turn is partial, stopped, refused or not saved. ``message`` is an engine
+    template; ``retryable`` decides whether the UI offers Retry."""
+
+    kind: TurnNoticeKind
+    message: str = Field(default="", max_length=_NOTICE_MESSAGE_CHARS)
+    retryable: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _lenient(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        out["kind"] = _lenient_enum(out.get("kind"), TURN_NOTICE_KINDS, "partial")
+        out["message"] = display_text(out.get("message"), _NOTICE_MESSAGE_CHARS)
+        out["retryable"] = out.get("retryable") is True
+        return out
 
 
 class ChatResponse(BaseModel):
@@ -2039,6 +3115,809 @@ class ChatResponse(BaseModel):
     effective_source_id: str | None = None
     effective_source_name: str | None = None
     truncated: bool = False
+    # --- Chat revamp (SPEC §3.2; additive and lenient — see the section note). ---
+    # Validated answer blocks (agents/blocks.py). Re-checked on every construction, so
+    # a drifted stored block becomes a quiet fallback callout instead of a replay 503.
+    blocks: list[dict[str, Any]] = Field(default_factory=list)
+    blocks_version: int = BLOCKS_VERSION
+    steps: list[ChatStep] = Field(default_factory=list)
+    # None on legacy replays and compatibility-mode turns that recorded no usage.
+    usage: TurnUsage | None = None
+    citations: list[Citation] = Field(default_factory=list)
+    console_links: list[ConsoleLink] = Field(default_factory=list)
+    follow_ups: list[str] = Field(default_factory=list, max_length=_MAX_FOLLOW_UPS)
+    answer_kind: ChatAnswerKind = "conversation"
+    notice: TurnNotice | None = None
+    # The D2 mode this answer ran with (None on legacy rows).
+    stream_mode: ChatStreamMode | None = None
+    turn_id: str | None = None
+    # The assistant message id when persisted (reports reference it).
+    message_id: str | None = None
+    # Round 12 (WP-FIX1): the persisted id of the QUESTION this answers, when saved, so a
+    # live transcript can name its own question like a restored one does (a search hit
+    # or a link to it then finds it on screen). Never stored: the message is the truth.
+    user_message_id: str | None = None
+    # A model-proposed memory change awaiting human confirmation (§4.8).
+    memory_proposal: MemoryProposal | None = None
+    # Case-scoped turns (§4.6): whether the answer reached the case thread, apart from
+    # the top ``notice`` (which a partial/timeout/cap/denied/policy notice can hold).
+    # ``None`` when no case thread applied (Workspace, legacy rows, a D1 failure, a
+    # turn stopped before it answered). The ``not_saved`` notice is still attached
+    # when no other notice exists, so a client that ignores this field keeps working.
+    case_saved: bool | None = None
+    # The ``not_saved`` notice whenever ``case_saved`` is False, whatever the top
+    # notice is: its ``retryable`` is True only for a store failure (SPEC A25: a re-run
+    # bills again, so "Run again to save" is offered only when it can help; a missing
+    # grant or case would fail the same way). ``None`` otherwise.
+    case_save_notice: TurnNotice | None = None
+    # --- Round 12 (SPEC §3.1; additive). A clarifying question instead of a guess (D10);
+    # the report the server saved from this answer (D11); continuation steps used for the
+    # final answer (D3); whether earlier context was summarised in this turn (D4).
+    clarify: ChatClarify | None = None
+    saved_report: ChatSavedReport | None = None
+    # Additive (WP-API): the report the header asked for could not be saved.
+    saved_report_error: ChatReportSaveError | None = None
+    continued: int = Field(default=0, ge=0)
+    compacted: bool = False
+    # Round 12 (final review; additive): the command this turn answered (``"compact"``),
+    # or None for an answer. A command reply makes no lookups, names no source, and
+    # carries real usage (zero when no model call ran), never "not recorded".
+    command: ChatCommand | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_lone_surrogates(cls, data: Any) -> Any:
+        # Model text (``answer``) and log-derived values (table cells, a query) can
+        # carry a lone surrogate from a JSON ``\ud800`` escape. Pydantic would reject
+        # it and UTF-8 cannot encode it, which would abort ``turn.done`` or the
+        # history write of an otherwise good answer, so it is dropped everywhere.
+        return strip_lone_surrogates(data) if isinstance(data, dict) else data
+
+    @field_validator("blocks", mode="before")
+    @classmethod
+    def _blocks(cls, value: Any) -> list[dict[str, Any]]:
+        return parse_persisted_blocks(value)
+
+    @field_validator("blocks_version", mode="before")
+    @classmethod
+    def _blocks_version(cls, value: Any) -> int:
+        return value if isinstance(value, int) and not isinstance(value, bool) and value >= 1 else BLOCKS_VERSION
+
+    @field_validator("steps", mode="before")
+    @classmethod
+    def _steps(cls, value: Any) -> list[Any]:
+        return _bounded_steps(value)
+
+    @field_validator("usage", mode="before")
+    @classmethod
+    def _usage(cls, value: Any) -> Any:
+        return _lenient_model(TurnUsage, value)
+
+    @field_validator("citations", mode="before")
+    @classmethod
+    def _citations(cls, value: Any) -> list[Any]:
+        return _lenient_models(Citation, value, _MAX_CITATIONS)
+
+    @field_validator("console_links", mode="before")
+    @classmethod
+    def _console_links(cls, value: Any) -> list[Any]:
+        return _lenient_models(ConsoleLink, value, _MAX_CONSOLE_LINKS)
+
+    @field_validator("follow_ups", mode="before")
+    @classmethod
+    def _follow_ups(cls, value: Any) -> list[str]:
+        return _display_list(value, _MAX_FOLLOW_UPS, _FOLLOW_UP_CHARS)
+
+    @field_validator("answer_kind", mode="before")
+    @classmethod
+    def _answer_kind(cls, value: Any) -> str:
+        return _lenient_enum(value, CHAT_ANSWER_KINDS, "conversation")
+
+    @field_validator("command", mode="before")
+    @classmethod
+    def _command(cls, value: Any) -> Any:
+        return _lenient_enum(value, CHAT_COMMANDS, None)
+
+    @field_validator("notice", mode="before")
+    @classmethod
+    def _notice(cls, value: Any) -> Any:
+        return _lenient_model(TurnNotice, value)
+
+    @field_validator("stream_mode", mode="before")
+    @classmethod
+    def _stream_mode(cls, value: Any) -> Any:
+        return _lenient_enum(value, CHAT_STREAM_MODES, None)
+
+    @field_validator("memory_proposal", mode="before")
+    @classmethod
+    def _memory_proposal(cls, value: Any) -> Any:
+        return _lenient_model(MemoryProposal, value)
+
+    @field_validator("case_saved", mode="before")
+    @classmethod
+    def _case_saved(cls, value: Any) -> bool | None:
+        # Lenient like the other presentation fields: only a real bool is kept.
+        return value if isinstance(value, bool) else None
+
+    @field_validator("case_save_notice", mode="before")
+    @classmethod
+    def _case_save_notice(cls, value: Any) -> Any:
+        return _lenient_model(TurnNotice, value)
+
+    @model_validator(mode="after")
+    def _cost_matches_usage(self) -> "ChatResponse":
+        # SPEC §3.2: ``cost == usage.cost`` whenever usage is present.
+        if self.usage is not None:
+            self.cost = self.usage.cost
+        return self
+
+
+# --- §8 live token meter -------------------------------------------------------- #
+class ChatToolInfo(BaseModel):
+    """One row of the caller's tool catalogue ("What can the assistant access?")."""
+
+    name: str
+    label: str
+    scope: ChatScope
+    data_source: str = ""
+    requires: list[str] = Field(default_factory=list)   # "resource:action", all-of
+    # A kind-gated tool (no ``requires``, only per-kind grants) is allowed when at
+    # least one of its kinds is.
+    allowed: bool = False
+    # The grants the caller lacks (empty when allowed). For a kind-gated tool with no
+    # usable kind: every per-kind grant, any ONE of which unlocks it.
+    missing: list[str] = Field(default_factory=list)
+    # kind -> the extra "resource:action" that kind needs (empty for most tools).
+    kind_requires: dict[str, str] = Field(default_factory=dict)
+    # The kinds the caller may use (starters/popover show the rest as locked).
+    kinds_allowed: list[str] = Field(default_factory=list)
+    # False when this deployment switched the tool off by configuration (e.g.
+    # ``max_indicator_lookups == 0``): no grant unlocks it, an administrator can turn
+    # it back on in Settings. Independent of ``allowed`` (that is grants only).
+    available: bool = True
+
+
+class TextStreamingInfo(BaseModel):
+    """Whether "Type out answers" can work for the effective chat model (§6.3)."""
+
+    available: bool = False
+    reason: TextStreamingReason | None = None
+
+
+class ChatContextBounds(BaseModel):
+    """The §4.2 bounds the meter and the run log display (no internal_domains)."""
+
+    max_model_calls: int
+    max_tool_calls: int
+    max_parallel: int
+    tool_timeout_s: int
+    model_step_timeout_s: int
+    turn_timeout_s: int
+    turn_token_ceiling: int
+    final_reserve_tokens: int
+    observation_chars: int
+    final_max_tokens: int
+    max_indicator_lookups: int
+    default_stream_mode: ChatStreamMode = "steps"
+    allow_text_streaming: bool = True
+    # Round 12 (SPEC D13): the org's "animate the console logo while chat works"
+    # switch (``ChatAgentConfig.animated_brand``), so every viewer's brand ring honours it.
+    animated_brand: bool = True
+
+    model_config = ConfigDict(protected_namespaces=())
+
+    @classmethod
+    def from_config(cls, config: Any) -> "ChatContextBounds":
+        """Project ``Preferences.chat_agent`` onto the public bounds."""
+        return cls.model_validate({
+            name: getattr(config, name) for name in cls.model_fields if hasattr(config, name)
+        })
+
+
+class ChatRates(BaseModel):
+    """Effective per-million-token rates (demo-aware). ``models:read`` only."""
+
+    input_per_million: float = Field(ge=0, allow_inf_nan=False)
+    output_per_million: float = Field(ge=0, allow_inf_nan=False)
+    cache_read_per_million: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+
+
+class ChatBudgetInfo(BaseModel):
+    """The daily budget the meter's ring measures against. ``models:read`` only."""
+
+    enabled: bool = False
+    daily_limit: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    soft_warn_pct: float = Field(default=0.8, ge=0, le=1)
+    on_exceed: Literal["warn", "block"] = "block"
+
+
+class ChatContextInfo(BaseModel):
+    """``GET /api/chat/context`` (SPEC §8): everything the composer meter needs.
+    Money and budget fields are present only with ``models:read``; ``spent_today`` /
+    ``remaining`` additionally need ``cost:view``. Without them the meter shows
+    tokens only plus ``budget_state``."""
+
+    model: str | None = None
+    context_window: int | None = Field(default=None, ge=0)
+    max_output_tokens: int = Field(default=0, ge=0)
+    chars_per_token: int = Field(default=4, ge=1)
+    # System prompt + the caller's granted tool signatures.
+    static_prompt_tokens: int = Field(default=0, ge=0)
+    # Estimate for the selected conversation's replayed history (<= 12 exchanges).
+    history_tokens: int = Field(default=0, ge=0)
+    history_exchanges: int = Field(default=0, ge=0)
+    tools: list[ChatToolInfo] = Field(default_factory=list)
+    text_streaming: TextStreamingInfo = Field(default_factory=TextStreamingInfo)
+    bounds: ChatContextBounds
+    # actual ÷ estimate of the last turn in this conversation (None until measured).
+    calibration: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    budget_state: ChatBudgetState | None = None
+    rates: ChatRates | None = None
+    simulated: bool | None = None
+    budget: ChatBudgetInfo | None = None
+    spent_today: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    remaining: float | None = Field(default=None, allow_inf_nan=False)
+    # §10.5 empty-state starters, built server-side so Demo and production share one
+    # shape (Demo: engine.demo_chat.DEMO_STARTERS; production: templated from live
+    # context, never literal IOCs). The page shows a card only if all its tools are allowed.
+    starters: list[ChatStarter] = Field(default_factory=list)
+    # --- Round 12 (SPEC §3.1; additive). Chat limits mode (D1) and the operator timezone
+    # used for calendar windows and buckets (D7). ``context_window`` above drives the
+    # composer's context-use ring.
+    limits_mode: Literal["unlimited", "bounded"] = "unlimited"
+    timezone: str = "UTC"
+
+    model_config = ConfigDict(protected_namespaces=())
+
+
+# =========================================================================== #
+# Round 13 chat starters (docs/research/2026-10-round13/SPEC-chat.md §3.2.1).
+# Additive only: every field added to ChatStarter has a default, so a payload
+# written before Round 13 (the six §10.5 starters, ``DEMO_STARTERS``) stays valid.
+# Wording lives in ``agents/chat_starter_text.py``; ranking and the family registry
+# in ``engine/chat_starters.py``. Starters are computed by code, never by a model
+# (#6), and a referenced value is typed and fenced on the way to the model (#9).
+# =========================================================================== #
+StarterAction = Literal["send", "open_conversation", "use_prompt"]
+StarterRefKind = Literal["case", "rule", "source", "campaign", "technique", "conversation", "prompt"]
+StarterUrgency = Literal["none", "attention", "critical"]
+StarterSurface = Literal["home", "thread", "case"]
+STARTER_REF_KINDS: tuple[str, ...] = get_args(StarterRefKind)
+STARTER_SURFACES: tuple[str, ...] = get_args(StarterSurface)
+#: A starter key: the first 16 hex characters of ``sha256("<family>|<kind>|<value>")``
+#: (``"<family>|"`` without a reference). Opaque to the client.
+STARTER_KEY_PATTERN = r"^[0-9a-f]{16}$"
+_STARTER_KEY_RE = re.compile(r"[0-9a-f]{16}")
+#: At most this many cards per read, and keys per event (SPEC §3.5 step 3).
+MAX_STARTERS = 6
+
+
+class ChatStarterRef(BaseModel):
+    """A typed reference a starter names (a case, rule, source, campaign, ATT&CK
+    technique) or opens (a conversation, a saved prompt). ``value`` passes its kind's
+    strict grammar (``chat_starter_text.ref_value``) unchanged, or the model refuses it:
+    a value is never cut, quoted or altered (SPEC §3.8.1)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: StarterRefKind
+    value: str = Field(min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def _grammar(self) -> "ChatStarterRef":
+        from .agents.chat_starter_text import ref_value  # lazy: agents import models
+
+        if ref_value(self.kind, self.value) != self.value:
+            raise ValueError(f"not a valid {self.kind} reference")
+        return self
+
+
+class ChatStarter(BaseModel):
+    """One starter card (SPEC §10.5; Round 13 SPEC-chat §3.2.1).
+
+    ``id`` is the FAMILY id (one card per family; the pre-Round-13 ids investigate,
+    hunt, posture, shift_brief, explain_metric and learn_app stay valid). ``label`` is
+    a short family name and ``description`` equals ``reason``, for older clients. For
+    action ``send``, ``prompt`` is both the visible question and the exact text the
+    client sends with ``origin: "starter"`` (never edited, never put in the composer);
+    dynamic templates render at most 100 characters. Action ``open_conversation`` and
+    ``use_prompt`` cards are display-only: ``prompt`` is their card text (at most 120
+    characters) and is never sent; ``ref`` names the conversation or saved prompt."""
+
+    id: str = Field(min_length=1, max_length=40, pattern=r"^[a-z0-9_]+$")
+    label: str = Field(min_length=1, max_length=40)
+    description: str = Field(default="", max_length=120)
+    prompt: str = Field(min_length=1, max_length=400)
+    # Every tool the starter's plan needs; the card is hidden unless all are allowed.
+    tools: list[str] = Field(default_factory=list, max_length=8)
+    # --- Round 13 (additive; defaults keep every old payload valid) --------------- #
+    #: The ``chat_starter_text`` template id the card was worded from.
+    template: str | None = Field(default=None, pattern=r"^[a-z0-9_]{1,40}$")
+    #: Why the card is here (at most 60 characters by copy): numbers, durations,
+    #: times, closed-vocabulary words and configured source names only, never
+    #: log-derived free text (SPEC §3.7).
+    reason: str = Field(default="", max_length=80)
+    action: StarterAction = "send"
+    ref: ChatStarterRef | None = None
+    #: Opaque key for ``POST /api/chat/starters/events`` (:data:`STARTER_KEY_PATTERN`).
+    key: str | None = Field(default=None, pattern=STARTER_KEY_PATTERN)
+    urgency: StarterUrgency = "none"
+    as_of: str | None = None        # ISO 8601 UTC
+    expires_at: str | None = None   # ISO 8601 UTC
+
+
+class ChatCatchUpClause(BaseModel):
+    """One clause of the catch-up line ("5 new cases (2 critical)") and the starter
+    it sends when clicked (action ``send`` only; SPEC §3.6)."""
+
+    text: str = Field(min_length=1, max_length=60)
+    starter: ChatStarter
+
+    @model_validator(mode="after")
+    def _sends(self) -> "ChatCatchUpClause":
+        if self.starter.action != "send":
+            raise ValueError("a catch-up clause sends its starter")
+        return self
+
+
+class ChatCatchUp(BaseModel):
+    """"Since {since_label}: clause, clause and clause." (at most 160 characters as a
+    whole line; the server drops clauses from the end until it fits)."""
+
+    since: str                     # ISO 8601 UTC
+    since_label: str               # "09:12", "yesterday 18:40", "Mon 18:40", "12 Oct" (operator tz)
+    clauses: list[ChatCatchUpClause] = Field(default_factory=list, max_length=4)
+
+
+class ChatStartersInfo(BaseModel):
+    """``GET /api/chat/starters`` (SPEC §3.2.2). ``enabled`` mirrors
+    ``chat_agent.dynamic_starters``; when it is false the server returns the evergreen
+    set only and no catch-up line. ``expires_at`` is ``as_of`` + 120 s."""
+
+    surface: StarterSurface
+    enabled: bool
+    as_of: str
+    expires_at: str
+    timezone: str                  # IANA name (SlaPolicy.timezone)
+    starters: list[ChatStarter] = Field(default_factory=list, max_length=MAX_STARTERS)
+    catch_up: ChatCatchUp | None = None
+
+
+class ChatStarterEvent(BaseModel):
+    """``POST /api/chat/starters/events`` body (SPEC §3.2.2, §3.6). Presentation state
+    only: it updates the caller's own starter state document, writes no audit row and
+    stores no text (D10). A ``thread`` ``viewed`` event carries no keys."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["viewed", "used", "dismissed"]
+    surface: StarterSurface = "home"
+    keys: list[str] = Field(default_factory=list, max_length=MAX_STARTERS)
+
+    @field_validator("keys")
+    @classmethod
+    def _keys(cls, value: list[str]) -> list[str]:
+        for key in value:
+            if not isinstance(key, str) or not _STARTER_KEY_RE.fullmatch(key):
+                raise ValueError("each key is 16 lowercase hex characters")
+        return value
+
+
+class ChatTopicQuestion(BaseModel):
+    """``GET /api/chat/topics/{topic_id}`` (SPEC §10.7 "Ask about this"): the
+    templated question for a console_map topic. The page sends this text with
+    ``origin="starter"``; it never sends free text of its own for a topic."""
+
+    topic: str
+    question: str
+
+
+# --- Round 12 chat contracts (docs/research/2026-10-round12/SPEC.md §3.1) --------- #
+
+
+class ChatStepProgress(BaseModel):
+    """Progress of one long-running lookup (an exact aggregate scan). ``total`` is None
+    when the store cannot say up front; ``unit`` is a display noun ("cases")."""
+
+    done: int = Field(default=0, ge=0)
+    total: int | None = Field(default=None, ge=0)
+    unit: str = Field(default="", max_length=40)
+
+
+class ChatClarify(BaseModel):
+    """A clarifying question the model asked instead of guessing (SPEC D10). Option
+    text is model-authored and may echo log values: the UI renders it as untrusted
+    text, and a pick is sent with ``origin="clarify"`` (follow_up taint class, #9)."""
+
+    question: str = Field(min_length=1, max_length=200)
+    options: list[str] = Field(default_factory=list, max_length=4)
+    allow_custom: bool = True
+
+    @field_validator("options", mode="before")
+    @classmethod
+    def _options(cls, value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        out: list[str] = []
+        for item in value:
+            text = display_text(item, 80) if isinstance(item, str) else ""
+            if text and text not in out:
+                out.append(text)
+            if len(out) == 4:
+                break
+        return out
+
+
+class ChatSavedReport(BaseModel):
+    """The report the server saved from this answer (SPEC D11). Created by the server
+    from the persisted message, never by the model. ``skipped`` (additive): sections
+    of the answer that did not fit the report's item or size limit."""
+
+    id: str
+    title: str = Field(default="", max_length=200)
+    items: int = Field(default=0, ge=0)
+    skipped: int = Field(default=0, ge=0)
+
+
+ChatReportSaveErrorCode = Literal["report_limit", "report_unavailable", "report_empty"]
+
+
+class ChatReportSaveError(BaseModel):
+    """Why the report a chat answer asked for was NOT saved (SPEC D11; additive). The
+    answer itself is saved; ``message`` is a server template, never model text.
+    ``retryable``: the same save may work later (a store outage), so the UI can offer
+    "Save as report"; a full library or an answer with nothing to save cannot.
+
+    ``title`` and ``template`` (additive) record what the answer's header asked for, so
+    "Save as report" (``POST /api/reports/from-answer``) saves the SAME report the server
+    could not; the server reads them from the stored answer, never from the client.
+    ``title`` is model-derived display text (#9); both are lenient on replay."""
+
+    code: ChatReportSaveErrorCode
+    message: str = Field(default="", max_length=300)
+    retryable: bool = False
+    title: str | None = Field(default=None, max_length=MAX_REPORT_TITLE_CHARS)
+    template: ReportTemplateName | None = None
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _requested_title(cls, value: Any) -> str | None:
+        return (display_text(value, MAX_REPORT_TITLE_CHARS) or None) if isinstance(value, str) else None
+
+    @field_validator("template", mode="before")
+    @classmethod
+    def _requested_template(cls, value: Any) -> Any:
+        return _lenient_enum(value, REPORT_TEMPLATE_NAMES, None)
+
+
+class ChatActiveTurn(BaseModel):
+    """``GET /api/chat/turns/active`` (SPEC D13): one of the caller's running turns.
+    ``label`` is an engine template, never model or log text."""
+
+    turn_id: str
+    conversation_id: str | None = None
+    case_id: str | None = None
+    started_at: str
+    label: str = Field(default="", max_length=120)
+    lookups: int = Field(default=0, ge=0)
+    tokens: int = Field(default=0, ge=0)
+    status: Literal["running", "needs_input"] = "running"
+
+
+ChatFeedbackRating = Literal["up", "down"]
+ChatFeedbackReason = Literal["wrong", "incomplete", "slow", "other"]
+
+
+class ChatFeedbackRequest(BaseModel):
+    """``POST /api/chat/feedback`` (SPEC §3.2). Stored per user and audited; never used
+    to train a model."""
+
+    conversation_id: str = Field(min_length=1, max_length=200)
+    message_id: str = Field(min_length=1, max_length=200)
+    rating: ChatFeedbackRating
+    reason: ChatFeedbackReason | None = None
+    comment: str = Field(default="", max_length=1000)
+
+
+ChatContextInfo.model_rebuild()
+ChatStep.model_rebuild()
+ChatResponse.model_rebuild()
+
+
+# --- §9.1 reports ----------------------------------------------------------------- #
+def _report_title(value: Any) -> str:
+    return display_text(value, MAX_REPORT_TITLE_CHARS)
+
+
+class ReportItemSource(BaseModel):
+    """Where an item came from (a caller-owned persisted Workspace message)."""
+
+    conversation_id: str = Field(min_length=1, max_length=128)
+    message_id: str = Field(min_length=1, max_length=128)
+    block_id: str | None = Field(default=None, max_length=48)
+
+
+# A report item's scope window: every distinct window its blocks state, joined with
+# "; " (a whole answer can hold several), so it is bounded like a block caption.
+REPORT_SCOPE_WINDOW_CHARS = 280
+
+
+class ReportItemScope(BaseModel):
+    """Scope captured server-side at add time (never client-supplied)."""
+
+    window: str | None = Field(default=None, max_length=REPORT_SCOPE_WINDOW_CHARS)
+    sources: list[str] = Field(default_factory=list, max_length=20)
+    generated_by: str | None = Field(default=None, max_length=120)   # the model id
+    app_version: str | None = Field(default=None, max_length=40)
+    demo: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _sanitise(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        for name, limit in (("window", REPORT_SCOPE_WINDOW_CHARS), ("generated_by", 120), ("app_version", 40)):
+            raw = out.get(name)
+            out[name] = (display_text(raw, limit) or None) if isinstance(raw, str) else None
+        out["sources"] = _display_list(out.get("sources"), 20, 120)
+        out["demo"] = out.get("demo") is True
+        return out
+
+
+class ReportSectionSnapshot(BaseModel):
+    """The ``block`` of a ``section`` item: a whole added answer, titled by the
+    user's question, holding the Markdown answer then that turn's blocks — up to
+    ``MAX_SECTION_BLOCKS`` (the answer plus a full turn's 12). Anything past that is
+    clipped and ``truncated`` says so (G4), never a silent loss."""
+
+    title: str = Field(default="", max_length=MAX_REPORT_TITLE_CHARS)
+    blocks: list[dict[str, Any]] = Field(default_factory=list, max_length=MAX_SECTION_BLOCKS)
+    truncated: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _clip(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        blocks = out.get("blocks")
+        clipped = isinstance(blocks, (list, tuple)) and len(blocks) > MAX_SECTION_BLOCKS
+        out["truncated"] = out.get("truncated") is True or clipped
+        out["blocks"] = parse_persisted_blocks(blocks, limit=MAX_SECTION_BLOCKS)
+        return out
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _title(cls, value: Any) -> str:
+        return _report_title(value)
+
+
+class ReportItem(BaseModel):
+    """One report item: a validated block snapshot or a whole-answer section."""
+
+    id: str = Field(pattern=_SAFE_ID_PATTERN)
+    kind: ReportItemKind = "block"
+    # kind=block: one AnswerBlock dict; kind=section: a ReportSectionSnapshot dict.
+    block: dict[str, Any]
+    # User-authored; UNTRUSTED for any model call (fenced in the summary digest).
+    note: str | None = Field(default=None, max_length=MAX_REPORT_NOTE_CHARS)
+    source: ReportItemSource
+    scope: ReportItemScope = Field(default_factory=ReportItemScope)
+    added_at: str = Field(default_factory=iso_now)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _lenient(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        out["kind"] = _lenient_enum(out.get("kind"), ("block", "section"), "block")
+        note = out.get("note")
+        out["note"] = (display_text(note, MAX_REPORT_NOTE_CHARS, multiline=True) or None) if isinstance(note, str) else None
+        block = out.get("block")
+        if out["kind"] == "section":
+            snapshot = _lenient_model(ReportSectionSnapshot, block)
+            out["block"] = snapshot.model_dump(mode="json") if snapshot else {"title": "", "blocks": [], "truncated": False}
+        else:
+            parsed = parse_persisted_blocks([block] if isinstance(block, dict) else [])
+            out["block"] = parsed[0] if parsed else parse_persisted_blocks([{}])[0]
+        if not isinstance(out.get("scope"), (dict, ReportItemScope)):
+            out["scope"] = {}
+        return out
+
+
+class ReportSummary(BaseModel):
+    """The AI-written executive summary (one gateway call over the §9.4 digest).
+    Stale when ``based_on_version`` lags the report's ``version``."""
+
+    executive_summary: str = Field(default="", max_length=MAX_REPORT_SUMMARY_CHARS)
+    next_steps: list[str] = Field(default_factory=list, max_length=MAX_REPORT_NEXT_STEPS)
+    model: str | None = None
+    usage: TurnUsage = Field(default_factory=TurnUsage)
+    generated_at: str = Field(default_factory=iso_now)
+    based_on_version: int = Field(default=0, ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _lenient(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        out["executive_summary"] = display_text(
+            out.get("executive_summary"), MAX_REPORT_SUMMARY_CHARS, multiline=True,
+        )
+        out["next_steps"] = _display_list(out.get("next_steps"), MAX_REPORT_NEXT_STEPS, 280)
+        out["usage"] = _lenient_model(TurnUsage, out.get("usage")) or TurnUsage()
+        return out
+
+
+class ReportSummaryEstimate(BaseModel):
+    """``POST /api/reports/{id}/summary?dry_run=1``: what generating would cost."""
+
+    prompt_tokens: int = Field(ge=0)
+    max_output_tokens: int = Field(ge=0)
+    total_tokens: int = Field(ge=0)
+    # Present only with models:read (like the meter's money fields).
+    cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    simulated: bool = False
+    model: str | None = None
+
+
+class Report(BaseModel):
+    """A per-user report document (SPEC §9.1): <= 40 items, strict-CAS ``version``."""
+
+    id: str = Field(pattern=_SAFE_ID_PATTERN)
+    owner: str
+    title: str = Field(min_length=1, max_length=MAX_REPORT_TITLE_CHARS)
+    template: ReportTemplateName = "custom"
+    # The conversation whose draft this is (<= 1 draft per conversation).
+    conversation_id: str | None = None
+    items: list[ReportItem] = Field(default_factory=list, max_length=MAX_REPORT_ITEMS)
+    summary: ReportSummary | None = None
+    created_at: str = Field(default_factory=iso_now)
+    updated_at: str = Field(default_factory=iso_now)
+    version: int = Field(default=1, ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _lenient(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        out["title"] = _report_title(out.get("title")) or "Untitled report"
+        out["template"] = _lenient_enum(out.get("template"), REPORT_TEMPLATE_NAMES, "custom")
+        out["items"] = _lenient_models(ReportItem, out.get("items"), MAX_REPORT_ITEMS)
+        out["summary"] = _lenient_model(ReportSummary, out.get("summary"))
+        return out
+
+    @property
+    def summary_stale(self) -> bool:
+        return self.summary is not None and self.summary.based_on_version < self.version
+
+
+class ReportListEntry(BaseModel):
+    """One row of the per-user report index (``GET /api/reports``).
+
+    ``conversation_id`` names the conversation whose DRAFT this report is (at most one
+    per conversation); ``source_conversation_id`` names the conversation the report
+    came from (the one conversation all its items name, else the draft's), for the
+    library's "Source conversation" column. A report saved from an answer or a whole
+    conversation is never a draft, so it carries only the second. Rows written before
+    the field existed read ``None`` until the report next changes."""
+
+    id: str
+    title: str
+    template: ReportTemplateName = "custom"
+    conversation_id: str | None = None
+    source_conversation_id: str | None = None
+    item_count: int = Field(default=0, ge=0)
+    created_at: str | None = None
+    updated_at: str
+    version: int = Field(default=1, ge=0)
+    has_summary: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _lenient(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        out["title"] = _report_title(out.get("title")) or "Untitled report"
+        out["template"] = _lenient_enum(out.get("template"), REPORT_TEMPLATE_NAMES, "custom")
+        return out
+
+
+class ReportCreateRequest(BaseModel):
+    """``POST /api/reports``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(default="Untitled report", min_length=1, max_length=MAX_REPORT_TITLE_CHARS)
+    template: ReportTemplateName = "custom"
+    conversation_id: str | None = Field(default=None, max_length=128, pattern=_SAFE_ID_PATTERN)
+
+    @field_validator("title")
+    @classmethod
+    def _title(cls, value: str) -> str:
+        return _clean_conversation_title(value)
+
+
+class ReportPatchRequest(BaseModel):
+    """``PATCH /api/reports/{id}``: title, template, item order, notes, removals —
+    all under ``expected_version`` (409 ``report_version_conflict`` on mismatch).
+    ``item_order`` must be a permutation of the remaining item ids; ``notes`` maps
+    item id → note (``null`` clears it)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+    title: str | None = Field(default=None, min_length=1, max_length=MAX_REPORT_TITLE_CHARS)
+    template: ReportTemplateName | None = None
+    item_order: list[str] | None = Field(default=None, max_length=MAX_REPORT_ITEMS)
+    notes: dict[str, str | None] | None = Field(default=None, max_length=MAX_REPORT_ITEMS)
+    remove_items: list[str] | None = Field(default=None, max_length=MAX_REPORT_ITEMS)
+
+    @field_validator("title")
+    @classmethod
+    def _title(cls, value: str | None) -> str | None:
+        return None if value is None else _clean_conversation_title(value)
+
+    @field_validator("item_order", "remove_items")
+    @classmethod
+    def _ids(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        if any(not _SAFE_ID_RE.match(i) for i in value):
+            raise ValueError("item ids must be plain ids")
+        if len(set(value)) != len(value):
+            raise ValueError("item ids must be unique")
+        return value
+
+    @field_validator("notes")
+    @classmethod
+    def _notes(cls, value: dict[str, str | None] | None) -> dict[str, str | None] | None:
+        if value is None:
+            return None
+        out: dict[str, str | None] = {}
+        for item_id, note in value.items():
+            if not _SAFE_ID_RE.match(item_id):
+                raise ValueError("note keys must be item ids")
+            if note is not None and len(note) > MAX_REPORT_NOTE_CHARS:
+                raise ValueError(f"a note is at most {MAX_REPORT_NOTE_CHARS} characters")
+            out[item_id] = None if note is None else (display_text(note, MAX_REPORT_NOTE_CHARS, multiline=True) or None)
+        return out
+
+
+class ReportDeleteRequest(BaseModel):
+    """``DELETE /api/reports/{id}`` body (strict tombstone under ``expected_version``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+
+
+class ReportAddRequest(BaseModel):
+    """``POST /api/reports/add``: add BY REFERENCE. The server loads the block (or the
+    whole answer as a ``section`` when ``block_id`` is absent) from the caller-owned
+    persisted Workspace message and snapshots it; client-supplied block JSON is never
+    accepted, so case-scoped content cannot be added by construction."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    conversation_id: str = Field(min_length=1, max_length=128, pattern=_SAFE_ID_PATTERN)
+    message_id: str = Field(min_length=1, max_length=128, pattern=_SAFE_ID_PATTERN)
+    block_id: str | None = Field(default=None, max_length=48, pattern=BLOCK_ID_PATTERN)
+    report_id: str | None = Field(default=None, max_length=128, pattern=_SAFE_ID_PATTERN)
+
+
+class ReportSummaryRequest(BaseModel):
+    """``POST /api/reports/{id}/summary`` body (``?dry_run=1`` is a query flag)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    expected_version: int | None = Field(default=None, ge=0)
 
 
 class InvestigateRequest(BaseModel):

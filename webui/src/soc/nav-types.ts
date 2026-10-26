@@ -41,4 +41,49 @@ export type NavOpts = {
   section?: string;
   /** In-section card anchor — serialized to `&a=<anchor>` for a scroll+highlight. */
   anchor?: string;
+  /*
+   * Chat revamp deep links (SPEC §10.7). Additive and validated: the router
+   * serialises only the durable ones for their own page (fail closed on anything
+   * else), and every consumer re-validates what it reads.
+   */
+  /** Chat: a REQUESTED saved conversation (`#/chat?conversationId=…`); never forced. */
+  conversationId?: string;
+  /** Chat: the message to scroll to and highlight; serialised only with `conversationId`. */
+  messageId?: string;
+  /** Chat: open on a fresh New-chat draft (in memory only, so a refresh never repeats it). */
+  newChat?: boolean;
+  /** Chat: a `console_map` topic id ("Ask about this"); never free text, in memory only. */
+  topic?: string;
+  /**
+   * Chat: the command palette's "Ask AI: <text>" — the analyst's own words, prefilled
+   * into a new chat's composer (never sent automatically; at most 2,000 characters).
+   * In memory only: the router never writes it to the hash, so a refresh or a shared
+   * link never carries free text.
+   */
+  ask?: string;
+  /**
+   * Chat (Round 12 WP-ASK): an "Ask AI" chip's TYPED reference to one entity value. The
+   * page resolves it to the server's question (`POST /api/chat/entity-question`) and
+   * sends that with `origin: "starter"` in a new chat; never free text, never prefilled.
+   * In memory only: the router never writes it to the hash.
+   */
+  entity?: { kind: string; value: string };
+  /**
+   * Chat (Round 12): "Ask again" from the toast of a NEW chat whose answer could not be
+   * completed or saved, for a question the analyst did NOT type (an Ask AI or "Ask about
+   * this" question, a starter, a follow-up). The page sends the exact question again in
+   * a new chat with the SAME origin and topic, like Ask again in a transcript; it is
+   * never prefilled, so it never becomes the analyst's own words (#9). Only this tab's
+   * own turn runner hands it over; in memory only, the router never writes it to the hash.
+   */
+  resend?: { message: string; origin: string; topic?: string | null };
+  /** Reports library: the report to open (`#/reports?reportId=…`). */
+  reportId?: string;
+  /** Logs: an exact query to pre-fill (untrusted text, bounded, control/bidi-free). */
+  logQuery?: string;
+  /** Logs: window bounds — `now`, `now-<n>[mhdw]` or an ISO-8601 timestamp. */
+  from?: string;
+  to?: string;
+  /** Logs: the source to browse. */
+  sourceId?: string;
 };

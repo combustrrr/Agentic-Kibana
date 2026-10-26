@@ -27,6 +27,22 @@ A connectivity test is not a quality, privacy, or capacity certification. Valida
 data-processing terms, regional routing, rate limits, context limits, and failure
 behavior independently.
 
+## Add or change a model
+
+1. Supply the provider's API key in **Settings → Security & access → Secret keys** or
+   through the deployment environment. The Console only shows whether a key is
+   configured, never its value.
+2. Open **Settings → General → Models** and choose the model for each role: router,
+   investigator, formatter, standup, chat, overview, and embedding.
+3. For a self-hosted or LiteLLM-style OpenAI-compatible endpoint, open
+   **Analytics → Models**, select **Add local model** on the **Catalog** tab, and enter
+   the endpoint and model name. Local models are priced at $0 unless you set a price
+   override. Adding one requires the `models:manage` permission.
+4. Test connectivity, then watch the first calls in **Analytics → Cost**.
+
+A model change applies to new calls only; the usage ledger keeps the model each
+earlier call used.
+
 ## Cost accounting
 
 Usage records include input/output tokens and supported cache or batch adjustments.
@@ -119,6 +135,26 @@ dropped and the decision code does not auto-close it.
 The budget check is a preflight comparison rather than an atomic reservation. Calls
 already in flight may complete slightly beyond the configured limit. Configure
 provider-side budgets and alerts as the final financial backstop.
+
+Workspace and Case Manager chat are **outside** this budget, both the daily ceiling and
+the optional monthly one. A chat model call is never blocked by either, and chat spend
+is not counted toward either, so asking questions can never pause investigations or
+route them to a human. Every chat call is still metered:
+it writes one usage row with its tokens and cost, and **Analytics → Cost** shows chat
+spend with everything else. `GET /api/budget/status` reports the figures the budget
+enforces, without chat, and states chat's share for today separately. When the budget
+is close or used up, the chat composer shows one alert about what happens to automatic
+investigations; chat keeps answering.
+
+To bound chat spend, set the optional **Daily chat spending limit** under
+**Settings → General → Chat assistant** (off by default). It is chat's only spending
+limit; there is no monthly chat limit, so a monthly budget does not cap chat. Once today's chat spend
+(since 00:00 UTC) reaches it, chat starts no new model calls until midnight UTC: a new
+question gets a notice instead, and a product question is still answered from the Help
+Center at no cost. Chat questions otherwise have no per-question limit by default; an
+administrator can switch chat to **Bounded** limits (model calls, lookups, tokens, and
+time) in the same section. Report summaries are not chat questions: each is one
+metered call that counts against the daily AI budget, limited to 10 an hour per user.
 
 ## Change procedure
 

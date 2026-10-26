@@ -106,6 +106,9 @@ class DemoStack:
         # this bus below so ``_emit_step``'s ``get_event_bus()`` fallback never fires.
         self.event_bus = EventBus(history_per_topic=0)
         self.cases = _DemoCaseStore(self.es, run_id)
+        # Round 12 (WP-CM): demo case saves nudge the demo's OWN bus (the one the SSE
+        # endpoint serves while the demo is active), never the global singleton.
+        self.cases.case_event_bus = self.event_bus
         self.audit = AuditLogger(self.es)
         self.usage_store = UsageStore(self.es)
         # A KV adapter over the demo ES (same one the real _wire() uses for the ES
@@ -143,6 +146,16 @@ class DemoStack:
         # noise-reduction surface (over the demo ES — purged on disable).
         from ..stores.noise_counters import NoiseCounterStore
         self.noise_counters = NoiseCounterStore(self.kv)
+        # The case-number sequence (F7) on the demo KV: the seeded cases take the first
+        # numbers (``number_seeded_cases``) and the demo pipeline continues the SAME
+        # sequence, so a live case never repeats a seeded number. A fresh stack per
+        # enable restarts it, so a re-seed gives every seeded case the same number.
+        from .case_id import SequenceStore
+        self.case_seq = SequenceStore(self.kv)
+        # Chat reports made during the demo (chat revamp SPEC §9.1) live on the demo
+        # KV too, so disabling Demo Mode purges them with everything else and no demo
+        # report can ever reach the tenant's library.
+        self.reports = self._build_reports()
         # How many pre-seed "already processed" events were counted (for status/tests).
         self.preseed_events = 0
         # ONE shared vector store for BOTH the pipeline RAG and the chat RAG (the old
@@ -227,7 +240,7 @@ class DemoStack:
         pipeline = InvestigationPipeline(
             self.es, secrets, self._cache, self.gateway, rag, self.cases, self.audit,
             source=source, automation=automation, memory=self.memory,
-            tuning_store=self.tuning_store,
+            tuning_store=self.tuning_store, seq_store=self.case_seq,
         )
         # Bind the demo's ISOLATED bus so live ``agent.step`` frames never touch the
         # global singleton (isolation boundary). Without this the pipeline's
@@ -250,6 +263,45 @@ class DemoStack:
             self.es, self.gateway, self.audit, self.cases, rag,
             source=source, memory=self.memory, threads=self.case_threads,
         )
+
+    def _build_reports(self):
+        """``stores.reports.ReportStore`` over the demo KV, or None while the reports
+        package is not installed."""
+        try:
+            from ..stores.reports import ReportStore
+        except ImportError:
+            return None
+        return ReportStore(self.kv)
+
+    def chat_context_extras(
+        self,
+        *,
+        prefs: Preferences,
+        query_source_for: Callable[[str | None], Any],
+    ) -> dict[str, Any]:
+        """What Demo Mode changes in a chat turn's tool context (chat revamp SPEC §2,
+        §5.1). ``AppState.build_chat_tool_context`` reads everything else through the
+        demo-switchable properties already, so this lists only what has no property:
+
+        * no third-party enrichment (``lookup_indicator`` returns its labelled
+          synthetic result) and no budget gate (demo spend is simulated);
+        * no tenant secrets status and no tenant runbook/playbook/rule-version
+          catalogues (the tools report the bundled catalogue instead);
+        * case clusters rebuilt from the DEMO log surface, never the tenant one."""
+        from .case_cluster import bind_cluster_for_case
+
+        return {
+            "enrich": None,
+            "budget_gate": None,
+            "secrets_status": None,
+            "runbooks": None,
+            "playbooks": None,
+            "rule_versions": None,
+            "cluster_for_case": bind_cluster_for_case(
+                es=self.es, log_source=self.sources.get("splunk"), prefs=prefs,
+                query_source_for=query_source_for,
+            ),
+        }
 
     def _demo_prefs(self) -> Preferences:
         """Prefs the demo pipeline runs under: the live prefs but with a SANDBOXED
@@ -275,6 +327,10 @@ class DemoStack:
             "background_scan_enabled": True,
             "enrichment": prefs.enrichment.model_copy(update={"enabled": False}),
             "realtime": prefs.realtime.model_copy(update={"enabled": True}),
+            # Every Demo case carries a display number (seeded and live alike), from the
+            # operator's own template and reset policy, so no Demo surface shows an
+            # internal id where a case number belongs.
+            "case_id_format": prefs.case_id_format.model_copy(update={"enabled": True}),
         }
         demo = getattr(prefs, "demo", None)
         force = bool(getattr(demo, "force_capabilities", True)) if demo is not None else True
@@ -363,6 +419,53 @@ class DemoStack:
                 set(prefs.auto_forward_allowlist) | set(SYSLOG_DETECTION_RULE_IDS)
             ),
         })
+
+    async def number_seeded_cases(self, cases: list) -> int:
+        """Give every seeded case a ``case_number`` through the product's own
+        nomenclature and sequence (``engine.case_id.allocate_case_number``, the one the
+        pipeline uses for a new case), oldest first, so the numbers read in creation
+        order and the demo pipeline's next case continues after the last of them.
+
+        Every seeded case draws from the CURRENT reset bucket (its own creation date
+        still fills the date placeholders), so seeded cases either side of a reset
+        boundary never share a number, whatever the operator's reset period and
+        template: one sequence, one number per case, and the live pipeline continues
+        it in the same bucket.
+
+        Deterministic: the generators are seeded and every enable builds a fresh demo
+        KV, so a restart or a reset gives each seeded case the same number again. A case
+        that already carries a number keeps it. Call it once, before the cases are saved.
+        Never raises (a numbering glitch leaves the case on its id). Returns the count
+        numbered."""
+        from ..utils import parse_es_timestamp
+        from .case_id import allocate_case_number
+
+        fmt = getattr(self._demo_prefs(), "case_id_format", None)
+        fallback = now_utc()
+
+        def created(case) -> Any:  # noqa: ANN001
+            try:
+                return parse_es_timestamp(getattr(case, "created_at", None)) or fallback
+            except Exception:  # noqa: BLE001 -- an unreadable time sorts as now
+                return fallback
+
+        numbered = 0
+        for case in sorted(cases, key=lambda c: (created(c), str(getattr(c, "case_id", "")))):
+            if getattr(case, "case_number", ""):
+                continue
+            try:
+                number = await allocate_case_number(
+                    self.case_seq, fmt, source=getattr(case, "source_name", "") or "", at=created(case),
+                    bucket_at=fallback,
+                )
+            except Exception as exc:  # noqa: BLE001 -- numbering never breaks a demo enable
+                logger.warning("demo case-number allocation failed for %s: %s",
+                               getattr(case, "case_id", "?"), exc)
+                return numbered
+            if number:
+                case.case_number = number
+                numbered += 1
+        return numbered
 
     async def seed_hitl_proposals(self, cases: list) -> int:
         """Fire threshold-automation on each seeded NEEDS_HUMAN demo case so the seeded
@@ -454,12 +557,16 @@ class DemoStack:
 
     async def _flush_funnel_baseline(self, baseline, summaries) -> None:
         """Persist EVERY observed signature's sketch back to the demo baseline_store so
-        the base visibly warms across ticks. Best-effort; never raises."""
+        the base visibly warms across ticks, in ONE store write (a write per signature
+        re-encoded the whole document each time and stalled the event loop for seconds,
+        PW4-10). Best-effort; never raises."""
         try:
+            updates = {}
             for s in summaries:
                 snap = baseline.snapshot(s.signature)
                 if snap:
-                    await self.baseline_store.put(s.signature, snap)
+                    updates[s.signature] = snap
+            await self.baseline_store.put_many(updates)
         except Exception as exc:  # noqa: BLE001 — persistence is best-effort
             logger.debug("demo funnel baseline flush failed (%s)", exc)
 

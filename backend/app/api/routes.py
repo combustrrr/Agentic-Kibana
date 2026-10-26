@@ -17,6 +17,13 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from .. import __version__
+from ..auth.session_limits import (
+    REMEMBER_MAX_SECONDS,
+    effective_roles,
+    limits_for_username,
+    remember_idle_window_seconds,
+    remember_window_seconds,
+)
 from ..build_identity import build_identity_advisories, build_stamp
 from ..config import (
     CAPS_MINIMUMS,
@@ -37,11 +44,40 @@ from ..constants import (
     SourceType,
     UserRole,
 )
-from ..engine.analyst_outcomes import CLASSIFIED_DISPOSITION_KEY
+# Route-private helpers moved to engine modules by the chat revamp (SPEC §5.3) so the
+# chat tools can share them without importing the HTTP layer. Each keeps its
+# historical underscore name here (tests, ``routes_rules`` and route code use them;
+# ``noqa: F401`` marks the re-export-only ones); the ``AppState``-reading ones are
+# thin wrappers further down this module.
+from ..engine.analyst_outcomes import CLASSIFIED_DISPOSITION_KEY, standing_analyst_disposition
+from ..engine.case_cluster import WIDEN_LADDER as _WIDEN_LADDER  # noqa: F401
+from ..engine.case_cluster import cluster_for_case, entity_events_widening
+from ..engine.case_cluster import entity_field as _entity_field  # noqa: F401
+from ..engine.case_cluster import manual_trigger_reason as _manual_trigger_reason
+from ..engine.case_cluster import (  # noqa: F401
+    reconstruct_cluster_from_case as _reconstruct_cluster_from_case,
+)
+from ..engine.case_cluster import scoped_entity_body as _scoped_entity_body  # noqa: F401
+from ..engine.case_cluster import widen_windows as _widen_windows  # noqa: F401
+from ..engine.case_rationale import audit_get as _audit_get  # noqa: F401
+from ..engine.case_rationale import build_rationale as _build_rationale
+from ..engine.case_tags import CASE_TAG_MAX_CHARS, CASE_TAG_MAX_COUNT  # noqa: F401
+from ..engine.case_tags import CaseTagError, merge_case_tags
 from ..engine.correlation import cluster_from_events
-from ..engine.metrics import compute_metrics, feedback_stats
+from ..engine.log_rows import browse_query, clamp_browse_limit, clamp_per_source_timeout
+from ..engine.log_rows import browse_truncated as _browse_truncated
+from ..engine.log_rows import demo_browse_targets, fan_out, tenant_browse_targets
+from ..engine.log_rows import log_message as _log_message  # noqa: F401
+from ..engine.log_rows import log_row as _log_row
+from ..engine.log_rows import source_can_browse as _source_can_browse
+from ..engine.metrics import feedback_stats
 from ..engine.priority import advisory_bands
-from ..es.querybuilder import entity_query, ids_query, scope_filters, scope_must_not
+from ..engine.source_health import coverage_rollup, cursor_millis, sources_health_rows
+from ..engine.source_health import (  # noqa: F401
+    wallclock_last_event_millis as _wallclock_last_event_millis,
+)
+from ..engine.views import proposal_public as _proposal_public
+from ..es.querybuilder import ids_query
 from ..llm.pricing import (
     model_capabilities,
     model_catalog,
@@ -51,10 +87,11 @@ from ..llm.pricing import (
 from ..models import (
     Case,
     CaseComment,
-    ChatConversationRenameRequest,
+    ChatConversation,
+    ChatConversationSearchHit,
+    ChatConversationUpdateRequest,
     ChatRequest,
     ChatResponse,
-    ChatTurn,
     Cluster,
     Entity,
     FeedbackEntry,
@@ -63,7 +100,6 @@ from ..models import (
     RawEvent,
     StatusHistoryEntry,
     TraceStep,
-    TriggerReason,
     validate_avatar,
 )
 from ..playbooks.registry import (
@@ -76,17 +112,13 @@ from ..playbooks.registry import (
 from ..state import AppState
 from ..stores.base import CASE_STATUS_GROUPS
 from ..stores.chat_conversations import (
-    ChatConversationMissing,
     ChatHistoryUnavailable,
-    ChatIdempotencyConflict,
-    ChatRequestCapacityBusy,
-    ChatRequestInProgress,
+    ChatPinLimitReached,
 )
 from ..stores.proposals import (
     BULK_DECISION_LIMIT,
     MAX_DECISION_REASON_CHARS,
     evidence_summary,
-    proposal_is_expired,
     sanitize_decision_reason,
 )
 from ..tools.enrich import EnrichTool
@@ -94,7 +126,7 @@ from ..utils import (
     iso_now,
     new_id,
     now_utc,
-    parse_es_timestamp,
+    parse_millis_strict,
     relative_to_millis,
     to_millis,
 )
@@ -103,8 +135,9 @@ from .deps import (
     _bearer,
     current_user,
     current_username,
+    evaluate_session,
     get_state,
-    has_permission,
+    live_session_limits,
     require_admin,
     require_fresh_auth,
     require_permission,
@@ -392,8 +425,9 @@ async def health_build_info(state: AppState = Depends(get_state)) -> BuildInfoRe
 # encoded verbatim by the bus (the PRODUCER fences/escapes #9 at its own boundary).
 # --------------------------------------------------------------------------- #
 # Topics the UI may subscribe to. A single case-detail view may also request
-# 'cases:{case_id}' (exact-match topic) — allowed via the prefix below.
-_REALTIME_TOPICS = frozenset({"notifications", "inbox", "jobs", "cases", "agent"})
+# 'cases:{case_id}' (exact-match topic) — allowed via the prefix below. ``chat``
+# (Round 12) carries only owner-targeted ``chat.turn`` frames (``realtime.publish_chat_turn``).
+_REALTIME_TOPICS = frozenset({"notifications", "inbox", "jobs", "cases", "agent", "chat"})
 
 
 @router.get("/events")
@@ -432,6 +466,19 @@ async def realtime_events(
     ]
     if not allowed:
         allowed = list(_REALTIME_TOPICS)
+    # Round 12 (WP-CM): case topics carry case ids and lifecycle status (the live
+    # ``case.changed`` queue nudges and per-case rooms), so they are served only to a
+    # principal that may read cases. A no-op when auth or RBAC is off (``allows`` is
+    # then always true). Resolved WITHOUT the denial audit row ``_enforce`` writes:
+    # dropping an optional topic from a stream is not an access attempt.
+    if any(t == "cases" or t.startswith("cases:") for t in allowed):
+        from .deps import resolve_access
+
+        view = await resolve_access(request)
+        if not view.allows("cases", "read"):
+            allowed = [t for t in allowed if t != "cases" and not t.startswith("cases:")]
+            if not allowed:
+                return Response(status_code=204)
 
     user = current_user(request)
     username = getattr(user, "username", None) if user is not None else None
@@ -470,7 +517,10 @@ class SecretsUpdate(BaseModel):
 
 
 @router.get("/setup/status")
-async def setup_status(state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def setup_status(
+    state: AppState = Depends(get_state),
+    request: Request = None,  # type: ignore[assignment]  # injected by FastAPI
+) -> dict[str, Any]:
     """PUBLIC first-run status. Carries both the legacy wizard fields AND the Wave-1
     OOBE fields (auth/RBAC/user-count) the login/setup screen needs before a session
     exists. ``needs_user`` is true only when auth is enabled and NO users exist yet
@@ -489,6 +539,10 @@ async def setup_status(state: AppState = Depends(get_state)) -> dict[str, Any]:
     )
     es_connected = await state.es.ping()
     return {
+        # Round 12 (Remember me): the sign-in page learns the policy here, so no new
+        # public path is needed. Nothing secret: an on/off flag, a duration, and
+        # whether THIS request's transport would refuse a remembered session.
+        "remember_me": _remember_me_status(state, request),
         "setup_complete": p.setup_complete,
         "needs_user": bool(auth_enabled and user_count == 0),
         "auth_enabled": auth_enabled,
@@ -1014,53 +1068,9 @@ async def ingest_push(
 # honoring the source's field mapping + TLS; PUSH sources return the in-memory
 # live-tail buffer of recently-ingested events. Secrets are never returned.
 # --------------------------------------------------------------------------- #
-def _log_message(src: dict[str, Any]) -> str:
-    from ..utils import dotted_get
-    for f in (
-        "message", "description", "full_log", "event.original", "log.message",
-        "event.action", "rule.description",
-    ):
-        v = dotted_get(src, f)
-        if v:
-            return str(v) if not isinstance(v, list) else str(v[0])
-    return ""
-
-
-def _log_row(ev) -> dict[str, Any]:
-    """Project a RawEvent → the browse-logs row contract. _raw is the full log
-    document (log data, never secrets)."""
-    import datetime as _dt
-    ts_iso = ""
-    if getattr(ev, "timestamp_millis", 0):
-        ts_iso = _dt.datetime.fromtimestamp(ev.timestamp_millis / 1000, tz=_dt.timezone.utc).isoformat()
-    return {
-        "id": ev.id,
-        "ts": ts_iso,
-        "source_ip": ev.ip,
-        "user": ev.user,
-        "host": ev.host,
-        "rule": ev.rule or ev.rule_name,
-        "severity": ev.severity,
-        "message": _log_message(ev.source or {}),
-        "_raw": ev.source or {},
-    }
-
-
-def _browse_truncated(returned: int, limit: int, total: int | None) -> bool:
-    """Honest "there is more than this" flag for a bounded browse read.
-
-    Browse has NO pagination: every read is "the most recent ``limit`` rows". When a
-    connector reports a coherent match ``total`` we answer EXACTLY from it and stop —
-    a known total equal to the returned row count means nothing was cut, even when the
-    page is exactly saturated (``total == returned == limit`` is complete, not "more
-    exist"). Only when the total is absent or incoherent (push live-tail buffers,
-    connectors that omit or under-report ``total``) is a full page the sole evidence
-    available, and a saturated page is then reported as truncated. ``False`` never
-    means "complete" for a caller that wants completeness — it only means nothing was
-    demonstrably cut."""
-    if total is not None and total >= returned:
-        return total > returned
-    return returned >= limit
+# ``_log_message`` / ``_log_row`` / ``_browse_truncated`` live in ``engine/log_rows.py``
+# (chat revamp SPEC §5.3) and are re-exported at the top of this module under their
+# historical names; tests and ``routes_rules`` import them from here.
 
 
 @router.get("/sources/{source_id}/logs")
@@ -1197,15 +1207,9 @@ async def source_logs(
 # slow/failing source can never block the others (per-source timeout + gather with
 # return_exceptions), so a partial result is served (#11 graceful degradation).
 # --------------------------------------------------------------------------- #
-def _source_can_browse(reg, src) -> bool:
-    """True when a source advertises the ``browse`` capability (registry augments every
-    push receiver with it; pull manifests declare it explicitly). Defensive — a missing
-    manifest / odd capabilities list is treated as NOT browsable rather than raising."""
-    try:
-        manifest = reg.manifest(src.source_type)
-    except Exception:  # noqa: BLE001 — one bad manifest never breaks the scan
-        return False
-    return bool(manifest) and "browse" in (manifest.capabilities or [])
+# ``_source_can_browse`` and the scatter-gather core (per-source readers, timeout-
+# guarded gather, merge) live in ``engine/log_rows.py`` (chat revamp SPEC §5.3) so
+# the chat ``search_logs`` tool shares them; the route keeps its HTTP-only checks.
 
 
 @router.get("/logs")
@@ -1258,10 +1262,8 @@ async def unified_logs(
     with any single source being cut — so scoping to one source, or running a
     single-source deployment, reports exactly what ``GET /sources/{id}/logs`` reports
     for that same read."""
-    import asyncio
-
-    limit = max(1, min(int(limit or 100), 200))  # hard cap (per source AND on the merge)
-    timeout = max(0.5, min(float(per_source_timeout or 8.0), 30.0))
+    limit = clamp_browse_limit(limit)  # hard cap (per source AND on the merge)
+    timeout = clamp_per_source_timeout(per_source_timeout)
     reg = get_registry()
     source_id = (source_id or "").strip() or None
 
@@ -1289,277 +1291,49 @@ async def unified_logs(
                     detail="Browsing logs is not supported for this source",
                 )
 
-    # Every read returns (rows, total) where `total` is the connector's match count
-    # when it supplies one and None when it cannot (live-tail rings). The pair is what
-    # lets the merged envelope apply the SAME `_browse_truncated` rule per source that
-    # `GET /sources/{id}/logs` applies, instead of only asking whether the merge itself
-    # overflowed (which one source can never do, since each is read at `limit`).
-    async def _read_pull(src) -> tuple[list[dict[str, Any]], int | None]:
-        es_client, owned = state.es_client_for_source(src)
-        try:
-            from ..connectors.base import StructuredQuery
-            from ..connectors.elastic import ElasticConnector
-            from ..connectors.opensearch import OpenSearchConnector
-            from ..connectors.wazuh import WazuhConnector
-            if src.source_type == SourceType.OPENSEARCH:
-                conn = OpenSearchConnector(es_client, config=src.config, connector_id=src.id)
-            elif src.source_type == SourceType.WAZUH:
-                conn = WazuhConnector(es_client, config=src.config, connector_id=src.id)
-            else:
-                conn = ElasticConnector(es_client, config=src.config, connector_id=src.id)
-            sq = StructuredQuery(
-                contains=(query or None), time_from=from_, time_to=to,
-                size=limit, sort_desc=True,
-            )
-            result = await conn.search(state.prefs, sq)
-            return [_log_row(ev) for ev in result.events], result.total
-        finally:
-            if owned:
-                try:
-                    await es_client.close()
-                except Exception:  # noqa: BLE001
-                    pass
-
-    async def _read_push(src) -> tuple[list[dict[str, Any]], int | None]:
-        # A live-tail ring has no match total to report — None keeps the saturated-page
-        # heuristic in `_browse_truncated`.
-        rows = [_log_row(ev)
-                for ev in state.ingest_service.recent_events_for_source(src.id, limit)]
-        return rows, None
-
-    async def _read_demo(src) -> tuple[list[dict[str, Any]], int | None]:
-        conn = state.demo_source_connector(src.id)
-        if conn is None:
-            return [], None
-        from ..connectors.base import StructuredQuery
-
-        result = await conn.search(
-            state.prefs,
-            StructuredQuery(
-                contains=(query or None), time_from=from_, time_to=to,
-                size=limit, sort_desc=True,
-            ),
-        )
-        return [_log_row(ev) for ev in result.events], result.total
-
-    # Select the enabled + browse-capable sources and pair each read coroutine with its
-    # source (for provenance + error attribution). Unsupported sources are skipped.
-    # (src, coroutine, mode) — `mode` is carried alongside so the per-source status can
-    # report a volatile live-tail ring vs a real backing search even when the read fails.
-    targets: list[tuple[Any, Any, str]] = []
+    # Select the enabled + browse-capable sources, each paired with its reader and
+    # read mode (engine/log_rows.py). Unsupported sources are skipped.
     if state.demo_active:
-        from types import SimpleNamespace
-
-        for row in state.demo_sources_overlay():
-            sid = str(row.get("id"))
-            if not sid:
-                continue
-            if source_id is not None and sid != source_id:
-                continue
-            src = SimpleNamespace(id=sid, display_name=row.get("display_name") or sid)
-            # "search", not "buffer": the demo adapter's read is a real filtered search
-            # over its ring (from/to/query all apply, and it reports a match total).
-            targets.append((src, _read_demo(src), "search"))
+        targets = demo_browse_targets(
+            state.demo_sources_overlay(),
+            prefs=state.prefs,
+            demo_source_connector=state.demo_source_connector,
+            source_id=source_id,
+        )
     else:
-        for src in state.prefs.sources:
-            if not src.enabled or not _source_can_browse(reg, src):
-                continue
-            if source_id is not None and src.id != source_id:
-                continue
-            cls = reg.get(src.source_type)
-            if cls is None:
-                continue
-            if reg.is_receiver(src.source_type):
-                targets.append((src, _read_push(src), "buffer"))
-            elif reg.is_pull(src.source_type):
-                targets.append((src, _read_pull(src), "search"))
-
-    async def _guarded(coro):
-        return await asyncio.wait_for(coro, timeout=timeout)
-
-    results = await asyncio.gather(
-        *[_guarded(coro) for _, coro, _mode in targets], return_exceptions=True
+        targets = tenant_browse_targets(
+            state.prefs.sources,
+            prefs=state.prefs,
+            registry=reg,
+            es_client_for_source=state.es_client_for_source,
+            ingest_service=state.ingest_service,
+            source_id=source_id,
+        )
+    return await fan_out(
+        targets,
+        browse_query(limit=limit, query=query, time_from=from_, time_to=to),
+        per_source_timeout=timeout,
     )
-
-    merged: list[dict[str, Any]] = []
-    source_status: list[dict[str, Any]] = []
-    any_source_truncated = False
-    for (src, _coro, mode), outcome in zip(targets, results):
-        if isinstance(outcome, Exception):
-            source_status.append({
-                "source_id": src.id, "source_name": src.display_name or src.id,
-                "ok": False,
-                "error": ("timeout" if isinstance(outcome, asyncio.TimeoutError)
-                          else str(outcome)),
-                "count": 0,
-                "mode": mode,
-                # A read that failed returned nothing; it cut nothing either. The
-                # honest signal for "you are missing rows here" is `ok: False`.
-                "truncated": False,
-            })
-            continue
-        rows, total = outcome if isinstance(outcome, tuple) else (outcome or [], None)
-        for row in rows:
-            # MANDATORY provenance — overwrite (never trust a per-source row to self-label).
-            row["source_id"] = src.id
-            row["source_name"] = src.display_name or src.id
-        merged.extend(rows)
-        # The SAME rule the per-source sibling route applies to this identical read.
-        src_truncated = _browse_truncated(len(rows), limit, total)
-        any_source_truncated = any_source_truncated or src_truncated
-        source_status.append({
-            "source_id": src.id, "source_name": src.display_name or src.id,
-            "ok": True, "count": len(rows),
-            # "search" = a real backing query (from/to/query applied); "buffer" = a
-            # volatile process-local live-tail ring that IGNORES from/to/query.
-            "mode": mode,
-            # This source's own rows were demonstrably cut (its page saturated, or its
-            # connector reported more matches than it returned).
-            "truncated": src_truncated,
-        })
-
-    # Merge newest-first by ts (ISO strings sort lexicographically for UTC; empty ts
-    # sorts last). Then hard-cap the merged view.
-    merged.sort(key=lambda r: (r.get("ts") or ""), reverse=True)
-    gathered = len(merged)
-    merged = merged[:limit]
-    return {
-        "logs": merged,
-        "count": len(merged),
-        "sources": source_status,
-        "partial": any(not s["ok"] for s in source_status),
-        # The bound is part of the contract: this is the most recent `count` rows, not
-        # a complete result.
-        "limit": limit,
-        # True when the MERGE was cut, OR when any single source's own read was cut —
-        # each source is itself read at `limit`, so with one target the merge can never
-        # overflow and only the per-source signal is honest. Without the OR this route
-        # reported `false` for the very same read the per-source sibling reports as
-        # truncated. `false` still does not mean "complete" for a caller that wants
-        # completeness (there is no pagination) — it means nothing was demonstrably cut.
-        "truncated": gathered > limit or any_source_truncated,
-    }
 
 
 async def _cursor_millis(state: AppState, src) -> int:
-    """Newest processed timestamp across a source's feeds (0 = never polled).
-
-    Mirrors the poller's durable cursor key ``f'{source.id}:{feed.id}'`` (falling back
-    to the legacy single-source cursor). Read-only; a store hiccup fails soft to 0 rather
-    than breaking the whole health view."""
-    best = 0
-    try:
-        feeds = src.feeds()
-        keys: list[str] = []
-        if feeds:
-            keys = [f"{src.id}:{f.id}" for f in feeds]
-        else:
-            # Un-fed source: the primary uses the legacy 'primary' key; a non-primary
-            # un-fed source uses a distinct 'f{id}:primary' key (see PollerManager).
-            keys = ["primary" if src.is_primary else f"{src.id}:primary"]
-        for key in keys:
-            try:
-                cur = await state.cursor_store.load_keyed(key)
-            except Exception:  # noqa: BLE001
-                continue
-            best = max(best, int(getattr(cur, "timestamp_millis", 0) or 0))
-    except Exception:  # noqa: BLE001 — health is best-effort, never raises
-        return best
-    return best
-
-
-def _wallclock_last_event_millis(last_event_map: dict, source_id: str) -> int:
-    """Epoch-millis of the last WALL-CLOCK event arrival for a source (0 when never seen).
-
-    Reads ``state._source_last_event`` (the silence clock ``state.silent_sources`` uses,
-    updated on any tick with events) so ``last_event_millis`` / ``worst_last_event_seconds``
-    agree with the ``silent`` flag. Fails soft to 0 — advisory only (#3)."""
-    last_ev = (last_event_map or {}).get(source_id)
-    if last_ev is None:
-        return 0
-    try:
-        return int(to_millis(last_ev))
-    except Exception:  # noqa: BLE001
-        return 0
+    """Route-compat wrapper: :func:`app.engine.source_health.cursor_millis` over
+    ``state.cursor_store`` (moved there by chat revamp SPEC §5.3)."""
+    return await cursor_millis(getattr(state, "cursor_store", None), src)
 
 
 async def _sources_health_rows(state: AppState) -> list[dict[str, Any]]:
-    """Build the per-source health rows for the REAL configured sources (the demo overlay
-    is added by the ``/sources/health`` caller). Each row carries the legacy shape PLUS the
-    additive coverage-observability fields (A5.2): ``last_poll_at``/``last_poll_ok``/
-    ``last_poll_error`` (from the poller's in-memory last-tick snapshot), ``events_per_min``
-    (smoothed rate; pull from the poller, push from the ingest ring), ``last_event_millis``
-    (a wall-clock/event watermark for the coverage rollup), and ``silent`` (the v0 flat
-    silent-source flag from ``state.silent_sources``). All advisory (#3); connector error
-    strings are plain text (#9); NO secrets. Never raises — every lookup fails soft."""
-    reg = get_registry()
-    try:
-        snaps = state.poller.last_tick_by_source()
-    except Exception:  # noqa: BLE001 — the snapshot is advisory; degrade to none
-        snaps = {}
-    try:
-        silent_set = set(state.silent_sources(state.prefs))
-    except Exception:  # noqa: BLE001
-        silent_set = set()
-    last_event_map = getattr(state, "_source_last_event", {}) or {}
-    ingest_service = getattr(state, "ingest_service", None)
-
-    out: list[dict[str, Any]] = []
-    for src in state.prefs.sources:
-        is_receiver = reg.is_receiver(src.source_type)
-        is_pull = (not is_receiver) and reg.is_pull(src.source_type)
-        row: dict[str, Any] = {
-            "source_id": src.id,
-            "source_name": src.display_name or src.id,
-            "source_type": src.source_type.value,
-            "enabled": src.enabled,
-            "is_primary": src.is_primary,
-            "ingest_mode": src.ingest_mode.value,
-            "kind": "push" if is_receiver else ("pull" if is_pull else "unknown"),
-            "can_browse": _source_can_browse(reg, src),
-            "buffer_depth": 0,
-            "last_poll_millis": 0,
-            # --- Coverage observability (A5.2), additive + advisory ---
-            "last_poll_at": None,
-            "last_poll_ok": None,
-            "last_poll_error": None,
-            "last_event_millis": 0,
-            "events_per_min": 0.0,
-            "silent": bool(src.id in silent_set),
-        }
-        if is_receiver:
-            if ingest_service is not None:
-                row["buffer_depth"] = len(
-                    ingest_service.recent_events_for_source(src.id, 500)
-                )
-                try:
-                    row["events_per_min"] = float(
-                        ingest_service.events_per_min_for_source(src.id) or 0.0
-                    )
-                except Exception:  # noqa: BLE001
-                    row["events_per_min"] = 0.0
-            # PUSH last-event is a wall-clock (the arrival clock the silence check uses).
-            row["last_event_millis"] = _wallclock_last_event_millis(last_event_map, src.id)
-        elif is_pull and src.enabled:
-            lp = await _cursor_millis(state, src)
-            row["last_poll_millis"] = lp
-            # last_event = the more-recent of the cursor's event watermark and the
-            # wall-clock silence clock (state._source_last_event), so it agrees with the
-            # ``silent`` flag + drives ``worst_last_event_seconds`` even before the cursor
-            # advances (e.g. a source that reported once then went quiet).
-            row["last_event_millis"] = max(lp, _wallclock_last_event_millis(last_event_map, src.id))
-            snap = snaps.get(src.id)
-            if isinstance(snap, dict):
-                row["last_poll_at"] = snap.get("ts")
-                row["last_poll_ok"] = snap.get("ok")
-                # Plain text — a connector error is source-controlled data (#9).
-                row["last_poll_error"] = snap.get("error")
-                try:
-                    row["events_per_min"] = float(snap.get("events_per_min", 0.0) or 0.0)
-                except (TypeError, ValueError):
-                    row["events_per_min"] = 0.0
-        out.append(row)
-    return out
+    """Route-compat wrapper: :func:`app.engine.source_health.sources_health_rows` with
+    its inputs read from the ``AppState`` exactly where the original helper read them
+    (moved there by chat revamp SPEC §5.3). Real configured sources only."""
+    return await sources_health_rows(
+        state.prefs,
+        poller=getattr(state, "poller", None),
+        silent_sources=getattr(state, "silent_sources", None),
+        cursor_store=getattr(state, "cursor_store", None),
+        ingest_service=getattr(state, "ingest_service", None),
+        last_event_map=getattr(state, "_source_last_event", {}) or {},
+    )
 
 
 @router.get("/sources/health")
@@ -1610,17 +1384,9 @@ async def sources_coverage(
         if state.demo_active
         else await _sources_health_rows(state)
     )
-    now_ms = to_millis(now_utc())
-    enabled_rows = [r for r in rows if r.get("enabled")]
-    sources_silent = sum(1 for r in enabled_rows if r.get("silent"))
-    events_per_min = round(
-        sum(float(r.get("events_per_min") or 0.0) for r in enabled_rows), 2
-    )
-    worst = 0
-    for r in enabled_rows:
-        lev = int(r.get("last_event_millis") or 0)
-        if lev > 0:
-            worst = max(worst, (now_ms - lev) // 1000)
+    # The source-derived numbers live in ``engine/source_health.coverage_rollup`` (chat
+    # revamp SPEC §5.3) so the chat ``source_health`` tool reports the same rollup.
+    rollup = coverage_rollup(rows, to_millis(now_utc()))
 
     # Cases created in the last 24h — a pure repository COUNT (no 5000-document fetch
     # just to ``len()`` a window). The 24h boundary is the same cutoff the noise-
@@ -1634,13 +1400,14 @@ async def sources_coverage(
     except Exception:  # noqa: BLE001 — a store hiccup degrades to 0, never a 500
         alerts_triaged = 0
 
+    # Explicit key order: the response is byte-identical to the pre-move envelope.
     payload = {
-        "sources_total": len(rows),
-        "sources_enabled": len(enabled_rows),
-        "sources_silent": int(sources_silent),
-        "events_per_min": events_per_min,
+        "sources_total": rollup["sources_total"],
+        "sources_enabled": rollup["sources_enabled"],
+        "sources_silent": rollup["sources_silent"],
+        "events_per_min": rollup["events_per_min"],
         "alerts_triaged_24h": int(alerts_triaged),
-        "worst_last_event_seconds": int(max(0, worst)),
+        "worst_last_event_seconds": rollup["worst_last_event_seconds"],
     }
     if state.demo_active:
         payload["demo"] = True
@@ -1836,6 +1603,72 @@ def _reject_out_of_range_caps(body: Any) -> None:
         )
 
 
+def _reject_out_of_range_remember_me(body: Any) -> None:
+    """422 on an out-of-range or malformed ``session_policy.remember_me`` value that
+    arrived in a REQUEST BODY (Round 12; ``research/remember-me.md`` §4.1).
+
+    ``RememberMePolicy`` REPAIRS a stored document on load (clamping a duration into
+    1–24 h, dropping a malformed flag) so one bad number can never reset the whole
+    configuration. That repair is the wrong answer for a live edit: an administrator
+    who asks for a 30-minute remembered session must not silently get a 1-hour one.
+    Like :func:`_reject_out_of_range_caps` it inspects the BODY, never the merged
+    document, so an already-stored value stays loadable. The bounds are read off the
+    model, so this can never drift from what the loader enforces."""
+    if not isinstance(body, dict):
+        return
+    policy = body.get("session_policy")
+    if not isinstance(policy, dict):
+        return
+    rm = policy.get("remember_me")
+    if rm is None:
+        return
+    if not isinstance(rm, dict):
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid settings: session_policy.remember_me must be an object",
+        )
+    from ..config import RememberMePolicy
+
+    def _bad(field: str, expected: str, raw: Any) -> HTTPException:
+        return HTTPException(
+            status_code=422,
+            detail=(
+                f"Invalid settings: session_policy.remember_me.{field} must be "
+                f"{expected} (received {raw!r})"
+            ),
+        )
+
+    for flag in ("enabled", "allow_insecure_http"):
+        if flag in rm and not isinstance(rm[flag], bool):
+            raise _bad(flag, "true or false", rm[flag])
+    lo, hi = RememberMePolicy._DURATION_BOUNDS
+    if "duration_seconds" in rm:
+        raw = rm["duration_seconds"]
+        if isinstance(raw, bool) or not isinstance(raw, int) or not lo <= raw <= hi:
+            raise _bad("duration_seconds", f"a whole number of seconds from {lo} to {hi}", raw)
+    ilo, ihi = RememberMePolicy._IDLE_BOUNDS
+    if "idle_seconds" in rm and rm["idle_seconds"] is not None:
+        raw = rm["idle_seconds"]
+        if isinstance(raw, bool) or not isinstance(raw, int) or not (
+            raw == 0 or ilo <= raw <= ihi
+        ):
+            raise _bad(
+                "idle_seconds",
+                f"null, 0 (off) or a whole number of seconds from {ilo} to {ihi}",
+                raw,
+            )
+    if "excluded_roles" in rm:
+        roles = rm["excluded_roles"]
+        if not isinstance(roles, list) or not all(isinstance(r, str) for r in roles):
+            raise _bad("excluded_roles", "a list of role names", roles)
+        if len(roles) > RememberMePolicy._MAX_ROLES:
+            raise _bad(
+                "excluded_roles",
+                f"at most {RememberMePolicy._MAX_ROLES} role names",
+                f"{len(roles)} names",
+            )
+
+
 @router.put("/settings")
 async def put_settings(
     body: dict[str, Any],
@@ -1881,6 +1714,7 @@ async def put_settings(
         # the check must see the REQUEST BODY, because `_clamp_caps` repairs the merged
         # document before any `ge=` constraint can fire. See `_reject_out_of_range_caps`.
         _reject_out_of_range_caps(body)
+        _reject_out_of_range_remember_me(body)
         old_prefs = current
         merged = _deep_update(current.model_dump(mode="json"), body)
         # Demo Mode is managed ONLY by the /api/demo/* endpoints — never via this path.
@@ -1974,63 +1808,70 @@ def _chat_conflict_http(code: str, message: str) -> HTTPException:
 
 
 def _chat_request_fingerprint(body: ChatRequest) -> str:
-    """Stable identity over caller-controlled inputs (never over generated ids)."""
-    payload = body.model_dump(
-        mode="json", exclude={"idempotency_key", "persist_conversation"}
-    )
+    """Stable identity over caller-controlled inputs (never over generated ids).
+
+    ``fingerprint_payload`` dumps the pre-revamp fields exactly as before and the
+    revamp fields only when they differ from their defaults (``stream_mode`` never),
+    so a pre-revamp body hashes byte-identically and one key is valid across
+    ``/chat`` and ``/chat/stream`` (chat revamp SPEC §3.1)."""
+    payload = body.fingerprint_payload()
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def _replayed_chat_response(reservation) -> ChatResponse:
-    conversation = reservation.conversation
-    assistant = reservation.assistant_message
-    if assistant is None:
-        raise _chat_history_http(
-            ChatHistoryUnavailable("The completed chat response could not be restored.")
-        )
-    payload = dict(assistant.response or {})
-    payload.update({
-        "answer": assistant.content,
-        "conversation_id": reservation.conversation_id,
-        "conversation_title": reservation.conversation_title
-        or (conversation.title if conversation else "Conversation"),
-        "idempotency_key": reservation.idempotency_key,
-        "effective_model": assistant.model or (conversation.model if conversation else None),
-        "effective_source_id": assistant.source_id
-        or (conversation.source_id if conversation else None),
-        "effective_source_name": assistant.source_name
-        or (conversation.source_name if conversation else None),
-        "truncated": bool(payload.get("truncated")),
-    })
-    try:
-        return ChatResponse.model_validate(payload)
-    except Exception as exc:  # noqa: BLE001 -- corrupt durable receipt is a store failure
-        raise _chat_history_http(
-            ChatHistoryUnavailable("The completed chat response is invalid.")
-        ) from exc
+class ChatConversationPage(BaseModel):
+    """``GET /api/chat/conversations``: one page of the caller's conversation
+    summaries. With ``?q=`` each row also carries ``match {message_id, snippet}``
+    (rows of a plain listing omit it; the route serialises with
+    ``response_model_exclude_unset`` so the wire shape is unchanged)."""
+
+    conversations: list[ChatConversationSearchHit]
+    # The retained (paginatable) count, kept for compatibility.
+    total: int
+    history_truncated: bool
+    total_conversation_count: int
+    oldest_retained_at: str | None = None
+    limit: int
+    offset: int
+    # With ``?q=`` only (Round 12): the full-text search hit its read budget, so older
+    # messages of some conversations were not searched.
+    search_incomplete: bool = False
 
 
-@router.get("/chat/conversations")
+@router.get(
+    "/chat/conversations",
+    response_model=ChatConversationPage,
+    response_model_exclude_unset=True,
+)
 async def list_chat_conversations(
     request: Request,
     state: AppState = Depends(get_state),
-    limit: int = Query(default=30, ge=1, le=50),
+    limit: int = Query(default=30, ge=1, le=60),
     offset: int = Query(default=0, ge=0),
+    q: str | None = Query(default=None, max_length=200),
     _=Depends(require_permission("cases", "read")),
 ) -> dict[str, Any]:
-    """Newest-first Workspace conversation summaries owned by this principal.
+    """Workspace conversation summaries owned by this principal: pinned first, then
+    newest first. ``limit`` goes to 60 so the <= 10 pinned conversations (exempt
+    from the 50-conversation eviction) are never off the first page. With ``q`` the
+    rows are the conversations whose title, messages or block titles contain it,
+    each with a ``match {message_id, snippet}`` (chat revamp SPEC §7.5).
 
     Auth-disabled deployments use the same isolated ``default`` profile as user
     preferences. Case-scoped collaboration chat is intentionally not listed here.
     """
     try:
-        page = await state.chat_conversations.list_page(
-            current_username(request), limit=limit, offset=offset,
-        )
+        if q and q.strip():
+            page = await state.chat_conversations.search(
+                current_username(request), q, limit=limit, offset=offset,
+            )
+        else:
+            page = await state.chat_conversations.list_page(
+                current_username(request), limit=limit, offset=offset,
+            )
     except ChatHistoryUnavailable as exc:
         raise _chat_history_http(exc) from exc
-    return {
+    result = {
         "conversations": [item.model_dump(mode="json") for item in page.conversations],
         # ``total`` remains the retained/paginatable count for compatibility.
         "total": page.total,
@@ -2040,9 +1881,16 @@ async def list_chat_conversations(
         "limit": limit,
         "offset": offset,
     }
+    if q and q.strip():
+        result["search_incomplete"] = bool(getattr(page, "search_incomplete", False))
+    return result
 
 
-@router.get("/chat/conversations/{conversation_id}")
+@router.get(
+    "/chat/conversations/{conversation_id}",
+    response_model=ChatConversation,
+    response_model_exclude_unset=True,
+)
 async def get_chat_conversation(
     conversation_id: str,
     request: Request,
@@ -2062,29 +1910,41 @@ async def get_chat_conversation(
     return conversation.model_dump(mode="json")
 
 
-@router.patch("/chat/conversations/{conversation_id}")
-async def rename_chat_conversation(
+@router.patch(
+    "/chat/conversations/{conversation_id}",
+    response_model=ChatConversation,
+    response_model_exclude_unset=True,
+)
+async def update_chat_conversation(
     conversation_id: str,
-    body: ChatConversationRenameRequest,
+    body: ChatConversationUpdateRequest,
     request: Request,
     state: AppState = Depends(get_state),
     _=Depends(require_permission("cases", "read")),
 ) -> dict[str, Any]:
-    """Rename one owned conversation with bounded, single-line plain text."""
+    """Rename (bounded, single-line plain text) and/or pin one owned conversation
+    (chat revamp SPEC §7.5). Pinning never changes ``updated_at``; an 11th pin is
+    409 ``chat_pin_limit``."""
     user = current_username(request)
     try:
-        conversation = await state.chat_conversations.rename(
-            user, conversation_id, body.title
+        conversation = await state.chat_conversations.update(
+            user, conversation_id, title=body.title, pinned=body.pinned,
         )
+    except ChatPinLimitReached as exc:
+        raise _chat_conflict_http("chat_pin_limit", str(exc)) from exc
     except ChatHistoryUnavailable as exc:
         raise _chat_history_http(exc) from exc
     if conversation is None:
         raise HTTPException(status_code=404, detail="conversation not found")
+    changes = [
+        *(["renamed"] if body.title is not None else []),
+        *(["pinned" if body.pinned else "unpinned"] if body.pinned is not None else []),
+    ]
     await state.audit.record(
         action_type=ActionType.CONTEXT,
         surface="chat_history",
-        actor=user,
-        result_summary=f"conversation renamed: {conversation.id}"[:500],
+        actor=user or "default",
+        result_summary=f"conversation {' and '.join(changes)}: {conversation.id}"[:500],
     )
     return conversation.model_dump(mode="json")
 
@@ -2113,254 +1973,17 @@ async def delete_chat_conversation(
     return {"ok": True, "id": conversation_id}
 
 
-@router.post("/chat")
+@router.post("/chat", response_model=ChatResponse)
 async def chat(
     body: ChatRequest, request: Request, state: AppState = Depends(get_state),
     _=Depends(require_permission("cases", "read")),
-) -> dict[str, Any]:
-    # The auth dependency already verified the principal; the same helper used by
-    # preferences/history defines the auth-off ``default`` partition.
-    author = current_username(request)
-    # Workspace history is opt-in and NEVER duplicates case-scoped turns. Context may
-    # carry a case id even when the top-level field does not, so resolve the effective
-    # case boundary before deciding whether this belongs in personal history.
-    effective_case_id = body.case_id or (body.context.case_id if body.context else None)
-    persist_workspace = bool(body.persist_conversation and not effective_case_id)
-    history = body.history
-    existing_conversation = None
-    if persist_workspace and body.conversation_id:
-        try:
-            existing_conversation = await state.chat_conversations.get(
-                author, body.conversation_id
-            )
-        except ChatHistoryUnavailable as exc:
-            raise _chat_history_http(exc) from exc
-        if existing_conversation is None:
-            raise HTTPException(status_code=404, detail="conversation not found")
-        # The durable transcript is authoritative for a resumed conversation. Ignore
-        # caller-supplied history so a client cannot replace another turn sequence.
-        history = [
-            ChatTurn(role=item.role, content=item.content)
-            for item in existing_conversation.messages
-        ]
+) -> ChatResponse:
+    """One chat turn, blocking (chat revamp SPEC §6): the same preflight, turn task
+    and persistence as ``POST /api/chat/stream`` (``routes_chat.run_chat_turn``),
+    awaited. Imported lazily: ``routes_chat`` imports this module."""
+    from .routes_chat import run_chat_blocking
 
-    # Per-call model override (additive): run THIS chat turn with the chat-role model
-    # swapped to body.model via a prefs copy. Unchanged when body.model is None.
-    # ``None`` means the CURRENT default. The UI resends a saved non-default
-    # selection while resuming; omitting it is how an analyst resets the thread.
-    selected_model = body.model
-    prefs_eff = _override_models(state.execution_prefs, selected_model, ("chat",))
-    selected_source_id = body.source_id
-    request_key = body.idempotency_key or new_id("chatreq-")
-    request_fingerprint = _chat_request_fingerprint(body)
-    reservation = None
-    source_conn = None
-    owned_client = None
-    effective_source_id = None
-    effective_source_name = None
-    try:
-        if persist_workspace:
-            try:
-                reservation = await state.chat_conversations.reserve_exchange(
-                    author,
-                    idempotency_key=request_key,
-                    request_fingerprint=request_fingerprint,
-                    conversation_id=body.conversation_id,
-                )
-            except ChatHistoryUnavailable as exc:
-                raise _chat_history_http(exc) from exc
-            except ChatRequestInProgress as exc:
-                raise _chat_conflict_http("chat_request_in_progress", str(exc)) from exc
-            except ChatRequestCapacityBusy as exc:
-                raise _chat_conflict_http("chat_request_capacity_busy", str(exc)) from exc
-            except ChatIdempotencyConflict as exc:
-                raise _chat_conflict_http("chat_idempotency_conflict", str(exc)) from exc
-            except ChatConversationMissing as exc:
-                raise HTTPException(status_code=404, detail="conversation not found") from exc
-            if reservation.status == "completed":
-                return _replayed_chat_response(reservation).model_dump(mode="json")
-
-        # Resolve a live source only after durable replay had a chance to return.
-        # A historical receipt remains replayable even if its source was later
-        # disabled or removed. New executions reject an unusable explicit source.
-        source_conn, owned_client, effective_source_id, effective_source_name = (
-            _chat_source_connector(state, selected_source_id)
-        )
-        resp = await state.chat_engine.chat(
-            body.message, prefs_eff, case_id=body.case_id, history=history,
-            context=body.context, author=author, source=source_conn,
-            can_manage_memory=await has_permission(request, "memory", "manage"),
-        )
-    except HTTPException:
-        if persist_workspace and reservation is not None:
-            try:
-                await state.chat_conversations.abort_exchange(
-                    author,
-                    idempotency_key=request_key,
-                    request_fingerprint=request_fingerprint,
-                    lease_token=reservation.lease_token or "",
-                )
-            except Exception:  # noqa: BLE001 -- preserve the typed HTTP failure
-                pass
-        raise
-    except Exception:
-        if persist_workspace and reservation is not None:
-            try:
-                await state.chat_conversations.abort_exchange(
-                    author,
-                    idempotency_key=request_key,
-                    request_fingerprint=request_fingerprint,
-                    lease_token=reservation.lease_token or "",
-                )
-            except Exception:  # noqa: BLE001 -- never hide the original model failure
-                pass
-        raise
-    finally:
-        if owned_client is not None:
-            try:
-                await owned_client.close()
-            except Exception:  # noqa: BLE001
-                pass
-    if persist_workspace:
-        assert reservation is not None
-        response_with_provenance = resp.model_copy(update={
-            "idempotency_key": request_key,
-            "effective_model": resp.effective_model,
-            "effective_source_id": effective_source_id,
-            "effective_source_name": effective_source_name,
-        })
-        try:
-            completed = await state.chat_conversations.complete_exchange(
-                author,
-                idempotency_key=request_key,
-                request_fingerprint=request_fingerprint,
-                conversation_id=reservation.conversation_id,
-                lease_token=reservation.lease_token or "",
-                requested_existing_conversation=body.conversation_id is not None,
-                user_content=body.message,
-                assistant_content=resp.answer,
-                response=response_with_provenance.model_dump(mode="json"),
-                model=resp.effective_model,
-                source_id=effective_source_id,
-                source_name=effective_source_name,
-            )
-        except ChatHistoryUnavailable as exc:
-            raise _chat_history_http(exc) from exc
-        except ChatConversationMissing as exc:
-            raise _chat_conflict_http(
-                "chat_idempotency_conflict",
-                "The conversation changed while the response was being saved.",
-            ) from exc
-        except ChatIdempotencyConflict as exc:
-            raise _chat_conflict_http("chat_idempotency_conflict", str(exc)) from exc
-        except ChatRequestInProgress as exc:
-            raise _chat_conflict_http("chat_request_in_progress", str(exc)) from exc
-        conversation = completed.conversation
-        if conversation is None:
-            raise _chat_history_http(
-                ChatHistoryUnavailable("The saved conversation could not be restored.")
-            )
-        resp = response_with_provenance.model_copy(update={
-            "conversation_id": conversation.id,
-            "conversation_title": conversation.title,
-            "truncated": bool(
-                (completed.assistant_message.response or {}).get("truncated")
-                if completed.assistant_message is not None else False
-            ),
-        })
-    else:
-        resp = resp.model_copy(update={
-            "idempotency_key": body.idempotency_key,
-            "effective_model": resp.effective_model,
-            "effective_source_id": effective_source_id,
-            "effective_source_name": effective_source_name,
-        })
-    return resp.model_dump(mode="json")
-
-
-def _chat_source_connector(state: AppState, source_id: str | None):
-    """Build the PULL connector for an explicitly-selected chat source.
-
-    Returns connector/client plus the truthful effective id/name. ``None`` connector
-    means use the engine's configured primary only when no explicit id was supplied.
-    Explicit unknown, disabled, receiver-only or unbuildable sources return 422."""
-    if not source_id:
-        if state.demo_active:
-            from ..engine.demo_sources import DEMO_SOURCE_SPECS
-
-            spec = DEMO_SOURCE_SPECS["splunk"]
-            return None, None, spec.source_id, spec.display_name
-        primary = state.execution_prefs.primary_source()
-        return (
-            None,
-            None,
-            primary.id if primary is not None else None,
-            (primary.display_name or primary.id) if primary is not None else "Primary source",
-        )
-    if state.demo_active:
-        # Demo push adapters expose the same bounded search contract as a pull
-        # connector, so chat source selection remains truthful for all four rows.
-        connector = state.demo_source_connector(source_id)
-        if connector is None:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "code": "chat_source_unavailable",
-                    "message": "The selected source is unavailable for chat.",
-                },
-            )
-        rows = state.demo_sources_overlay()
-        row = next((item for item in rows if item.get("id") == source_id), {})
-        return connector, None, source_id, str(row.get("display_name") or source_id)
-    src = next((s for s in state.prefs.sources if s.id == source_id and s.enabled), None)
-    if src is None:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "code": "chat_source_unavailable",
-                "message": "The selected source is unknown or disabled.",
-            },
-        )
-    reg = get_registry()
-    if not reg.is_pull(src.source_type):
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "code": "chat_source_unavailable",
-                "message": "The selected source does not provide a query surface.",
-            },
-        )
-    try:
-        from ..connectors.elastic import ElasticConnector
-        from ..connectors.opensearch import OpenSearchConnector
-        from ..connectors.wazuh import WazuhConnector
-
-        es_client, owned = state.es_client_for_source(src)
-        cfg = {**(src.config or {})}
-        if src.display_name:
-            cfg.setdefault("display_name", src.display_name)
-        if src.source_type == SourceType.OPENSEARCH:
-            conn = OpenSearchConnector(es_client, config=cfg, connector_id=src.id)
-        elif src.source_type == SourceType.WAZUH:
-            conn = WazuhConnector(es_client, config=cfg, connector_id=src.id)
-        else:
-            conn = ElasticConnector(es_client, config=cfg, connector_id=src.id)
-        return (
-            conn,
-            (es_client if owned else None),
-            src.id,
-            src.display_name or src.id,
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "code": "chat_source_unavailable",
-                "message": "The selected source could not be prepared for chat.",
-            },
-        ) from exc
+    return await run_chat_blocking(request, body, state)
 
 
 # --------------------------------------------------------------------------- #
@@ -2385,7 +2008,7 @@ async def investigate(
     case = await state.pipeline.investigate_cluster(
         cluster, body.source_surface, state.execution_prefs, query_source=query_source
     )
-    return case.model_dump(mode="json")
+    return _case_view(case, state)
 
 
 # --------------------------------------------------------------------------- #
@@ -2500,20 +2123,8 @@ async def personas(state: AppState = Depends(get_state)) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # Agent PROPOSALS (HITL — agent drafts, human approves/rejects)
 # --------------------------------------------------------------------------- #
-def _proposal_public(proposal: Proposal) -> dict[str, Any]:
-    """Public projection; lease and immutable recovery identity stay internal.
-
-    Carries the derived ``evidence`` block so a review card renders exactly the claim
-    the server is willing to act on: a bulk-ratified or unverifiable basis is never
-    presented as analyst-confirmed, and ``evidence.approvable`` tells the UI in advance
-    that the approve button would be refused.
-    """
-    data = proposal.model_dump(
-        mode="json", exclude={"applying_token", "decision_actor"}
-    )
-    data["evidence"] = evidence_summary(proposal)
-    data["expired"] = proposal.status == "expired" or proposal_is_expired(proposal)
-    return data
+# ``_proposal_public`` lives in ``engine/views.py`` (chat revamp SPEC §5.3) and is
+# re-exported at the top of this module under its historical name.
 
 
 @router.get("/proposals")
@@ -3332,20 +2943,13 @@ async def playbook_update(
 # --------------------------------------------------------------------------- #
 @router.get("/metrics")
 async def metrics(window_hours: int = 24, state: AppState = Depends(get_state)) -> dict[str, Any]:
-    # Served through the shared short-TTL page cache (api/metrics_shared) so the
-    # Overview's LIVE 5s poll re-serves one scan instead of re-fetching 2000 full
-    # documents per refresh. Keyed by (store identity, limit) — Demo Mode's store
-    # swap self-invalidates, and the 2000-row limit keeps this response's
-    # truncation semantics byte-identical.
-    from .metrics_shared import fetch_case_page
+    # Round 12: exact store-wide headline counts (status / verdict / disposition
+    # aggregates) beside figures over the SAME shared all-time case population the
+    # posture rollups read, with a truncation marker for the latter. See
+    # ``routes_metrics.legacy_metrics_payload``. An unreadable store is a 503.
+    from . import routes_metrics
 
-    cases, total = await fetch_case_page(state.cases, 2000)
-    out = compute_metrics(cases, total_cases=total)
-    try:
-        out["cost"] = await state.usage_store.summary(window_hours=max(1, window_hours))
-    except Exception:  # noqa: BLE001 — cost is best-effort on the metrics view
-        out["cost"] = {}
-    return out
+    return await routes_metrics.legacy_metrics_payload(state, window_hours)
 
 
 @router.get("/feedback/stats")
@@ -3491,6 +3095,9 @@ async def demo_disable(
 class LoginBody(BaseModel):
     username: str
     password: str
+    # Round 12: "Remember me" (additive; the proxies forward arbitrary JSON). The
+    # server decides eligibility (``_remember_decision``) — a request is never a grant.
+    remember: bool = False
 
 
 def _resolved_role(state: AppState, user) -> str:
@@ -3508,9 +3115,245 @@ def _session_policy(state: AppState):
     return getattr(state.prefs, "session_policy", None)
 
 
+# --------------------------------------------------------------------------- #
+# Remember me (Round 12, SPEC D14). One cookie helper replaces the five copies:
+# a REMEMBERED sign-in gets a persistent cookie (Max-Age = the policy duration, the
+# JWT ``exp`` matches); every other sign-in gets a browser-session cookie (no
+# Max-Age) bounded by the server's idle/absolute limits. The cookie NAME is an
+# existing wire identifier and is unchanged (AGENTS.md naming contract).
+# --------------------------------------------------------------------------- #
+_SESSION_COOKIE = "tlsoc_token"
+
+# Revocations this session's own user asked for on this device (logout, "Sign out
+# this device"): /auth/me reports no reason for them.
+_DELIBERATE_SIGNOUTS = frozenset({"logout", "self_signout"})
+
+# Why a remember request was refused (or ``ok`` / ``not_requested``). Closed set.
+REMEMBER_REASONS = ("ok", "not_requested", "disabled", "role_excluded", "insecure_transport")
+
+
+def _set_session_cookie(
+    response: Response, state: AppState, token: str, *, remember_seconds: int = 0
+) -> None:
+    """Set the session cookie. ``remember_seconds > 0`` makes it persistent."""
+    kwargs: dict[str, Any] = {
+        "httponly": True,
+        "samesite": "lax",
+        "secure": bool(state.secrets.auth_cookie_secure),
+        "path": "/",
+    }
+    if remember_seconds > 0:
+        kwargs["max_age"] = int(remember_seconds)
+    response.set_cookie(_SESSION_COOKIE, token, **kwargs)
+
+
+def _clear_session_cookie(response: Response, state: AppState) -> None:
+    """Clear the session cookie with the SAME attributes it was set with."""
+    response.delete_cookie(
+        _SESSION_COOKIE,
+        path="/",
+        samesite="lax",
+        secure=bool(state.secrets.auth_cookie_secure),
+        httponly=True,
+    )
+
+
+def _host_is_loopback(host: str) -> bool:
+    """Whether a ``Host``-style value (optionally with a port) names this machine."""
+    import ipaddress
+
+    value = (host or "").strip().lower()
+    if not value:
+        return False
+    if value.startswith("["):  # [::1]:8080
+        end = value.find("]")
+        value = value[1:end] if end > 0 else value[1:]
+    elif value.count(":") == 1:  # host:port (a bare IPv6 address has several colons)
+        value = value.split(":", 1)[0]
+    value = value.rstrip(".")
+    if value == "localhost" or value.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(value).is_loopback
+    except ValueError:
+        return False
+
+
+# Headers a reverse proxy adds when it forwards a request. Their presence means the
+# request did not come straight from a browser on this machine, whatever ``Host`` says.
+_FORWARDING_HEADERS = (
+    "forwarded",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-real-ip",
+)
+
+
+def _peer_is_loopback(request: Request) -> bool:
+    import ipaddress
+
+    client = getattr(request, "client", None)
+    host = str(getattr(client, "host", "") or "").strip().lower()
+    if not host:
+        return False
+    if host.startswith("[") and host.endswith("]"):
+        host = host[1:-1]
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _request_is_loopback(request: Request | None) -> bool:
+    """True only for a DIRECT local request: the TCP peer is a loopback address, the
+    ``Host`` header names this machine, and no reverse-proxy forwarding header is
+    present. A proxied request — even one whose ``Host`` was rewritten to
+    ``127.0.0.1`` by a proxy on the same host — never counts, because the browser
+    behind the proxy may be anywhere on the network (OWASP ASVS 3.3.1). The
+    development server's proxy (``./scripts/run-demo.sh``) forwards without these
+    headers, so a browser on the same machine keeps Remember me there."""
+    if request is None:
+        return False
+    if any(request.headers.get(name) for name in _FORWARDING_HEADERS):
+        return False
+    if not _peer_is_loopback(request):
+        return False
+    return _host_is_loopback(request.headers.get("host") or (request.url.hostname or ""))
+
+
+def _remember_insecure(state: AppState, request: Request | None) -> bool:
+    """Whether a persistent cookie would cross plain HTTP to a network origin: the
+    cookie is not ``Secure`` (``AUTH_COOKIE_SECURE`` off) and the request is not a
+    direct local one (see :func:`_request_is_loopback`). OWASP ASVS 3.3.1."""
+    if bool(getattr(state.secrets, "auth_cookie_secure", False)):
+        return False
+    return not _request_is_loopback(request)
+
+
+def _remember_policy(state: AppState):
+    return getattr(_session_policy(state), "remember_me", None)
+
+
+def _secure_cookies_configured(state: AppState) -> bool:
+    """Whether ``AUTH_COOKIE_SECURE`` was set explicitly (environment or ``.env``)
+    rather than left at its ``false`` default. The Session policy editor uses it to
+    say what is true ("AUTH_COOKIE_SECURE=false" versus "not set"); it describes the
+    shape of the configuration, never a secret value."""
+    fields_set = getattr(state.secrets, "model_fields_set", None) or set()
+    return "auth_cookie_secure" in fields_set
+
+
+def _remember_me_status(state: AppState, request: Request | None) -> dict[str, Any]:
+    """The PUBLIC ``/setup/status`` ``remember_me`` block.
+
+    Non-secret by construction: an on/off flag, the lifetime a new remembered
+    sign-in gets (the policy duration capped by the absolute lifetime), whether THIS
+    request's transport would refuse it, whether the session cookie is marked
+    ``Secure`` (observable on every ``Set-Cookie`` anyway — lets the sign-in page and
+    the Session policy editor tell "plain HTTP" from "HTTPS without secure cookies"),
+    whether ``AUTH_COOKIE_SECURE`` was set explicitly or left at its default
+    (``secure_cookies_configured``, a boolean about the configuration's shape),
+    how long a sign-in WITHOUT Remember me lasts (the token lifetime,
+    ``AUTH_TOKEN_HOURS``), and ``idle_seconds``: how long a remembered device may go
+    unused before it is signed out (0 when no inactivity limit is shorter than the
+    remembered lifetime), so the page never promises more than the server keeps."""
+    rm = _remember_policy(state)
+    enabled = bool(getattr(rm, "enabled", False))
+    duration = remember_window_seconds(_session_policy(state))
+    if not duration:
+        duration = int(getattr(rm, "duration_seconds", 0) or 0)
+    idle_seconds = remember_idle_window_seconds(_session_policy(state))
+    insecure_blocked = bool(
+        enabled
+        and not bool(getattr(rm, "allow_insecure_http", False))
+        and _remember_insecure(state, request)
+    )
+    standard = int(getattr(getattr(state, "auth", None), "token_seconds", 0) or 0)
+    return {
+        "enabled": enabled,
+        "duration_seconds": duration,
+        "idle_seconds": idle_seconds,
+        "insecure_blocked": insecure_blocked,
+        "secure_cookies": bool(getattr(state.secrets, "auth_cookie_secure", False)),
+        "secure_cookies_configured": _secure_cookies_configured(state),
+        "standard_session_seconds": standard,
+    }
+
+
+def _remember_decision(
+    state: AppState, request: Request | None, user: Any, requested: bool
+) -> tuple[int, str]:
+    """Server-side "Remember me" eligibility: ``(remember_seconds, reason)``.
+
+    ``remember_seconds`` is the remembered lifetime when granted (the policy
+    duration, capped by the standard absolute lifetime), else 0. Reasons, in
+    precedence order: ``not_requested``, ``disabled`` (policy off),
+    ``role_excluded`` (the account's stored role OR its effective role — every
+    principal is effectively ``super_admin`` while RBAC is off — is excluded), and
+    ``insecure_transport`` (see :func:`_remember_insecure`, unless the admin allowed
+    plain HTTP). ``ok`` when granted. MFA and step-up are never affected. The same
+    exclusion is re-checked on every request (``deps.live_session_limits``)."""
+    if not requested:
+        return (0, "not_requested")
+    rm = _remember_policy(state)
+    if rm is None or not bool(getattr(rm, "enabled", False)):
+        return (0, "disabled")
+    excluded = {
+        str(r).strip().lower() for r in (getattr(rm, "excluded_roles", None) or []) if str(r).strip()
+    }
+    if excluded:
+        roles = set(effective_roles(state.prefs, getattr(user, "role", "")))
+        roles.add(str(_resolved_role(state, user) or "").strip().lower())
+        if roles & excluded:
+            return (0, "role_excluded")
+    if not bool(getattr(rm, "allow_insecure_http", False)) and _remember_insecure(state, request):
+        return (0, "insecure_transport")
+    duration = min(REMEMBER_MAX_SECONDS, remember_window_seconds(_session_policy(state)))
+    if duration <= 0:
+        return (0, "disabled")
+    return (duration, "ok")
+
+
+def _duration_label(seconds: int) -> str:
+    """A compact audit label for a lifetime: ``24h`` / ``90m``."""
+    seconds = int(seconds or 0)
+    if seconds > 0 and seconds % 3600 == 0:
+        return f"{seconds // 3600}h"
+    return f"{max(1, round(seconds / 60))}m"
+
+
+def _token_expires_iso(state: AppState, token: str) -> str:
+    """The ISO ``exp`` of a token this server just minted ("" when unknown)."""
+    try:
+        exp = int((state.auth.claims_of(token) or {}).get("exp", 0) or 0)
+    except (TypeError, ValueError):
+        return ""
+    if exp <= 0:
+        return ""
+    from datetime import datetime, timezone
+
+    try:
+        return datetime.fromtimestamp(exp, tz=timezone.utc).isoformat()
+    except (OverflowError, OSError, ValueError):
+        return ""
+
+
+def _remember_fields(
+    state: AppState, token: str, remember_seconds: int, reason: str
+) -> dict[str, Any]:
+    """The additive ``remembered`` / ``remember_reason`` / ``session_expires_at``
+    fields every session-minting response carries."""
+    return {
+        "remembered": remember_seconds > 0,
+        "remember_reason": reason if reason in REMEMBER_REASONS else "disabled",
+        "session_expires_at": _token_expires_iso(state, token),
+    }
+
+
 async def _register_session(
     state: AppState, request: Request, token: str, *, mfa_method: str = "",
-    refresh_hash: str = "",
+    refresh_hash: str = "", remember_seconds: int = 0,
 ) -> str:
     """Session-create HOOK (Wave 3) — called at EVERY cookie-set site (login,
     mfa/verify, sso/callback). Decodes the freshly-minted token to read its ``sid``/
@@ -3530,19 +3373,33 @@ async def _register_session(
         username = str(claims.get("sub") or "")
         tv = int(claims.get("tv", 0) or 0)
         policy = _session_policy(state)
-        idle = int(getattr(policy, "idle_timeout", 0) or 0)
-        absolute = int(getattr(policy, "absolute_lifetime", 0) or 0)
+        limits = limits_for_username(state, username)
+        remembered = int(remember_seconds or 0) > 0
+        if remembered:
+            # Stamp the REMEMBERED limits on the row (display + prune); the live
+            # policy stays authoritative in is_active().
+            absolute = int(remember_seconds)
+            idle = limits.remember_idle if 0 < limits.remember_idle <= absolute else absolute
+        else:
+            idle, absolute = limits.idle, limits.absolute
         meta = session_metadata(request)
         await sessions.create(
             sid=sid, username=username, token_version=tv,
             refresh_hash=refresh_hash or "",
             idle_timeout=idle, absolute_lifetime=absolute,
-            mfa_method=mfa_method or "", **meta,
+            mfa_method=mfa_method or "",
+            remember=remembered,
+            remember_seconds=int(remember_seconds or 0) if remembered else 0,
+            token_expires_at=_token_expires_iso(state, token),
+            **meta,
         )
         await _audit_session(
             state, "session_create", username, sid,
-            f"new session ({meta.get('client_type', '') or 'unknown'} "
-            f"{meta.get('ua_browser', '')}/{meta.get('ua_os', '')})".strip(),
+            (
+                f"new session ({meta.get('client_type', '') or 'unknown'} "
+                f"{meta.get('ua_browser', '')}/{meta.get('ua_os', '')})"
+                + (f" remembered {_duration_label(remember_seconds)}" if remembered else "")
+            ).strip(),
         )
         # Best-effort new-device notification (a first session for this UA/device).
         try:
@@ -3593,18 +3450,24 @@ async def auth_login(
     auth = state.auth
     if not auth.is_enabled:
         raise HTTPException(status_code=400, detail="authentication is disabled")
-    token = auth.authenticate(body.username, body.password)
-    if not token:
+    # Constant-cost credential check (no token yet: the lifetime depends on the
+    # Remember-me decision below, which needs the verified principal's role).
+    user = auth.principal(body.username) if auth.check_password(
+        body.username, body.password
+    ) else None
+    if user is None:
         await state.control_audit.record(
             action_type=ActionType.AUTH_EVENT, surface="auth", actor=body.username or "",
             result_summary="login failed",
         )
         raise HTTPException(status_code=401, detail="invalid credentials")
-    user = auth.principal(body.username) or auth.verify(token)
     # --- MFA phase 1 (Wave 2 / F3): the password is correct, but the user has MFA
     # enabled (or its role is enforced). Do NOT mint a session cookie/token here —
     # return a SHORT-LIVED pending token the client exchanges at /auth/mfa/verify
-    # with a TOTP/recovery code. A user with mfa_enabled=False is UNAFFECTED. ---
+    # with a TOTP/recovery code. A user with mfa_enabled=False is UNAFFECTED.
+    # Round 12: the user's Remember-me REQUEST rides in the SIGNED pending token
+    # (``rm``); eligibility is decided when the session is minted. Remember me never
+    # skips the second factor. ---
     if auth.requires_mfa(user.username):
         # --- Mandated-enrollment phase 1 (additive): the account is REQUIRED to use
         # MFA (per-user ``mfa_required`` mandate or role enforce_for_roles) but has
@@ -3620,7 +3483,7 @@ async def auth_login(
             return {
                 "requires_mfa": True,
                 "mfa_enrollment_required": True,
-                "pending_token": auth.begin_mfa(user.username),
+                "pending_token": auth.begin_mfa(user.username, remember=body.remember),
             }
         await state.control_audit.record(
             action_type=ActionType.AUTH_EVENT, surface="auth", actor=user.username,
@@ -3628,8 +3491,15 @@ async def auth_login(
         )
         return {
             "requires_mfa": True,
-            "pending_token": auth.begin_mfa(user.username),
+            "pending_token": auth.begin_mfa(user.username, remember=body.remember),
         }
+    remember_seconds, remember_reason = _remember_decision(
+        state, request, user, body.remember
+    )
+    minted = auth.mint_session(user.username, remember_seconds=remember_seconds)
+    if minted is None:  # pragma: no cover — the principal was verified above
+        raise HTTPException(status_code=401, detail="invalid credentials")
+    token, _minted_user = minted
     # Best-effort: record the login timestamp (multi-user store only).
     try:
         await state.users.update(user.username, last_login_at=iso_now())
@@ -3637,15 +3507,16 @@ async def auth_login(
         pass
     await state.control_audit.record(
         action_type=ActionType.AUTH_EVENT, surface="auth", actor=user.username,
-        result_summary="login ok",
+        result_summary=(
+            f"login ok (remembered {_duration_label(remember_seconds)})"
+            if remember_seconds > 0 else "login ok"
+        ),
     )
     # Wave 3: register the session (sid/tv from the token) with request metadata.
-    await _register_session(state, request, token, mfa_method="password")
-    response.set_cookie(
-        "tlsoc_token", token, httponly=True, samesite="lax",
-        secure=state.secrets.auth_cookie_secure,
-        max_age=state.secrets.auth_token_hours * 3600,
+    await _register_session(
+        state, request, token, mfa_method="password", remember_seconds=remember_seconds
     )
+    _set_session_cookie(response, state, token, remember_seconds=remember_seconds)
     return {
         "token": token,
         "user": {
@@ -3654,28 +3525,110 @@ async def auth_login(
             "must_change_password": bool(user.must_change_password),
             "mfa_enabled": bool(getattr(user, "mfa_enabled", False)),
         },
+        **_remember_fields(state, token, remember_seconds, remember_reason),
     }
 
 
 @router.get("/auth/me")
-async def auth_me(request: Request, state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def auth_me(
+    request: Request, response: Response, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """The session state the console boots from (PUBLIC).
+
+    Round 12: REGISTRY-AWARE. Beyond the JWT signature/``exp``/active-user check it
+    runs the same session-registry evaluation as every protected route (revocation,
+    per-user token version, idle and absolute limits — standard or remembered). When
+    the session has ended it answers ``authenticated: false`` with a ``reason``
+    (``revoked`` | ``idle_expired`` | ``absolute_expired`` | ``tv_mismatch``) and
+    clears the cookie, so the console lands on the sign-in page instead of a shell
+    where every call 401s. A session-store outage keeps trusting the JWT (as every
+    protected route does). A live session carries an additive ``session`` summary
+    ``{remember, expires_at, idle_expires_at}``."""
     auth = state.auth
     if not auth.is_enabled:
         return {"authenticated": True, "auth_enabled": False, "user": None}
-    token = request.cookies.get("tlsoc_token") or _bearer(request)
+    cookie_token = request.cookies.get(_SESSION_COOKIE)
+    token = cookie_token or _bearer(request)
     user = auth.verify(token) if token else None
+
+    def _ended(reason: str | None, lifetime: int | None = None,
+               remembered: bool | None = None) -> dict[str, Any]:
+        if cookie_token:
+            _clear_session_cookie(response, state)
+        out: dict[str, Any] = {"authenticated": False, "auth_enabled": True, "user": None}
+        if reason:
+            out["reason"] = reason
+        if lifetime:
+            out["lifetime_seconds"] = int(lifetime)
+        if remembered is not None:
+            out["remembered"] = bool(remembered)
+        return out
+
+    if user is None:
+        if not token:
+            return {"authenticated": False, "auth_enabled": True, "user": None}
+        expired = auth.expired_session_claims(token)
+        if expired is not None:
+            # A token this server signed whose own lifetime ran out: the session
+            # ended at its absolute limit (for a remembered sign-in, the policy
+            # duration — "signed out after 24 hours").
+            try:
+                lifetime = int(expired.get("exp", 0)) - int(expired.get("iat", 0))
+            except (TypeError, ValueError):
+                lifetime = 0
+            return _ended("absolute_expired", lifetime if lifetime > 0 else None,
+                          expired.get("rm") is True)
+        return _ended(None)
+    verdict = await evaluate_session(request, state, auth, user, token)
+    if verdict.reason is not None:
+        if verdict.reason == "revoked" and str(
+            (verdict.row or {}).get("revoke_reason") or ""
+        ) in _DELIBERATE_SIGNOUTS:
+            # A deliberate sign-out of this very session needs no explanation.
+            return _ended(None)
+        lifetime: int | None = None
+        row_remembered: bool | None = None
+        if verdict.row is not None and verdict.limits is not None:
+            idle, absolute = verdict.limits.for_row(verdict.row)
+            if verdict.reason == "absolute_expired":
+                lifetime = absolute or None
+            elif verdict.reason == "idle_expired":
+                lifetime = idle or None
+            row_remembered = bool(verdict.row.get("remember"))
+        return _ended(verdict.reason, lifetime, row_remembered)
+    session: dict[str, Any] = {"remember": bool(getattr(user, "remember", False))}
+    if verdict.row is not None and verdict.limits is not None:
+        from ..stores.sessions import SessionStore
+
+        expires_at, idle_expires_at = SessionStore.effective_expiry(
+            verdict.row, **verdict.limits.kwargs()
+        )
+        # Remembered only while the LIVE policy still remembers this principal
+        # (Remember me on, role not excluded).
+        remembered = bool(verdict.row.get("remember")) and verdict.limits.remember_enabled
+        session.update(
+            remember=remembered,
+            expires_at=expires_at,
+            idle_expires_at=idle_expires_at,
+        )
+        if cookie_token and bool(verdict.row.get("remember")) and not remembered:
+            # Remember me was turned off or this role was excluded after the sign-in:
+            # turn the persistent cookie into a browser-session cookie, so it no
+            # longer survives a browser restart (the server already judges the
+            # session by the standard limits).
+            _set_session_cookie(response, state, cookie_token)
+    else:
+        session["expires_at"] = _token_expires_iso(state, token or "")
     return {
-        "authenticated": user is not None,
+        "authenticated": True,
         "auth_enabled": True,
-        "user": (
-            {
-                "username": user.username,
-                "role": _resolved_role(state, user),
-                "must_change_password": bool(user.must_change_password),
-                "mfa_enabled": bool(getattr(user, "mfa_enabled", False)),
-            }
-            if user else None
-        ),
+        "user": {
+            "username": user.username,
+            "role": _resolved_role(state, user),
+            "must_change_password": bool(user.must_change_password),
+            "mfa_enabled": bool(getattr(user, "mfa_enabled", False)),
+        },
+        "session": session,
     }
 
 
@@ -3697,8 +3650,10 @@ async def auth_logout(
                     await _audit_session(state, "session_revoke", username, sid, "logout")
             except Exception:  # noqa: BLE001
                 pass
+            # A chat answer this session started stops with it (never raises).
+            await _stop_chat_turns(state, username, sid=sid)
     # Mirror the set_cookie attributes so the cookie is reliably cleared.
-    response.delete_cookie("tlsoc_token", samesite="lax", secure=state.secrets.auth_cookie_secure)
+    _clear_session_cookie(response, state)
     return {"ok": True}
 
 
@@ -3781,9 +3736,13 @@ async def list_my_sessions(request: Request, state: AppState = Depends(get_state
     principal = _require_session(state, request)
     rows = await state.sessions.list_for(principal.username)
     current_sid = getattr(principal, "sid", None)
+    limits = live_session_limits(state, principal)
     return {
         "sessions": [
-            {**state.sessions.public(r), "current": bool(current_sid and r.get("sid") == current_sid)}
+            {
+                **state.sessions.public(r, limits),
+                "current": bool(current_sid and r.get("sid") == current_sid),
+            }
             for r in rows
         ],
         "current_sid": current_sid or "",
@@ -3799,9 +3758,15 @@ async def revoke_my_session(
     row = await state.sessions.get(sid)
     if row is None or _norm_user(row.get("username", "")) != _norm_user(principal.username):
         raise HTTPException(status_code=404, detail="session not found")
-    ok = await state.sessions.revoke(sid, by=principal.username, reason="user_revoke")
+    # Round 12: signing out THIS device is a deliberate sign-out (like logout), so the
+    # sign-in page must not later say it was "ended from another device".
+    self_signout = bool(getattr(principal, "sid", None)) and principal.sid == sid
+    ok = await state.sessions.revoke(
+        sid, by=principal.username, reason="self_signout" if self_signout else "user_revoke"
+    )
     if ok:
         await _audit_session(state, "session_revoke", principal.username, sid, "self revoke")
+    await _stop_chat_turns(state, principal.username, sid=sid)
     return {"ok": True, "revoked": bool(ok)}
 
 
@@ -3817,6 +3782,8 @@ async def revoke_other_sessions(
     count = await state.sessions.revoke_others(
         principal.username, keep, by=principal.username,
     )
+    if keep:
+        await _stop_chat_turns(state, principal.username, except_sid=keep)
     await _audit_session(
         state, "session_revoke_others", principal.username, keep,
         f"revoked {count} other session(s)",
@@ -3851,6 +3818,7 @@ async def auth_refresh(
         username = str((row or {}).get("username") or "")
         await state.sessions.revoke_all(username, by="system", reason="refresh_reuse_detected")
         await state.refresh_sessions()
+        await _stop_chat_turns(state, username)
         await _audit_session(
             state, "refresh_reuse", username, str((row or {}).get("sid") or ""),
             "refresh-token reuse detected — all sessions revoked",
@@ -3864,15 +3832,26 @@ async def auth_refresh(
         raise HTTPException(status_code=401, detail={"code": "session_invalid", "reason": "unknown_refresh"})
     sid = str(row.get("sid") or "")
     username = str(row.get("username") or "")
-    # The session must still be usable (not revoked/expired) to rotate.
-    policy = _session_policy(state)
-    reason = state.sessions.is_active(
-        row, idle_timeout=int(getattr(policy, "idle_timeout", 0) or 0),
-        absolute_lifetime=int(getattr(policy, "absolute_lifetime", 0) or 0),
-    )
+    # The session must still be usable (not revoked/expired) to rotate — judged by
+    # the limits that apply to THIS row (standard or remembered, Round 12) for the
+    # account's LIVE role (an excluded role is never remembered).
+    limits = limits_for_username(state, username)
+    reason = state.sessions.is_active(row, **limits.kwargs())
     if reason is not None:
         raise HTTPException(status_code=401, detail={"code": "session_expired", "reason": reason})
-    minted = state.auth.mint_session(username)
+    # A remembered session stays remembered, but rotation can never extend it past
+    # its absolute limit (created_at + the remembered duration).
+    remember_seconds = 0
+    if bool(row.get("remember")) and limits.remember_enabled:
+        from ..utils import parse_es_timestamp
+
+        created_dt = parse_es_timestamp(row.get("created_at"))
+        remaining = (
+            int(created_dt.timestamp() + limits.remember_absolute - now_utc().timestamp())
+            if created_dt is not None else limits.remember_absolute
+        )
+        remember_seconds = max(60, min(remaining, limits.remember_absolute))
+    minted = state.auth.mint_session(username, remember_seconds=remember_seconds)
     if minted is None:
         raise HTTPException(status_code=401, detail={"code": "session_invalid", "reason": "inactive_user"})
     token, _principal = minted
@@ -3882,16 +3861,16 @@ async def auth_refresh(
     # the created_at anchor (absolute lifetime) while the access sid resolves.
     new_refresh = new_refresh_token()
     new_sid = str((state.auth.claims_of(token) or {}).get("sid") or "")
-    await state.sessions.rekey_and_rotate(
+    idle_for_row, _absolute_for_row = limits.for_row(row)
+    rotated = await state.sessions.rekey_and_rotate(
         sid, new_sid, hash_refresh(new_refresh),
-        idle_timeout=int(getattr(policy, "idle_timeout", 0) or 0),
+        idle_timeout=idle_for_row,
+        token_expires_at=_token_expires_iso(state, token),
     )
+    if rotated is not None:
+        _rebind_chat_turns(state, username, sid, new_sid, token)
     await _audit_session(state, "refresh_rotate", username, new_sid, f"rotated from {_short(sid)}")
-    response.set_cookie(
-        "tlsoc_token", token, httponly=True, samesite="lax",
-        secure=state.secrets.auth_cookie_secure,
-        max_age=state.secrets.auth_token_hours * 3600,
-    )
+    _set_session_cookie(response, state, token, remember_seconds=remember_seconds)
     return {"token": token, "refresh_token": new_refresh, "sid": new_sid}
 
 
@@ -3938,7 +3917,17 @@ async def admin_list_sessions(
 ) -> dict[str, Any]:
     """Every session across all users (admin console). UI-safe projection."""
     rows = await state.sessions.list_all()
-    return {"sessions": [state.sessions.public(r) for r in rows]}
+    # Each row is projected with ITS owner's live limits (an excluded role is never
+    # shown as remembered); one lookup per user.
+    by_user: dict[str, Any] = {}
+
+    def _limits(row: dict[str, Any]):
+        key = _norm_user(str(row.get("username") or ""))
+        if key not in by_user:
+            by_user[key] = limits_for_username(state, str(row.get("username") or ""))
+        return by_user[key]
+
+    return {"sessions": [state.sessions.public(r, _limits(r)) for r in rows]}
 
 
 @router.post("/admin/sessions/{sid}/revoke")
@@ -3956,6 +3945,7 @@ async def admin_revoke_session(
     if ok:
         await _audit_session(state, "session_admin_revoke", by, sid,
                              f"admin revoked session of {row.get('username', '')}")
+    await _stop_chat_turns(state, str(row.get("username") or ""), sid=sid)
     return {"ok": True, "revoked": bool(ok)}
 
 
@@ -3970,6 +3960,7 @@ async def admin_revoke_all(
     by = current_username(request)
     count = await state.sessions.revoke_all(username, by=by, reason="admin_revoke_all")
     await state.refresh_sessions()
+    await _stop_chat_turns(state, username)
     await _audit_session(state, "session_admin_revoke_all", by, "",
                          f"admin revoked all {count} session(s) for {username}")
     return {"ok": True, "revoked": count}
@@ -3977,6 +3968,38 @@ async def admin_revoke_all(
 
 def _norm_user(username: str) -> str:
     return (username or "").strip().lower()
+
+
+async def _stop_chat_turns(
+    state: AppState, username: str, *, sid: str | None = None, except_sid: str | None = None,
+) -> int:
+    """Stop the running chat answers whose session or account just ended (Round 12
+    final review, L1): ``routes_chat.stop_chat_turns_for``, imported lazily
+    (``routes_chat`` imports this module). Never raises."""
+    from .routes_chat import stop_chat_turns_for
+
+    return await stop_chat_turns_for(state, username, sid=sid, except_sid=except_sid)
+
+
+async def _recheck_chat_turns(state: AppState, username: str) -> int:
+    """Re-check the user's running chat answers after an account change (disabled,
+    role or custom roles changed) and stop those that lost their authority."""
+    from .routes_chat import recheck_chat_turns_for
+
+    return await recheck_chat_turns_for(state, username)
+
+
+def _rebind_chat_turns(state: AppState, username: str, old_sid: str, new_sid: str,
+                       token: str) -> int:
+    """A refresh re-keyed the session: its running chat answers follow the new sid
+    and the new access token's expiry (``routes_chat.rebind_chat_turns_for``)."""
+    from .routes_chat import rebind_chat_turns_for
+
+    try:
+        exp = float((state.auth.claims_of(token) or {}).get("exp") or 0) or None
+    except (TypeError, ValueError):
+        exp = None
+    return rebind_chat_turns_for(state, username, old_sid, new_sid, token_expires_at=exp)
 
 
 def _short(sid: str) -> str:
@@ -4350,7 +4373,13 @@ async def mfa_verify(
         )
         raise HTTPException(status_code=401, detail="invalid code")
     await state.refresh_users()
-    minted = auth.mint_session(username)
+    # Round 12: the Remember-me REQUEST comes only from the SIGNED pending token
+    # (never a body field), and eligibility is decided against the live policy now.
+    remember_seconds, remember_reason = _remember_decision(
+        state, request, auth.principal(username),
+        auth.pending_remember(body.pending_token),
+    )
+    minted = auth.mint_session(username, remember_seconds=remember_seconds)
     if minted is None:  # pragma: no cover — username verified above
         raise HTTPException(status_code=401, detail="invalid credentials")
     token, principal = minted
@@ -4360,15 +4389,16 @@ async def mfa_verify(
         pass
     await state.control_audit.record(
         action_type=ActionType.AUTH_EVENT, surface="auth", actor=username,
-        result_summary=f"mfa login ok ({method})",
+        result_summary=(
+            f"mfa login ok ({method}; remembered {_duration_label(remember_seconds)})"
+            if remember_seconds > 0 else f"mfa login ok ({method})"
+        ),
     )
     # Wave 3: register the session from the freshly-minted token (carries sid/tv).
-    await _register_session(state, request, token, mfa_method=method)
-    response.set_cookie(
-        "tlsoc_token", token, httponly=True, samesite="lax",
-        secure=state.secrets.auth_cookie_secure,
-        max_age=state.secrets.auth_token_hours * 3600,
+    await _register_session(
+        state, request, token, mfa_method=method, remember_seconds=remember_seconds
     )
+    _set_session_cookie(response, state, token, remember_seconds=remember_seconds)
     return {
         "token": token,
         "user": {
@@ -4377,6 +4407,7 @@ async def mfa_verify(
             "must_change_password": bool(principal.must_change_password),
             "mfa_enabled": True,
         },
+        **_remember_fields(state, token, remember_seconds, remember_reason),
     }
 
 
@@ -4502,8 +4533,13 @@ async def mfa_enroll_confirm(
         action_type=ActionType.AUTH_EVENT, surface="auth", actor=username,
         result_summary="mfa enabled (login-mandated enrollment)",
     )
-    # Mint the FULL session — the /auth/mfa/verify success tail.
-    minted = auth.mint_session(username)
+    # Mint the FULL session — the /auth/mfa/verify success tail (incl. the signed
+    # Remember-me request carried by the pending token, Round 12).
+    remember_seconds, remember_reason = _remember_decision(
+        state, request, auth.principal(username),
+        auth.pending_remember(body.pending_token),
+    )
+    minted = auth.mint_session(username, remember_seconds=remember_seconds)
     if minted is None:  # pragma: no cover — username verified above
         raise HTTPException(status_code=401, detail="invalid credentials")
     token, principal = minted
@@ -4513,14 +4549,16 @@ async def mfa_enroll_confirm(
         pass
     await state.control_audit.record(
         action_type=ActionType.AUTH_EVENT, surface="auth", actor=username,
-        result_summary="mfa login ok (totp; enrolled at login)",
+        result_summary=(
+            "mfa login ok (totp; enrolled at login; remembered "
+            f"{_duration_label(remember_seconds)})"
+            if remember_seconds > 0 else "mfa login ok (totp; enrolled at login)"
+        ),
     )
-    await _register_session(state, request, token, mfa_method="totp")
-    response.set_cookie(
-        "tlsoc_token", token, httponly=True, samesite="lax",
-        secure=state.secrets.auth_cookie_secure,
-        max_age=state.secrets.auth_token_hours * 3600,
+    await _register_session(
+        state, request, token, mfa_method="totp", remember_seconds=remember_seconds
     )
+    _set_session_cookie(response, state, token, remember_seconds=remember_seconds)
     return {
         "token": token,
         "user": {
@@ -4529,6 +4567,7 @@ async def mfa_enroll_confirm(
             "must_change_password": bool(principal.must_change_password),
             "mfa_enabled": True,
         },
+        **_remember_fields(state, token, remember_seconds, remember_reason),
     }
 
 
@@ -4620,6 +4659,7 @@ async def sso_authorize(
     request: Request,
     response: Response,
     provider: str = Query(...),
+    remember: bool = False,  # query parameter (a plain default keeps direct calls safe)
     state: AppState = Depends(get_state),
 ) -> dict[str, Any]:
     """PUBLIC: build the IdP authorization URL. Stashes a single-use state+nonce in
@@ -4647,6 +4687,9 @@ async def sso_authorize(
         "nonce": nonce,
         "redirect_uri": redirect_uri,
         "expires_at": iso_now(),
+        # Round 12: the Remember-me REQUEST, bound server-side to this single-use
+        # state; eligibility is decided at the callback against the live policy.
+        "remember": bool(remember),
     })
     response.set_cookie(
         _OIDC_STATE_COOKIE, state_tok, max_age=600, httponly=True, samesite="lax",
@@ -4721,7 +4764,10 @@ async def sso_callback(
         )
         return _fail("user_not_provisioned")
     await state.refresh_users()
-    minted = state.auth.mint_session(username)
+    remember_seconds, remember_reason = _remember_decision(
+        state, request, state.auth.principal(username), rec.get("remember") is True
+    )
+    minted = state.auth.mint_session(username, remember_seconds=remember_seconds)
     if minted is None:
         return _fail("session_failed")
     token, _principal = minted
@@ -4731,16 +4777,23 @@ async def sso_callback(
         pass
     await state.control_audit.record(
         action_type=ActionType.AUTH_EVENT, surface="auth", actor=username,
-        result_summary=f"sso login ok ({provider_id})",
+        result_summary=(
+            f"sso login ok ({provider_id}; remembered {_duration_label(remember_seconds)})"
+            if remember_seconds > 0 else f"sso login ok ({provider_id})"
+        ),
     )
     # Wave 3: register the SSO session from the freshly-minted token (carries sid/tv).
-    await _register_session(state, request, token, mfa_method=f"sso:{provider_id}")
-    redirect = RedirectResponse(url="/", status_code=302)
-    redirect.set_cookie(
-        "tlsoc_token", token, httponly=True, samesite="lax",
-        secure=state.secrets.auth_cookie_secure,
-        max_age=state.secrets.auth_token_hours * 3600,
+    await _register_session(
+        state, request, token, mfa_method=f"sso:{provider_id}",
+        remember_seconds=remember_seconds,
     )
+    # A refused remember request is reported on the landing URL (a closed reason
+    # vocabulary, never free text) so the console can explain it once.
+    landing = "/"
+    if rec.get("remember") is True and remember_seconds <= 0:
+        landing = f"/?remember_refused={quote_plus(remember_reason)}"
+    redirect = RedirectResponse(url=landing, status_code=302)
+    _set_session_cookie(redirect, state, token, remember_seconds=remember_seconds)
     redirect.delete_cookie(_OIDC_STATE_COOKIE, path="/")  # one-time binding consumed (#38)
     return redirect
 
@@ -5134,6 +5187,10 @@ async def update_user(
         )
     updated = await state.users.update(username, **patch)
     await state.refresh_users()
+    if "role" in patch or "active" in patch:
+        # A disabled account's running chat answers stop now; a role change stops
+        # only those that relied on a grant the account no longer holds.
+        await _recheck_chat_turns(state, username)
     await state.control_audit.record(
         action_type=ActionType.USER_MGMT, surface="users", actor=current_username(request),
         result_summary=f"updated user '{username}'",
@@ -5159,14 +5216,29 @@ async def delete_user(
     artifacts, _removed_jobs = await state.jobs.retire_actor(username, generation)
     await state.job_runner.delete_artifacts(artifacts)
     await state.users.delete(username)
+    # The account is gone from the synced view first (its token now fails every
+    # request, so no new chat turn can start), then its running chat answers stop and
+    # unwind before its chat material is purged, so none of them writes it back.
+    await state.refresh_users()
+    await _stop_chat_turns(state, username)
+    from ..stores.chat_feedback import feedback_store_for
+    from ..stores.chat_starters import starters_store_for
+
+    real_chat = state.real_chat_conversations
+    real_chat_kv = getattr(real_chat, "_kv", None) or state.kv
     await state.auth.purge_user_side_state(
         username,
         inbox=state.real_inbox,
         notif_prefs=state.notif_prefs,
         user_prefs=state.user_prefs,
         custom_roles=state.custom_roles,
+        chat_conversations=real_chat,
+        chat_feedback=feedback_store_for(real_chat_kv),
+        reports=state.real_reports,
+        # Round 13 (SPEC-chat §3.2.3): the user's chat starter state goes with the
+        # ratings, over the same REAL chat KV.
+        chat_starters=starters_store_for(real_chat_kv),
     )
-    await state.refresh_users()
     await state.control_audit.record(
         action_type=ActionType.USER_MGMT, surface="users", actor=current_username(request),
         result_summary=f"deleted user '{username}'",
@@ -5270,7 +5342,7 @@ CASE_PAGE_LIMIT = 200
 CASE_RESULT_WINDOW = 10_000
 
 
-def _with_advisory_bands(case: Case, prefs: Preferences) -> Case:
+def _with_advisory_bands(case: Case, prefs: Preferences | None) -> Case:
     """Populate the five READ-TIME advisory band fields (severity/impact/urgency/
     priority) on a Case copy for the presentation surfaces (Round-7 W0.7).
 
@@ -5282,6 +5354,348 @@ def _with_advisory_bands(case: Case, prefs: Preferences) -> Case:
         return case.model_copy(update=advisory_bands(case, prefs))
     except Exception:  # noqa: BLE001 — advisory only; never break the endpoint
         return case
+
+
+def _case_view(case: Case, state: AppState) -> dict[str, Any]:
+    """The JSON every single-case MUTATION returns (Round 12 final review): the same
+    shape as ``GET /cases/{id}``, the stored case plus its read-time advisory bands
+    under ``execution_prefs``. A client that renders the response (the Case Manager
+    header after Acknowledge or Close) otherwise saw ``severity_band: null`` and fell
+    back to a risk-score band, so a source-asserted Critical case read as Info until a
+    reload. Display only: nothing here is stored or read by ``decide()`` (#3).
+
+    Fail-open like the read path: the mutation is already saved when this runs, so a
+    preference lookup that fails degrades to the prefs-free severity axis
+    (``advisory_bands(case, None)``) instead of reporting a saved action as an error."""
+    try:
+        prefs: Preferences | None = state.execution_prefs
+    except Exception:  # noqa: BLE001 — advisory only; never fail a saved mutation
+        prefs = None
+    return _with_advisory_bands(case, prefs).model_dump(mode="json")
+
+
+# --------------------------------------------------------------------------- #
+# Round 12 (WP-CM): the Case Manager queue's server-side search / owner / severity
+# filters and its Title A–Z order.
+#
+# The queue used to load the newest 200 cases and filter Active, search and status in
+# the BROWSER, so an open case older than the newest 200 was silently absent from the
+# Active queue and no search could find it. The lifecycle group, sort and paging were
+# already server-side; these four were not, because none of them is a push-down every
+# store can answer exactly: free-text search spans ten fields (two nested), the owner
+# match is case-insensitive, severity is a READ-TIME band (``engine.priority``, never
+# stored or mapped), and ``title`` is a text field no store can order by.
+#
+# They are therefore answered by ONE exact scan over the store's own ``scan_page``
+# (the same streaming read the exact aggregates use), with the lifecycle statuses
+# pushed down as its pre-filter and every predicate re-checked here. The total is the
+# true matching count over the whole corpus — never a page-bounded lower bound — and
+# a request that sends none of these parameters never reaches this path.
+# --------------------------------------------------------------------------- #
+CASE_QUEUE_SEARCH_MAX_CHARS = 200
+CASE_QUEUE_SEVERITIES: tuple[str, ...] = ("critical", "high", "medium", "low", "info")
+# The AI verdict values (``constants.Verdict``) the queue's exact ``verdict`` filter
+# accepts — a STRUCTURED match on the stored field, never the free-text search, so a
+# title/summary/entity value that merely contains "needs_human" can never be counted.
+CASE_QUEUE_VERDICTS: tuple[str, ...] = ("FALSE_POSITIVE", "TRUE_POSITIVE", "NEEDS_HUMAN")
+CASE_QUEUE_SCAN_SORTS: tuple[str, ...] = ("title",)
+CASE_QUEUE_SCAN_PAGE = 1000
+# Round 12 final review (L1): the scan reads a PROJECTION, never whole case documents
+# (which carry evidence and can be tens of kB each). These are the stored fields its
+# predicates and sort keys read: the ten search fields, the filter inputs, every sort
+# key, the severity-band inputs (``engine.priority.severity_band_from_events``) and the
+# fields a ``Case`` requires, so a projected row validates exactly like the full one
+# for every field a predicate reads. A transfer hint (``scan_page`` ``fields``): a
+# store that ignores it returns whole documents, which is equally correct.
+CASE_QUEUE_SCAN_FIELDS: tuple[str, ...] = (
+    "case_id", "case_number", "title", "summary", "status", "verdict", "entity",
+    "entity_type", "source_name", "assignee", "source_surface", "cluster_signature",
+    "created_at", "updated_at", "risk_score", "severity_band", "trigger_reason",
+    "source_id",
+)
+# A scan page with at least this many rows has its predicate work (decoding, the
+# validation a window or severity filter needs) run in a worker thread, so a broad
+# search never stalls the event loop that also serves chat streams, SSE and ingest
+# (the dashboards' ``_OFFLOAD_AT`` idea, applied per page).
+CASE_QUEUE_OFFLOAD_AT = 200
+# How many cases of the requested page are fetched at once when the store has no
+# batch read (``get_many``).
+CASE_QUEUE_FETCH_CONCURRENCY = 16
+
+
+def _queue_value(row: Any, key: str) -> Any:
+    """Read ``key`` off a raw stored document or a :class:`Case` (enum → value)."""
+    value = row.get(key) if isinstance(row, dict) else getattr(row, key, None)
+    return getattr(value, "value", value)
+
+
+def _queue_entity(row: Any) -> tuple[str, str]:
+    entity = _queue_value(row, "entity")
+    if isinstance(entity, dict):
+        etype, evalue = entity.get("type"), entity.get("value")
+    else:
+        etype, evalue = getattr(entity, "type", None), getattr(entity, "value", None)
+    return str(etype or _queue_value(row, "entity_type") or ""), str(evalue or "")
+
+
+def _queue_search_terms(q: str | None) -> list[str]:
+    """Whitespace-separated, case-folded search terms (every term must match)."""
+    text = str(q or "").strip()[:CASE_QUEUE_SEARCH_MAX_CHARS]
+    return [t for t in text.casefold().split() if t]
+
+
+def _queue_search_haystack(row: Any) -> str:
+    """The ten fields the queue search has always matched, case-folded."""
+    etype, evalue = _queue_entity(row)
+    parts = [
+        _queue_value(row, "case_id"), _queue_value(row, "case_number"),
+        _queue_value(row, "title"), _queue_value(row, "summary"),
+        _queue_value(row, "status"), _queue_value(row, "verdict"),
+        etype, evalue, _queue_value(row, "source_name"), _queue_value(row, "assignee"),
+    ]
+    return " ".join(str(p) for p in parts if p not in (None, "")).casefold()
+
+
+def _queue_title(row: Any) -> str:
+    """The queue's display title chain (title → summary → number → id), case-folded."""
+    for key in ("title", "summary", "case_number", "case_id"):
+        value = _queue_value(row, key)
+        if value not in (None, ""):
+            return str(value).casefold()
+    return ""
+
+
+def _queue_score_band(score: float) -> str:
+    """The console's ONE severity ladder for a 0..100 number (``badges.severityBand``)."""
+    scaled = max(0.0, min(100.0, float(score)))
+    if scaled >= 74:
+        return "critical"
+    if scaled >= 48:
+        return "high"
+    if scaled >= 22:
+        return "medium"
+    return "info" if scaled < 8 else "low"
+
+
+def _queue_severity(case: Case) -> str:
+    """The band the queue row DISPLAYS: the read-time severity band, else the risk
+    band, else ``info`` — the same chain as the console's ``caseSeverity``."""
+    return _queue_band(getattr(case, "severity_band", ""), getattr(case, "risk_score", None))
+
+
+def _queue_band(band: Any, risk: Any) -> str:
+    raw = str(band or "").strip().lower()
+    aliases = {"crit": "critical", "med": "medium", "moderate": "medium",
+               "informational": "info", "none": "info"}
+    raw = aliases.get(raw, raw)
+    if raw in CASE_QUEUE_SEVERITIES:
+        return raw
+    if isinstance(risk, (int, float)) and not isinstance(risk, bool):
+        return _queue_score_band(risk)
+    return "info"
+
+
+def _queue_row_severity(case: Case, prefs: Preferences) -> str:
+    """The band the list response shows for ``case`` — exactly what
+    ``_queue_severity(_with_advisory_bands(case, prefs))`` returns (the advisory
+    severity axis replaces the stored band; a failed derivation leaves none, and the
+    risk band applies) — without deriving the impact, urgency and priority axes the
+    filter never reads."""
+    from ..engine.priority import severity_band_from_events
+
+    try:
+        band = severity_band_from_events(case, prefs).get("band")
+    except Exception:  # noqa: BLE001 — advisory only, as in ``advisory_bands``
+        band = None
+    return _queue_band(band, getattr(case, "risk_score", None))
+
+
+def _queue_sort_key(row: Any, field: str) -> tuple[Any, str]:
+    tiebreak = str(_queue_value(row, "case_id") or "")
+    if field == "title":
+        return (_queue_title(row), tiebreak)
+    if field == "risk_score":
+        risk = _queue_value(row, "risk_score")
+        number = float(risk) if isinstance(risk, (int, float)) and not isinstance(risk, bool) else -1.0
+        return (number, tiebreak)
+    millis = parse_millis_strict(_queue_value(row, field))
+    return (millis if millis is not None else -1, tiebreak)
+
+
+class _QueueDesc:
+    """A sort key in REVERSED order (``heapq`` keeps the smallest item on top)."""
+
+    __slots__ = ("key",)
+
+    def __init__(self, key: Any) -> None:
+        self.key = key
+
+    def __lt__(self, other: "_QueueDesc") -> bool:
+        return self.key > other.key
+
+
+def _queue_page_matches(
+    rows: list[Any],
+    *,
+    statuses: tuple[str, ...] | None,
+    surface: str | None,
+    entity: str | None,
+    terms: list[str],
+    assignee_key: str,
+    verdict: str | None,
+    severity: str | None,
+    lo: int | None,
+    hi: int | None,
+    sort_field: str,
+    prefs: Preferences,
+) -> list[tuple[Any, str]]:
+    """The ``(sort key, case id)`` of every row of one scan page that matches the
+    queue filters. Pure and synchronous, so a large page runs in a worker thread.
+    Only a row that a window or severity filter must judge is validated, and only
+    its projected fields."""
+    from ..stores.base import case_in_created_window
+
+    out: list[tuple[Any, str]] = []
+    for row in rows:
+        if statuses and str(_queue_value(row, "status") or "") not in statuses:
+            continue
+        if surface and str(_queue_value(row, "source_surface") or "") != surface:
+            continue
+        if entity and _queue_entity(row)[1] != entity:
+            continue
+        if assignee_key and str(_queue_value(row, "assignee") or "").strip().casefold() != assignee_key:
+            continue
+        if verdict and str(_queue_value(row, "verdict") or "").strip().upper() != verdict:
+            continue
+        if terms:
+            hay = _queue_search_haystack(row)
+            if not all(term in hay for term in terms):
+                continue
+        validated: Case | None = row if isinstance(row, Case) else None
+        if lo is not None or hi is not None:
+            validated = validated or Case.model_validate(row)
+            if not case_in_created_window(validated, lo, hi):
+                continue
+        if severity:
+            validated = validated or Case.model_validate(row)
+            if _queue_row_severity(validated, prefs) != severity:
+                continue
+        key = _queue_sort_key(row, sort_field)
+        out.append((key, key[1]))
+    return out
+
+
+async def _queue_cases_by_id(store: Any, case_ids: list[str]) -> dict[str, Case]:
+    """The full cases of one queue page, by id: the store's batch read when it has
+    one (``get_many``), else bounded concurrent ``get`` calls."""
+    import asyncio
+
+    batch = getattr(store, "get_many", None)
+    found: dict[str, Case] = {}
+    if callable(batch):
+        found = dict(await batch(case_ids))
+    missing = [cid for cid in case_ids if cid not in found]
+    if missing:
+        gate = asyncio.Semaphore(CASE_QUEUE_FETCH_CONCURRENCY)
+
+        async def one(case_id: str) -> tuple[str, Case | None]:
+            async with gate:
+                return case_id, await store.get(case_id)
+
+        for case_id, case in await asyncio.gather(*(one(cid) for cid in missing)):
+            if case is not None:
+                found[case_id] = case
+    return found
+
+
+async def _scan_case_queue(
+    state: AppState,
+    *,
+    statuses: tuple[str, ...] | None,
+    surface: str | None,
+    entity: str | None,
+    terms: list[str],
+    assignee: str,
+    severity: str | None,
+    lo: int | None,
+    hi: int | None,
+    sort_field: str,
+    sort_order: str,
+    limit: int,
+    offset: int,
+    verdict: str | None = None,
+) -> tuple[list[Case], int]:
+    """One exact pass over the case store for the queue filters → (page, total).
+
+    Bounded by design (Round 12 final review, L1): the scan reads only
+    :data:`CASE_QUEUE_SCAN_FIELDS` (a projection, never the evidence-bearing whole
+    documents), keeps only the ``offset + limit`` best ``(sort key, case id)`` pairs
+    while counting every match (memory is bounded by the page, not by the store),
+    runs each large page's predicate work in a worker thread, and finally reads the
+    requested page's full cases by id. The total stays the exact number of matching
+    cases over the whole store."""
+    import asyncio
+    import functools
+    import heapq
+
+    prefs = state.execution_prefs
+    assignee_key = assignee.casefold()
+    store = state.cases
+    descending = sort_order == "desc"
+    keep = max(0, offset + limit) if limit > 0 else 0
+    best: list[tuple[Any, str]] = []   # a heap: the WORST kept match on top
+    total = 0
+    cursor: Any = None
+    started = False
+    match = functools.partial(
+        _queue_page_matches, statuses=statuses, surface=surface, entity=entity,
+        terms=terms, assignee_key=assignee_key, verdict=verdict, severity=severity,
+        lo=lo, hi=hi, sort_field=sort_field, prefs=prefs,
+    )
+    try:
+        while not started or cursor is not None:
+            started = True
+            rows, cursor, _total, _consistency = await store.scan_page(
+                limit=CASE_QUEUE_SCAN_PAGE,
+                cursor=cursor,
+                raw=True,
+                statuses=list(statuses) if statuses else None,
+                fields=list(CASE_QUEUE_SCAN_FIELDS),
+            )
+            rows = list(rows)
+            if len(rows) >= CASE_QUEUE_OFFLOAD_AT:
+                matched = await asyncio.to_thread(match, rows)
+            else:
+                matched = match(rows)
+            total += len(matched)
+            for key, case_id in matched:
+                # The heap's top is the WORST kept match: for a descending order the
+                # smallest key, for an ascending one the largest (``_QueueDesc``).
+                item = (key if descending else _QueueDesc(key), case_id)
+                if len(best) < keep:
+                    heapq.heappush(best, item)
+                elif best and best[0][0] < item[0]:
+                    heapq.heapreplace(best, item)
+        page_items = sorted(
+            best, key=lambda item: item[0] if descending else item[0].key, reverse=descending,
+        )[offset: offset + limit] if limit > 0 else []
+        page_ids = [case_id for _key, case_id in page_items]
+        found = await _queue_cases_by_id(store, page_ids) if page_ids else {}
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 — a partial scan must never pass as exact
+        if cursor is not None:
+            try:
+                await store.close_scan_cursor(cursor)
+            except Exception:  # noqa: BLE001
+                pass
+        logger.warning("case queue scan failed: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="Could not search every case right now; try again.",
+        ) from exc
+    # A case removed between the scan and the page read is simply absent from the page.
+    return [found[case_id] for case_id in page_ids if case_id in found], total
 
 
 @router.get("/cases", response_model=CaseListResponse)
@@ -5299,6 +5713,14 @@ async def list_cases(
     sort_field: str | None = None,
     sort_order: str | None = None,
     status_group: str | None = None,
+    # Round 12 (WP-CM) — the Case Manager queue's server-side filters. Each is optional
+    # and additive: a request that sends none of them is answered exactly as before.
+    q: str | None = None,
+    assignee: str | None = None,
+    severity: str | None = None,
+    # Round 12 (WP-CM) — an exact AI-verdict filter (``CASE_QUEUE_VERDICTS``), so a
+    # "needs an analyst" count is a structured match rather than a text search.
+    verdict: str | None = None,
     state: AppState = Depends(get_state),
     _=Depends(require_permission("cases", "read")),
 ) -> CaseListResponse | JSONResponse:
@@ -5334,7 +5756,34 @@ async def list_cases(
     # population instead of re-sorting one page of the newest rows in the browser. A
     # request that sends NONE of them takes byte-identical parameters into the store and
     # gets the byte-identical base envelope back.
-    extended = sort_field is not None or sort_order is not None or status_group is not None
+    search_terms = _queue_search_terms(q)
+    assignee_filter = str(assignee or "").strip()[:80]
+    severity_filter = str(severity or "").strip().lower() or None
+    if severity_filter and severity_filter not in CASE_QUEUE_SEVERITIES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"unknown severity '{severity_filter}'; "
+                f"expected one of {list(CASE_QUEUE_SEVERITIES)}"
+            ),
+        )
+    verdict_filter = str(verdict or "").strip().upper() or None
+    if verdict_filter and verdict_filter not in CASE_QUEUE_VERDICTS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"unknown verdict '{verdict_filter}'; "
+                f"expected one of {list(CASE_QUEUE_VERDICTS)}"
+            ),
+        )
+    queue_scan = bool(
+        search_terms or assignee_filter or severity_filter or verdict_filter
+        or sort_field in CASE_QUEUE_SCAN_SORTS
+    )
+    extended = (
+        sort_field is not None or sort_order is not None or status_group is not None
+        or queue_scan
+    )
 
     if status_group is not None:
         if status:
@@ -5359,7 +5808,9 @@ async def list_cases(
     # a presentation preference, and a deployment that cannot honour one should still
     # return the operator's cases. The echo below is what keeps that honest.
     applied_sort_field = (
-        sort_field if sort_field in CASE_SORT_FIELDS else CASE_SORT_FIELD_DEFAULT
+        sort_field
+        if sort_field in CASE_SORT_FIELDS or sort_field in CASE_QUEUE_SCAN_SORTS
+        else CASE_SORT_FIELD_DEFAULT
     )
     applied_sort_order = (
         sort_order if sort_order in CASE_SORT_ORDERS else CASE_SORT_ORDER_DEFAULT
@@ -5384,7 +5835,33 @@ async def list_cases(
         )
 
     window_total_exact: bool | None = None
-    if from_ or to or status_group:
+    if queue_scan:
+        from ..utils import relative_to_millis_strict
+        from ..stores.base import status_group_statuses, window_bounds_proven
+
+        lo = relative_to_millis_strict(from_) if from_ else None
+        hi = relative_to_millis_strict(to) if to else None
+        if from_ or to:
+            window_total_exact = window_bounds_proven(from_, to, lo, hi)
+        group_statuses = status_group_statuses(status_group)
+        scan_statuses = (str(status),) if status else group_statuses
+        cases, total = await _scan_case_queue(
+            state,
+            statuses=scan_statuses,
+            surface=surface,
+            entity=entity,
+            terms=search_terms,
+            assignee=assignee_filter,
+            severity=severity_filter,
+            verdict=verdict_filter,
+            lo=lo,
+            hi=hi,
+            sort_field=applied_sort_field,
+            sort_order=applied_sort_order,
+            limit=applied_limit,
+            offset=applied_offset,
+        )
+    elif from_ or to or status_group:
         # ``status_group`` is passed ONLY when one was asked for. ``list_window`` is a
         # non-abstract method a third-party repository MAY override, and unconditionally
         # handing an override a keyword it predates would break a deployment that never
@@ -5430,6 +5907,15 @@ async def list_cases(
             )
         )
     )
+    # Round 12 (WP-CM): echo the queue filters the server applied, only when asked.
+    if search_terms:
+        body["search_applied"] = " ".join(search_terms)
+    if assignee_filter:
+        body["assignee_applied"] = assignee_filter
+    if severity_filter:
+        body["severity_applied"] = severity_filter
+    if verdict_filter:
+        body["verdict_applied"] = verdict_filter
     return JSONResponse(body)
 
 
@@ -5544,7 +6030,15 @@ _CLOSE_ACTIONS = {"close", "confirm_fp", "resolve", "reopen"}
 # APPLYING the disposition and CLASSIFYING the case are two different things. Every
 # action here applies it; only :data:`_SELF_DECLARING_ACTIONS` — or an explicit
 # ``disposition_declared`` — classifies. See ``_perform_case_action``.
-_DISPOSITION_ACTIONS = {"set_disposition", "close"}
+#
+# ``resolve`` (Round 12, WP-CM / SPEC D15): resolving a case is a terminal move, and a
+# terminal move must be able to capture the investigative outcome. Before this, "Mark
+# resolved" (single and bulk) could only leave the triage-time disposition that
+# ``case_manager.apply()`` mapped from the model's verdict — for a NEEDS_HUMAN verdict
+# that is ``undetermined`` — which is exactly the "Undetermined after I resolved it as a
+# false positive" report. Same apply-vs-classify split as ``close``: the value is applied
+# when sent, and it CLASSIFIES only on an affirmative ``disposition_declared``.
+_DISPOSITION_ACTIONS = {"set_disposition", "close", "resolve"}
 
 # Actions whose VERB is itself the analyst's declaration, so they need no separate
 # intent flag. ``set_disposition`` exists for no other purpose than classifying a case
@@ -5563,13 +6057,27 @@ _SELF_DECLARING_ACTIONS = {"set_disposition"}
 # terminal status is only allowed via an explicit reopen.
 _TERMINAL = {CaseStatus.CLOSED, CaseStatus.RESOLVED}
 
+# The ONE forward move between terminal statuses: RESOLVED means "worked to
+# completion, pending final close", so the dedicated close verbs may take it to
+# CLOSED. Every other move out of a terminal status still needs ``reopen``; the
+# generic ``set_status`` can never reach CLOSED; CLOSED → RESOLVED stays blocked.
+# Analyst layer only (RBAC: both verbs already need ``cases:close``); never decide() (#3).
+_FINAL_CLOSE_ACTIONS = frozenset({"close", "confirm_fp"})
+
 
 def _guard_transition(action: str, current: CaseStatus, target: CaseStatus | None) -> None:
     """Reject illegal lifecycle moves (e.g. CLOSED→NEW without reopen). Allows
-    reopen explicitly out of a terminal status; allows same-status no-ops."""
+    reopen explicitly out of a terminal status, the final close of a RESOLVED case
+    through ``close``/``confirm_fp``, and same-status no-ops."""
     if target is None or target == current:
         return
-    # Moving OUT of a terminal status is only legal via reopen/deescalate→reopen.
+    if (
+        current == CaseStatus.RESOLVED
+        and target == CaseStatus.CLOSED
+        and action in _FINAL_CLOSE_ACTIONS
+    ):
+        return
+    # Moving OUT of a terminal status is otherwise only legal via reopen.
     if current in _TERMINAL and action not in ("reopen",):
         raise HTTPException(
             status_code=400,
@@ -5623,6 +6131,24 @@ def _grant_for_body(body: CaseAction) -> str:
     return _case_action_grant(body.action, target)
 
 
+# Case tag bounds: ``CASE_TAG_MAX_CHARS`` / ``CASE_TAG_MAX_COUNT`` live in
+# ``engine/case_tags.py`` (imported above) and the web console mirrors them in
+# ``webui/src/lib/tags.ts`` under the same names.
+def _merge_case_tags(existing: list[str], incoming: list[Any], *, replace: bool) -> list[str]:
+    """Trim and de-duplicate case tags; refuse (422) what the bounds refuse.
+
+    A NEW tag over 40 characters, or new tags that would take the case past 25, answer
+    422 with a detail that says why. Nothing is cut and nothing is dropped: a shortened
+    label is a different tag, and a tag left off silently is a change the analyst asked
+    for and did not get. A tag the case already carries passes unchanged.
+    ``replace`` takes ``incoming`` as the whole list (``/tags``); otherwise it is merged
+    after ``existing`` (a lifecycle action's additive tags)."""
+    try:
+        return merge_case_tags(existing, incoming, replace=replace)
+    except CaseTagError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.post("/cases/{case_id}/action")
 async def case_action(
     case_id: str,
@@ -5667,6 +6193,10 @@ async def _perform_case_action(
         raise HTTPException(status_code=404, detail="Case not found")
     if body.action not in _ACTION_STATUS:
         raise HTTPException(status_code=400, detail=f"Unknown action: {body.action}")
+    # Checked before anything changes, so a refused tag leaves the case untouched.
+    merged_tags = (
+        _merge_case_tags(case.tags, body.tags, replace=False) if body.tags is not None else None
+    )
 
     prev_status = case.status
 
@@ -5706,22 +6236,39 @@ async def _perform_case_action(
     # verb (``set_disposition``) or an affirmative ``disposition_declared`` says a human
     # chose it. Absent both, the case is applied-but-unlabelled, exactly as before this
     # path existed.
+    #
+    # One exception keeps the analyst's word final: an UNDECLARED value never replaces a
+    # disposition an analyst explicitly classified and the case still carries
+    # (``standing_analyst_disposition``). It may be the model-derived value read off the
+    # case before the analyst classified it and posted back, and applying it would turn
+    # the analyst's label into the model's while the classification entry still vouches
+    # for it. The lifecycle move itself still happens; only the echo is not applied.
     classified_disposition = ""
     if body.action == "set_disposition" and not body.disposition:
         raise HTTPException(status_code=400, detail="set_disposition requires a disposition")
     if body.action in _DISPOSITION_ACTIONS and body.disposition:
         try:
-            case.disposition = Disposition(body.disposition)
+            requested = Disposition(body.disposition)
         except ValueError:
             raise HTTPException(status_code=400, detail=f"unknown disposition: {body.disposition}")
         if body.action in _SELF_DECLARING_ACTIONS or body.disposition_declared:
-            classified_disposition = case.disposition.value
+            case.disposition = requested
+            classified_disposition = requested.value
+        elif standing_analyst_disposition(case) is None:
+            case.disposition = requested
 
-    # confirm_fp records the FALSE_POSITIVE disposition (an analyst confirming an FP),
-    # overriding only an unset / UNDETERMINED auto-mapping — never a deliberate
-    # analyst classification.
-    if body.action == "confirm_fp" and case.disposition in (None, Disposition.UNDETERMINED):
-        case.disposition = Disposition.FALSE_POSITIVE
+    # confirm_fp is its own classification: the verb IS the analyst's declaration (it is
+    # in ``analyst_outcomes.CLASSIFICATION_ACTIONS``), and the newest decision wins. It
+    # therefore replaces every non-false-positive disposition, including the
+    # ``true_positive`` that ``case_manager.apply()`` mapped from a TRUE_POSITIVE verdict
+    # and any earlier analyst value, and keeps ``benign``, which is the analyst's
+    # false-positive-class refinement. Stamping the value on the history entry makes the
+    # entry self-describing, so ``caseOutcome``, the facts rail and
+    # ``analyst_confirmed_outcome`` all read the same false-positive class.
+    if body.action == "confirm_fp":
+        if case.disposition not in (Disposition.FALSE_POSITIVE, Disposition.BENIGN):
+            case.disposition = Disposition.FALSE_POSITIVE
+        classified_disposition = case.disposition.value
 
     # Apply the lifecycle status move (analyst layer — NOT decide()/#3).
     if target is not None:
@@ -5734,17 +6281,18 @@ async def _perform_case_action(
 
     # --- Additive optional fields (persisted without touching status logic) -----
     # assignee → set the case owner when provided (non-empty).
+    assigned = None
     if body.assignee is not None:
-        case.assignee = str(body.assignee).strip()[:80]
-    # tags → merge into the case's tags (trim, de-dupe, bounded — same tidy rules
-    # as the dedicated /tags route).
-    if body.tags is not None:
-        merged = list(case.tags)
-        for t in body.tags:
-            t = str(t).strip()[:40]
-            if t and t not in merged:
-                merged.append(t)
-        case.tags = merged[:25]
+        assigned = str(body.assignee).strip()[:80]
+        # The same owner again (trimmed, any letter case) changes nothing and records
+        # no new assignment time.
+        assigned = assigned if _owner_changed(case.assignee, assigned) else None
+        if assigned is not None:
+            case.assignee = assigned
+    # tags → merge into the case's tags (trim, de-dupe, bounded; the same rules as
+    # the dedicated /tags route, checked above by ``_merge_case_tags``).
+    if merged_tags is not None:
+        case.tags = merged_tags
 
     # Record the lifecycle transition on the append-only status timeline.
     if case.status != prev_status:
@@ -5777,6 +6325,9 @@ async def _perform_case_action(
         entry["resolution"] = str(body.resolution)
     if body.priority is not None:
         entry["priority"] = str(body.priority)
+    if assigned is not None:
+        # A new owner set by this action: its time, for the "my cases" starter.
+        entry["assignee"] = assigned
     case.history.append(entry)
     await state.cases.save(case)
     # Append-only audit of the lifecycle transition (#2) — best-effort.
@@ -5853,7 +6404,7 @@ async def _perform_case_action(
             )
     except Exception as exc:  # noqa: BLE001 — notifications never affect the action
         logger.debug("lifecycle notification scheduling skipped for %s: %s", case_id, exc)
-    return case.model_dump(mode="json")
+    return _case_view(case, state)
 
 
 class BulkCaseAction(CaseAction):
@@ -5951,6 +6502,12 @@ class AssignBody(BaseModel):
     analyst: str = ""
 
 
+def _owner_changed(previous: str | None, new: str | None) -> bool:
+    """True when ``new`` names a different case owner from ``previous``: trimmed and
+    compared without case, as usernames are (the user store lower-cases them)."""
+    return (previous or "").strip().casefold() != (new or "").strip().casefold()
+
+
 @router.post("/cases/{case_id}/feedback")
 async def case_feedback(
     case_id: str,
@@ -6005,7 +6562,7 @@ async def case_feedback(
             await state.rag_service.index_resolved_case(case, note=body.comment)
         except Exception as exc:  # noqa: BLE001 — feedback must survive RAG outages
             logger.warning("Feedback RAG refresh failed for %s: %s", case_id, exc)
-    return case.model_dump(mode="json")
+    return _case_view(case, state)
 
 
 @router.post("/cases/{case_id}/comment")
@@ -6033,7 +6590,7 @@ async def case_comment(
         action_type=ActionType.COLLAB, surface="case", actor=body.author or "analyst",
         case_id=case_id, result_summary="comment added",
     )
-    return case.model_dump(mode="json")
+    return _case_view(case, state)
 
 
 @router.post("/cases/{case_id}/tags")
@@ -6052,20 +6609,16 @@ async def case_tags(
     case = await state.cases.get(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    # De-dupe, trim, cap length/count — tags are operator labels, kept tidy.
-    seen: list[str] = []
-    for t in body.tags:
-        t = str(t).strip()[:40]
-        if t and t not in seen:
-            seen.append(t)
-    case.tags = seen[:25]
+    # De-dupe, trim and bound the count; a new tag over the length limit is refused,
+    # never cut (``_merge_case_tags``).
+    case.tags = _merge_case_tags(case.tags, body.tags, replace=True)
     case.updated_at = iso_now()
     await state.cases.save(case)
     await state.audit.record(
         action_type=ActionType.COLLAB, surface="case", actor=body.analyst or "analyst",
         case_id=case_id, result_summary=f"tags set ({len(case.tags)})",
     )
-    return case.model_dump(mode="json")
+    return _case_view(case, state)
 
 
 @router.post("/cases/{case_id}/assign")
@@ -6084,14 +6637,25 @@ async def case_assign(
     case = await state.cases.get(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    case.assignee = body.assignee.strip()[:80]
+    new_owner = body.assignee.strip()[:80]
+    changed = _owner_changed(case.assignee, new_owner)
+    if changed:
+        case.assignee = new_owner
     case.updated_at = iso_now()
+    # The assignment time, on the case's append-only history (Round 13 polish PB3): the
+    # "my cases" starter states how long the oldest of a caller's cases has been theirs
+    # only from this record ("Oldest assigned …"), never from the case's age. Recorded
+    # only when the owner changes: assigning a case to its current owner (Assign again,
+    # or a bulk assign over cases the person already holds) keeps the earlier time.
+    if changed:
+        case.history.append({"ts": case.updated_at, "event": "assigned", "assignee": case.assignee,
+                             "analyst": body.analyst or "analyst"})
     await state.cases.save(case)
     await state.audit.record(
         action_type=ActionType.COLLAB, surface="case", actor=body.analyst or "analyst",
         case_id=case_id, result_summary=f"assigned to {case.assignee or '(unassigned)'}",
     )
-    return case.model_dump(mode="json")
+    return _case_view(case, state)
 
 
 @router.get("/cases/{case_id}/export")
@@ -6201,7 +6765,7 @@ async def case_investigate(
         cluster, case.source_surface, state.execution_prefs,
         force=True, query_source=query_source,
     )
-    return updated.model_dump(mode="json")
+    return _case_view(updated, state)
 
 
 class ReinvestigateRequest(BaseModel):
@@ -6268,7 +6832,7 @@ async def case_reinvestigate(
     updated = await state.pipeline.investigate_cluster(
         cluster, case.source_surface, prefs_eff, force=True, query_source=query_source
     )
-    return updated.model_dump(mode="json")
+    return _case_view(updated, state)
 
 
 class RunPlaybookRequest(BaseModel):
@@ -6322,7 +6886,7 @@ async def case_run_playbook(
         state.pipeline, cluster, case.source_surface, state.execution_prefs, body.playbook_id,
         query_source=query_source,
     )
-    return updated.model_dump(mode="json")
+    return _case_view(updated, state)
 
 
 @router.get("/cases/{case_id}/threat-context")
@@ -6596,47 +7160,10 @@ def _millis_to_iso(millis: int) -> str:
     return datetime.fromtimestamp(millis / 1000.0, tz=timezone.utc).isoformat()
 
 
-# Auto-widen ladder (BUG-2): increasing windows tried IN ORDER on 0 hits. The
-# configured/requested start window is always tried first; ladder rungs narrower
-# than the start are skipped so we never shrink the search below what was asked.
-# ``now-365d`` is the ~1-year widest rung (the relative-time parser supports
-# s/m/h/d/w, not a ``y`` unit, so a year is expressed in days).
-_WIDEN_LADDER = ("now-7d", "now-30d", "now-365d")
-
-
-def _entity_field(prefs: Preferences, entity_type: EntityType) -> str:
-    return {
-        EntityType.IP: prefs.source_ip_field,
-        EntityType.USER: prefs.user_field,
-        EntityType.HOST: prefs.host_field,
-    }[entity_type]
-
-
-def _scoped_entity_body(prefs: Preferences, field: str, value: str, from_millis: int) -> dict[str, Any]:
-    """Entity query with the SAME scope + suppression filters the poller uses, so a
-    manual investigation never pulls out-of-scope or suppressed events."""
-    body = entity_query(
-        prefs, field, value, from_millis=from_millis, size=200,
-        extra_filters=scope_filters(prefs),
-    )
-    must_not = scope_must_not(prefs)
-    if must_not:
-        body["query"]["bool"]["must_not"] = must_not
-    return body
-
-
-def _widen_windows(start_window: str) -> list[str]:
-    """Ordered windows to try: the configured/requested start, then each ladder
-    rung that is WIDER than (i.e. reaches further back than) the start."""
-    windows = [start_window]
-    start_ms = relative_to_millis(start_window)
-    for rung in _WIDEN_LADDER:
-        # A wider window resolves to an EARLIER epoch (further in the past).
-        if relative_to_millis(rung) < start_ms:
-            windows.append(rung)
-    return windows
-
-
+# The auto-widen ladder and the entity-query helpers (``_WIDEN_LADDER``,
+# ``_entity_field``, ``_scoped_entity_body``, ``_widen_windows``) live in
+# ``engine/case_cluster.py`` (chat revamp SPEC §5.3) and are re-exported at the top
+# of this module under their historical names.
 async def _entity_events_widening(
     state: AppState,
     entity_type: EntityType,
@@ -6645,47 +7172,14 @@ async def _entity_events_widening(
     *,
     query_source=None,
 ) -> tuple[list[RawEvent], str]:
-    """Fetch an entity's in-scope events, auto-widening the lookback on 0 hits.
-
-    Returns (events, widest_window_tried). Stops at the first window that yields
-    events; if all are empty the events list is empty and widest_window_tried is
-    the broadest window attempted."""
-    prefs = state.execution_prefs
-    windows = _widen_windows(start_window)
-    widest = windows[-1]
-    for window in windows:
-        if query_source is not None:
-            from ..connectors.base import StructuredQuery
-
-            filters: dict[str, Any] = {
-                "time_from": window,
-                "time_to": "now",
-                "size": 200,
-                "sort_desc": True,
-            }
-            if entity_type == EntityType.IP:
-                filters["ip"] = value
-            elif entity_type == EntityType.USER:
-                filters["user"] = value
-            elif entity_type == EntityType.HOST:
-                filters["host"] = value
-            elif entity_type == EntityType.RULE:
-                filters["rule"] = value
-            else:
-                # The current source-neutral query IR has no hash/domain field;
-                # do not silently query a different source as a fallback.
-                return [], widest
-            result = await query_source.search(prefs, StructuredQuery(**filters))
-            events = result.events
-        else:
-            field = _entity_field(prefs, entity_type)
-            body = _scoped_entity_body(prefs, field, value, relative_to_millis(window))
-            resp = await state.es.search_logs(prefs.data_view_pattern, body)
-            hits = resp.get("hits", {}).get("hits", [])
-            events = [RawEvent.from_hit(h, prefs) for h in hits]
-        if events:
-            return events, window
-    return [], widest
+    """Route-compat wrapper: :func:`app.engine.case_cluster.entity_events_widening`
+    over ``state.es`` and the active stack's ``state.execution_prefs``."""
+    return await entity_events_widening(
+        entity_type, value, start_window,
+        es=getattr(state, "es", None),
+        prefs=state.execution_prefs,
+        query_source=query_source,
+    )
 
 
 async def _cluster_for_request(
@@ -6743,204 +7237,22 @@ async def _cluster_for_case(
     allow_stored_reconstruction: bool = False,
     query_source=None,
 ) -> Cluster | None:
-    """Rebuild a cluster from a stored case for a human-triggered re-investigation.
-
-    Prefers an exact id-based re-query of the case's member events; falls back to a
-    config-windowed (``prefs.investigate_lookback``) entity re-query using the same
-    scope filters as the manual investigate path. Read-only on the log surface.
-
-    When both live re-queries come back empty (the originating events aged out of the
-    retained log window) AND ``allow_stored_reconstruction`` is set, a MINIMAL cluster
-    is rebuilt from the case's STORED fields (see :func:`_reconstruct_cluster_from_case`)
-    so an operator-triggered re-investigation can still run the LLM over the retained
-    evidence instead of dead-ending on a 400. Callers that must NOT fabricate a cluster
-    from stale state (e.g. the read-only forwarding explainer) leave the flag off and
-    still get ``None``.
-
-    The original deterministic trigger reason (if the case has one) is PRESERVED so
-    a re-investigate never overwrites a scan-derived "Why this fired"; only a case
-    lacking one gets a synthesized MANUAL trigger reason. Nothing here touches the
-    deterministic close/escalate decision (#3)."""
-    prefs = state.execution_prefs
-    entity_type, value = case.entity.type, case.entity.value
-    has_trigger = case.trigger_reason is not None
-    # ``query_source=None`` is intentional for push/deleted sources: they have no
-    # upstream search surface. Only legacy cases without source provenance may use
-    # the implicit global ES client as a compatibility fallback.
-    implicit_legacy_source = (
-        not prefs.sources
-        and case.source_id == getattr(state.log_source, "connector_id", None)
+    """Route-compat wrapper: :func:`app.engine.case_cluster.cluster_for_case` with
+    ``state.es``, ``state.log_source`` and ``state.execution_prefs`` as its explicit
+    dependencies (moved there by chat revamp SPEC §5.3). ``query_source`` is still
+    resolved by the caller (``state.active_source_for_id(case.source_id)``)."""
+    return await cluster_for_case(
+        case,
+        es=getattr(state, "es", None),
+        log_source=getattr(state, "log_source", None),
+        prefs=state.execution_prefs,
+        allow_stored_reconstruction=allow_stored_reconstruction,
+        query_source=query_source,
     )
-    can_query_live = query_source is not None or not case.source_id or implicit_legacy_source
-
-    def _finalize(cluster: Cluster, window: str) -> Cluster:
-        # Re-investigation is an update of this exact stored case, not a fresh
-        # correlation pass. Pin identity and provenance even when live events were
-        # found; otherwise a legacy/manual case (or a source-scoping change) can
-        # compute a new signature and mint a duplicate case.
-        cluster.signature = case.cluster_signature
-        cluster.source_id = case.source_id
-        cluster.source_name = case.source_name
-        # Only synthesize a manual reason when the case lacks one; otherwise leave
-        # the cluster's reason None so the pipeline's _trigger() keeps the existing.
-        if not has_trigger:
-            cluster.trigger_reason = _manual_trigger_reason(cluster, window)
-        else:
-            cluster.trigger_reason = None
-        return cluster
-
-    # Preferred: re-fetch the exact member events by id (read-only).
-    if case.member_event_ids and can_query_live:
-        fetch_size = max(len(case.member_event_ids), len(case.member_event_keys or []))
-        if query_source is not None:
-            result = await query_source.fetch_by_ids(
-                prefs, case.member_event_ids, size=fetch_size
-            )
-            events = result.events
-        else:
-            resp = await state.es.search_logs(
-                prefs.data_view_pattern,
-                ids_query(case.member_event_ids, size=fetch_size),
-            )
-            hits = resp.get("hits", {}).get("hits", [])
-            events = [RawEvent.from_hit(h, prefs) for h in hits]
-        members = [e for e in events if e.entity_value(entity_type) == value] or events
-        if members:
-            cluster = cluster_from_events(entity_type, value, members)
-            return _finalize(cluster, prefs.investigate_lookback)
-
-    # Fallback: re-query the entity over the configured window (with auto-widen).
-    if can_query_live:
-        events, window = await _entity_events_widening(
-            state, entity_type, value, prefs.investigate_lookback,
-            query_source=query_source,
-        )
-        if events:
-            members = [e for e in events if e.entity_value(entity_type) == value] or events
-            cluster = cluster_from_events(entity_type, value, members)
-            return _finalize(cluster, window)
-
-    # Last resort: the live logs aged out of the retained window. For an operator-
-    # triggered re-investigation (reinvestigate / run-playbook), optionally rebuild a
-    # MINIMAL cluster from the case's STORED evidence so the LLM can still re-reason
-    # over what we retained. Read-only + fail-open; ``None`` only when the case carries
-    # NO stored evidence at all. #3 untouched — this only reassembles evidence.
-    if allow_stored_reconstruction:
-        reconstructed = _reconstruct_cluster_from_case(case)
-        if reconstructed is not None:
-            return _finalize(reconstructed, prefs.investigate_lookback)
-    return None
 
 
-def _reconstruct_cluster_from_case(case: Case) -> Cluster | None:
-    """Rebuild a MINIMAL cluster from a case's STORED fields when the live log
-    re-query is empty (the originating events aged out of the retained window).
-
-    Lets an operator-triggered re-investigation still run the investigator over the
-    case's retained evidence rather than dead-ending. Synthetic member events are
-    reconstructed (capped at 200) from the stored ``member_event_ids`` (falling back
-    to the ``evidence[].event_ids``), each carrying the case entity + a stored rule so
-    the investigator prompt and the deterministic risk model see faithful inputs. The
-    cluster SIGNATURE is PINNED to the case's stored ``cluster_signature`` so the
-    re-investigation updates THIS case in place and never mints a duplicate (#4).
-
-    Read-only + fail-open: returns ``None`` only when the case carries no stored
-    evidence at all. Nothing here touches the deterministic decision (#3)."""
-    entity_type = case.entity.type
-    value = case.entity.value
-
-    # Stored evidence ids: prefer the member events, else the verdict evidence ids.
-    raw_ids: list[str] = list(case.member_event_ids or [])
-    if not raw_ids:
-        for item in case.evidence:
-            raw_ids.extend(item.event_ids or [])
-    ordered_ids: list[str] = []
-    seen: set[str] = set()
-    for eid in raw_ids:
-        if eid and eid not in seen:
-            seen.add(eid)
-            ordered_ids.append(eid)
-        if len(ordered_ids) >= 200:
-            break
-    if not ordered_ids:
-        return None  # truly-empty case — nothing to reconstruct.
-
-    # Window from the stored trigger reason (else collapse to a point-in-time window).
-    tr = case.trigger_reason
-    win_start = int(tr.window_start) if (tr and tr.window_start) else 0
-    win_end = int(tr.window_end) if (tr and tr.window_end) else 0
-    if win_end < win_start:
-        win_start, win_end = win_end, win_start
-
-    rules = [r for r in (case.rule_ids or []) if r]
-    n = len(ordered_ids)
-    members: list[RawEvent] = []
-    for i, eid in enumerate(ordered_ids):
-        if win_start and win_end and n > 1:
-            ts = win_start + (win_end - win_start) * i // (n - 1)
-        else:
-            ts = win_start or win_end or 0
-        ev = RawEvent(
-            id=eid,
-            timestamp_millis=ts,
-            rule=(rules[i % len(rules)] if rules else None),
-            source={"reconstructed": True},
-        )
-        # Carry the case entity onto its projection field so the investigator prompt
-        # + reproduce query render the concrete entity (UNTRUSTED log data downstream).
-        if entity_type == EntityType.IP:
-            ev.ip = value
-        elif entity_type == EntityType.USER:
-            ev.user = value
-        elif entity_type == EntityType.HOST:
-            ev.host = value
-        members.append(ev)
-
-    cluster = cluster_from_events(entity_type, value, members)
-    # Preserve stored provenance + counts the synthetic events cannot carry, and PIN
-    # the signature so the re-investigation updates THIS case in place (#4).
-    cluster.signature = case.cluster_signature
-    if case.rule_ids:
-        cluster.rule_values = list(case.rule_ids)
-    cluster.source_id = case.source_id
-    cluster.source_name = case.source_name
-    cluster.member_event_keys = list(case.member_event_keys or cluster.member_event_keys)
-    # The stored member id list may exceed the 200-event synthetic cap — keep the
-    # faithful volume for the deterministic risk model (recomputed by the pipeline).
-    cluster.count = max(
-        len(members), len(case.member_event_keys or case.member_event_ids)
-    )
-    if case.risk_score:
-        cluster.risk_score = case.risk_score
-        cluster.risk_breakdown = case.risk_breakdown
-    return cluster
-
-
-def _manual_trigger_reason(cluster: Cluster, window: str) -> TriggerReason:
-    """Synthesize a MANUAL TriggerReason so "Why this fired" renders for manually
-    investigated cases (Feature 3 / IMPROVEMENT). Mode is ``manual``; structured
-    fields are filled from the resolved cluster."""
-    entity_type = cluster.entity.type.value
-    entity_value = cluster.entity.value
-    n = cluster.count
-    rules = ", ".join(cluster.rule_values) or "no specific rule"
-    sentence = (
-        f"Manually investigated: {n} event{'s' if n != 1 else ''} for "
-        f"{entity_type} {entity_value} in the last {window} across rules [{rules}]"
-    )
-    return TriggerReason(
-        rule_value=(cluster.rule_values[0] if cluster.rule_values else ""),
-        mode="manual",
-        n=n,
-        window_seconds=0,
-        group_by=entity_type,
-        observed_count=n,
-        window_start=cluster.first_seen_millis,
-        window_end=cluster.last_seen_millis,
-        entity=f"{entity_type}:{entity_value}",
-        rule_values=list(cluster.rule_values),
-        sentence=sentence,
-    )
+# ``_reconstruct_cluster_from_case`` and ``_manual_trigger_reason`` live in
+# ``engine/case_cluster.py`` and are re-exported at the top of this module.
 
 
 def _no_events_detail(req: InvestigateRequest, widest: str) -> str:
@@ -6955,347 +7267,8 @@ def _no_events_detail(req: InvestigateRequest, widest: str) -> str:
     return "Could not resolve events for this request"
 
 
-def _audit_get(row: Any, key: str, default: Any = None) -> Any:
-    """Read a field from an audit row that may be a dict OR a pydantic AuditDoc."""
-    if isinstance(row, dict):
-        return row.get(key, default)
-    return getattr(row, key, default)
-
-
-def _build_rationale(case_id: str, case: Any, rows: list[Any]) -> dict[str, Any]:
-    """Assemble the explainability "why" object from a case + its audit rows.
-
-    Pure + defensive: any missing audit piece degrades to an empty value. Reads the
-    CONTEXT record (knowledge/memory/enrichment), TOOL_CALL records (tools/queries),
-    the VERDICT record (reasoning excerpt), the playbook_selector DECISION (playbook
-    reason) and the case_manager DECISION (deterministic rationale)."""
-    # Audit rows are OLDEST-first.  A case can be re-investigated many times, so
-    # project only the LATEST run instead of mixing the first run's context/tools
-    # with the current Case fields.  ``playbook_selector`` is the usual durable run
-    # boundary (including the cheap path).  A failure can happen before selection,
-    # though; in that case the terminal ``pipeline error:`` row must start a new run
-    # rather than inheriting the previous run's measured retrieval or other artifacts.
-    # The prefix deliberately excludes the non-terminal timeout ERROR row: timeout
-    # handling continues to procedure provenance + the deterministic case-manager
-    # decision in the SAME run.  Legacy audit histories without either boundary fall
-    # back to their full history.
-    run_start = 0
-    run_boundary_reason = "historical_provenance_missing"
-    last_selector = -1
-    last_terminal = -1
-    for idx, row in enumerate(rows):
-        if _audit_get(row, "actor") == "playbook_selector":
-            run_start = idx
-            run_boundary_reason = "historical_provenance_missing"
-            last_selector = idx
-        elif (
-            _audit_get(row, "actor") == "pipeline"
-            and _audit_get(row, "action_type") == ActionType.ERROR.value
-            and str(_audit_get(row, "result_summary") or "").startswith("pipeline error:")
-        ):
-            # No selector has appeared since the preceding completed run: this
-            # failure itself is the latest run boundary.  If the current run DID
-            # reach selection, retain that more informative boundary so any measured
-            # retrieval completed before the later failure remains attributable.
-            if last_selector <= last_terminal:
-                run_start = idx
-                run_boundary_reason = "pipeline_failed_before_provenance"
-            last_terminal = idx
-        elif (
-            _audit_get(row, "actor") == "case_manager"
-            and _audit_get(row, "action_type") == ActionType.DECISION.value
-        ):
-            last_terminal = idx
-
-    # The fail-to-human Case is persisted before its terminal audit row. If that
-    # best-effort append was lost but older audit history remains readable, an error
-    # Case would otherwise inherit the preceding run. A newer Case timestamp is
-    # positive evidence that the bounded audit trail has no boundary for this run;
-    # fail closed to an empty/unavailable projection instead of guessing.
-    case_error = str(_audit_get(case, "error") or "").strip()
-    case_updated_at = parse_es_timestamp(_audit_get(case, "updated_at"))
-    audit_times = [
-        parsed
-        for row in rows
-        if (parsed := parse_es_timestamp(_audit_get(row, "ts"))) is not None
-    ]
-    if case_error and case_updated_at is not None and (
-        not audit_times or max(audit_times) < case_updated_at
-    ):
-        run_start = len(rows)
-        run_boundary_reason = "pipeline_failure_provenance_missing"
-    run_rows = rows[run_start:]
-
-    selector_row = next(
-        (row for row in reversed(run_rows) if _audit_get(row, "actor") == "playbook_selector"),
-        None,
-    )
-    context_row = next(
-        (
-            row
-            for row in reversed(run_rows)
-            if _audit_get(row, "action_type") == ActionType.CONTEXT.value
-            and _audit_get(row, "actor") == "context"
-        ),
-        None,
-    )
-    procedure_row = next(
-        (
-            row
-            for row in reversed(run_rows)
-            if _audit_get(row, "action_type") == ActionType.CONTEXT.value
-            and _audit_get(row, "actor") == "procedure_provenance"
-        ),
-        None,
-    )
-
-    # --- from the CONTEXT record (investigator-injected context) -------------
-    knowledge: list[dict[str, Any]] = []
-    memory_used: list[str] = []
-    enrichment: dict[str, Any] | None = None
-    playbook_id = ""
-    playbook_version = ""
-    playbook_consulted = False
-    if context_row is not None:
-        ti = _audit_get(context_row, "tool_input") or {}
-        if isinstance(ti, dict):
-            for k in (ti.get("knowledge") or []):
-                if isinstance(k, dict):
-                    knowledge.append({
-                        "source": str(k.get("source", "unknown")),
-                        "snippet": str(k.get("snippet", "")),
-                    })
-            for m in (ti.get("memory") or []):
-                if isinstance(m, str) and m.strip():
-                    memory_used.append(m)
-            enr = ti.get("enrichment")
-            if isinstance(enr, dict):
-                enrichment = {
-                    "reputation_score": enr.get("reputation_score"),
-                    "is_malicious": enr.get("is_malicious"),
-                    "country": enr.get("country"),
-                }
-            detail = ti.get("playbook_detail")
-            if isinstance(detail, dict) and str(detail.get("id") or "").strip():
-                playbook_id = str(detail.get("id") or "").strip()
-                playbook_version = str(detail.get("version") or "").strip()
-                playbook_consulted = True
-            elif ti.get("playbook"):
-                # Backward compatibility for pre-structured CONTEXT rows.  The Case
-                # id belongs to the latest run, and a truthy context value proves it
-                # was actually injected (selection alone does not).
-                playbook_id = str(getattr(case, "playbook_id", "") or "").strip()
-                playbook_consulted = bool(playbook_id)
-
-    # --- exact selected-vs-consulted procedure provenance ------------------
-    # New runs write this independently of the legacy investigator CONTEXT row,
-    # including cheap-router, kill-switch, and timeout paths where a persona or
-    # playbook may be selected but never consulted.  Keep a stable empty shape for
-    # old audit histories so consumers do not need to infer usage from Case fields.
-    procedure_provenance: dict[str, Any] = {
-        "persona": {"selected_id": "", "selection_reason": "", "consulted": False},
-        "playbook": {"selected_id": "", "selection_reason": "", "consulted": False},
-        "consultation_path": "",
-        # Missing procedure telemetry is UNKNOWN, never a measured zero.
-        "retrieval_status": "unavailable",
-        "retrieval_reason": run_boundary_reason,
-        "retrieval_query_groups": [],
-        "knowledge": [],
-    }
-    if procedure_row is not None:
-        procedure_input = _audit_get(procedure_row, "tool_input") or {}
-        if isinstance(procedure_input, dict):
-            for key in ("persona", "playbook"):
-                raw = procedure_input.get(key)
-                if not isinstance(raw, dict):
-                    continue
-                procedure_provenance[key] = {
-                    "selected_id": str(raw.get("selected_id") or ""),
-                    "selection_reason": str(raw.get("selection_reason") or ""),
-                    "consulted": bool(raw.get("consulted", False)),
-                }
-            procedure_provenance["consultation_path"] = str(
-                procedure_input.get("consultation_path") or ""
-            )
-            raw_retrieval_status = str(
-                procedure_input.get("retrieval_status") or "unavailable"
-            )
-            retrieval_status = (
-                raw_retrieval_status
-                if raw_retrieval_status
-                in {"measured", "not_attempted", "unavailable"}
-                else "unavailable"
-            )
-            procedure_provenance["retrieval_status"] = retrieval_status
-            procedure_provenance["retrieval_reason"] = str(
-                procedure_input.get("retrieval_reason")
-                or (
-                    "historical_provenance_missing"
-                    if retrieval_status == "unavailable"
-                    else ""
-                )
-            )
-            for item in procedure_input.get("retrieval_query_groups") or []:
-                if not isinstance(item, dict):
-                    continue
-                procedure_provenance["retrieval_query_groups"].append({
-                    "group": str(item.get("group") or ""),
-                    "query": str(item.get("query") or ""),
-                })
-            for item in procedure_input.get("knowledge") or []:
-                if not isinstance(item, dict):
-                    continue
-                procedure_provenance["knowledge"].append({
-                    "source": str(item.get("source") or "unknown"),
-                    "score": item.get("score"),
-                    "document_id": str(item.get("document_id") or ""),
-                    "revision": item.get("revision"),
-                    "content_hash": str(item.get("content_hash") or ""),
-                    "query_groups": [
-                        str(value)
-                        for value in (item.get("query_groups") or [])
-                        if str(value)
-                    ],
-                    "snippet": str(item.get("snippet") or ""),
-                })
-
-        # The explicit row is authoritative. A selected procedure on a cheap path
-        # must not be resurrected as "used" from mutable Case fields or an older
-        # context row. Structured knowledge also supersedes the legacy two-field list.
-        playbook_provenance = procedure_provenance["playbook"]
-        playbook_consulted = bool(playbook_provenance["consulted"])
-        if playbook_consulted:
-            playbook_id = str(playbook_provenance["selected_id"] or playbook_id)
-        else:
-            playbook_id = ""
-            playbook_version = ""
-        knowledge = list(procedure_provenance["knowledge"])
-
-    # --- platform threshold tuning snapshot (run-boundary audit row) ---------
-    platform_tuning_status = "not_recorded"
-    platform_tuning: list[dict[str, Any]] = []
-    if selector_row is not None:
-        selector_input = _audit_get(selector_row, "tool_input") or {}
-        if isinstance(selector_input, dict):
-            raw_tuning = selector_input.get("platform_tuning")
-            if isinstance(raw_tuning, dict):
-                raw_status = str(raw_tuning.get("status") or "not_recorded")
-                if raw_status in {"recorded", "not_recorded", "unavailable"}:
-                    platform_tuning_status = raw_status
-                for item in raw_tuning.get("records") or []:
-                    if not isinstance(item, dict):
-                        continue
-                    platform_tuning.append({
-                        "record_id": str(item.get("record_id") or ""),
-                        "target": str(item.get("target") or ""),
-                        "rule_id": str(item.get("rule_id") or ""),
-                        "before": item.get("before"),
-                        "after": item.get("after"),
-                        "applied_at": str(item.get("applied_at") or ""),
-                        "rationale": str(item.get("rationale") or ""),
-                    })
-
-    # --- tools / queries (TOOL_CALL + ES_QUERY rows) -------------------------
-    tools: list[dict[str, Any]] = []
-    for row in run_rows:
-        at = _audit_get(row, "action_type")
-        if at not in (ActionType.TOOL_CALL.value, ActionType.ES_QUERY.value):
-            continue
-        tools.append({
-            "tool": _audit_get(row, "tool_name") or (
-                "es_query" if at == ActionType.ES_QUERY.value else ""
-            ),
-            "query": _audit_get(row, "query_text") or "",
-            "summary": _audit_get(row, "tool_output_summary") or "",
-        })
-
-    # --- reasoning excerpt (VERDICT record, written after "reasoning=") -------
-    reasoning = ""
-    for row in reversed(run_rows):
-        if _audit_get(row, "action_type") != ActionType.VERDICT.value:
-            continue
-        rs = str(_audit_get(row, "result_summary") or "")
-        marker = "reasoning="
-        if marker in rs:
-            reasoning = rs.split(marker, 1)[1].strip()
-        break
-
-    # --- playbook reason (playbook_selector DECISION) ------------------------
-    playbook_reason = ""
-    if selector_row is not None:
-        selector_input = _audit_get(selector_row, "tool_input") or {}
-        if isinstance(selector_input, dict):
-            selection = selector_input.get("playbook_selection")
-            if isinstance(selection, dict):
-                playbook_reason = str(selection.get("reason") or "")
-        if not playbook_reason:
-            playbook_reason = str(_audit_get(selector_row, "result_summary") or "")
-
-    # --- deterministic decision rationale (case_manager DECISION, then the
-    #     case.history "decision" event as a fallback) ------------------------
-    decision_rationale = ""
-    for row in reversed(run_rows):
-        if (
-            _audit_get(row, "actor") == "case_manager"
-            and _audit_get(row, "action_type") == ActionType.DECISION.value
-        ):
-            decision_rationale = str(_audit_get(row, "result_summary") or "")
-            break
-
-    # --- case-derived fields (defensive: case may be None) -------------------
-    verdict = ""
-    confidence = 0.0
-    status = ""
-    decision_by = None
-    persona = ""
-    mitre: list[str] = []
-    evidence: list[dict[str, Any]] = []
-    if case is not None:
-        verdict = case.verdict.value if case.verdict else ""
-        confidence = case.confidence
-        status = case.status.value if case.status else ""
-        decision_by = case.decision_by.value if case.decision_by else None
-        persona = case.agent_persona or ""
-        mitre = list(case.mitre or [])
-        evidence = [
-            {
-                "summary": e.summary,
-                "event_ids": list(e.event_ids or []),
-                "query": e.query,
-            }
-            for e in (case.evidence or [])
-        ]
-        if not decision_rationale:
-            for h in reversed(case.history or []):
-                if isinstance(h, dict) and h.get("event") == "decision" and h.get("rationale"):
-                    decision_rationale = str(h.get("rationale"))
-                    break
-
-    return {
-        "case_id": case_id,
-        "verdict": verdict,
-        "confidence": confidence,
-        "status": status,
-        "decision_by": decision_by,
-        "persona": persona,
-        "procedure_provenance": procedure_provenance,
-        "playbook": {
-            "id": playbook_id,
-            "version": playbook_version,
-            "reason": playbook_reason,
-            "consulted": playbook_consulted,
-        },
-        "memory_used": memory_used,
-        "knowledge": knowledge,
-        "platform_tuning_status": platform_tuning_status,
-        "platform_tuning": platform_tuning,
-        "enrichment": enrichment,
-        "tools": tools,
-        "reasoning": reasoning,
-        "decision_rationale": decision_rationale,
-        "mitre": mitre,
-        "evidence": evidence,
-    }
+# ``_audit_get`` and ``_build_rationale`` live in ``engine/case_rationale.py`` (chat
+# revamp SPEC §5.3) and are re-exported at the top of this module.
 
 
 def _trace_step(row: dict[str, Any], include_prompts: bool) -> TraceStep:

@@ -371,7 +371,20 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Auth Me */
+        /**
+         * Auth Me
+         * @description The session state the console boots from (PUBLIC).
+         *
+         *     Round 12: REGISTRY-AWARE. Beyond the JWT signature/``exp``/active-user check it
+         *     runs the same session-registry evaluation as every protected route (revocation,
+         *     per-user token version, idle and absolute limits — standard or remembered). When
+         *     the session has ended it answers ``authenticated: false`` with a ``reason``
+         *     (``revoked`` | ``idle_expired`` | ``absolute_expired`` | ``tv_mismatch``) and
+         *     clears the cookie, so the console lands on the sign-in page instead of a shell
+         *     where every call 401s. A session-store outage keeps trusting the JWT (as every
+         *     protected route does). A live session carries an additive ``session`` summary
+         *     ``{remember, expires_at, idle_expires_at}``.
+         */
         get: operations["auth_me_api_auth_me_get"];
         put?: never;
         post?: never;
@@ -947,6 +960,11 @@ export interface paths {
          * Get Campaign
          * @description One campaign by its (content-hash) id — its member case ids, shared entities,
          *     MITRE union and severity rollup. 404 when absent. Read-only advisory (#3/#4).
+         *
+         *     ``case_numbers`` (Round 13 polish, additive) maps a member case id to its display
+         *     number ("CASE-000045"), so the Campaigns detail sheet names members the way the rest
+         *     of the console does. Bounded (:data:`_MEMBER_NUMBER_READS` reads); a member without
+         *     a number, past the bound or whose read fails is simply absent and keeps its id.
          */
         get: operations["get_campaign_api_campaigns__campaign_id__get"];
         put?: never;
@@ -1662,8 +1680,39 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Chat */
+        /**
+         * Chat
+         * @description One chat turn, blocking (chat revamp SPEC §6): the same preflight, turn task
+         *     and persistence as ``POST /api/chat/stream`` (``routes_chat.run_chat_turn``),
+         *     awaited. Imported lazily: ``routes_chat`` imports this module.
+         */
         post: operations["chat_api_chat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chat Context
+         * @description Everything the composer meter needs (SPEC §8): the effective model and its
+         *     limits, the static prompt and history estimates, the caller's tool catalogue,
+         *     the live-text availability, the §4.2 bounds, calibration and the static evergreen
+         *     starters (Round 13 SPEC D2: no case-store read).
+         *     Money and budget fields need ``models:read``; ``spent_today``/``remaining`` also
+         *     ``cost:view``. Cached per principal for 30 s (dropped when one of the caller's
+         *     turns ends) and resolved without audit rows.
+         */
+        get: operations["chat_context_api_chat_context_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1679,7 +1728,11 @@ export interface paths {
         };
         /**
          * List Chat Conversations
-         * @description Newest-first Workspace conversation summaries owned by this principal.
+         * @description Workspace conversation summaries owned by this principal: pinned first, then
+         *     newest first. ``limit`` goes to 60 so the <= 10 pinned conversations (exempt
+         *     from the 50-conversation eviction) are never off the first page. With ``q`` the
+         *     rows are the conversations whose title, messages or block titles contain it,
+         *     each with a ``match {message_id, snippet}`` (chat revamp SPEC §7.5).
          *
          *     Auth-disabled deployments use the same isolated ``default`` profile as user
          *     preferences. Case-scoped collaboration chat is intentionally not listed here.
@@ -1715,10 +1768,350 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Rename Chat Conversation
-         * @description Rename one owned conversation with bounded, single-line plain text.
+         * Update Chat Conversation
+         * @description Rename (bounded, single-line plain text) and/or pin one owned conversation
+         *     (chat revamp SPEC §7.5). Pinning never changes ``updated_at``; an 11th pin is
+         *     409 ``chat_pin_limit``.
          */
-        patch: operations["rename_chat_conversation_api_chat_conversations__conversation_id__patch"];
+        patch: operations["update_chat_conversation_api_chat_conversations__conversation_id__patch"];
+        trace?: never;
+    };
+    "/api/chat/conversations/{conversation_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chat Conversation Messages
+         * @description Up to ``limit`` messages immediately before message ``before`` (the newest
+         *     ones without it), oldest first, each restored to its full text — how a client
+         *     reads a long conversation beyond the window ``GET /chat/conversations/{id}``
+         *     returns. 404 for a conversation the caller does not own or an unknown ``before``.
+         */
+        get: operations["chat_conversation_messages_api_chat_conversations__conversation_id__messages_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/conversations/{conversation_id}/messages/{message_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chat Conversation Message
+         * @description One message of one of the caller's conversations, restored to its full text
+         *     (only that answer's exchange document is read). 404 when not found or not the
+         *     caller's.
+         */
+        get: operations["chat_conversation_message_api_chat_conversations__conversation_id__messages__message_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/conversations/{conversation_id}/messages/{message_id}/steps/{index}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chat Step Observation
+         * @description The stored observation the model saw for step ``index`` of one of the
+         *     caller's answers (P1-1 step inspector). 404 ``step_not_found`` when the answer
+         *     has no such lookup, ``step_observation_unavailable`` when no observation was
+         *     stored for it (a model step, a refused or failed lookup), and
+         *     ``step_observation_expired`` once the owner's ring holds newer answers.
+         */
+        get: operations["chat_step_observation_api_chat_conversations__conversation_id__messages__message_id__steps__index__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/conversations/{conversation_id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark Chat Conversation Read
+         * @description The owner has seen the conversation's newest answer: clear ``unread``
+         *     (SPEC D13). Idempotent; ``needs_input`` and ``failed`` stay until the next answer.
+         */
+        post: operations["mark_chat_conversation_read_api_chat_conversations__conversation_id__read_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/entity-question": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chat Entity Question
+         * @description The server's question about one entity value, for the chat page to send with
+         *     ``origin: "starter"``. 422 when the value does not have its kind's shape.
+         */
+        post: operations["chat_entity_question_api_chat_entity_question_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Chat Feedback
+         * @description The caller's own ratings (optionally of one conversation), newest first.
+         */
+        get: operations["list_chat_feedback_api_chat_feedback_get"];
+        put?: never;
+        /**
+         * Chat Feedback
+         * @description Rate one of the caller's own Workspace answers (up/down, an optional reason
+         *     and comment). Rating the same answer again replaces the earlier rating. Audited
+         *     without the comment; never used to train a model.
+         */
+        post: operations["chat_feedback_api_chat_feedback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/feedback/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chat Feedback Summary
+         * @description The caller's own answer ratings as aggregates (P1-4): thumbs up and down, the
+         *     thumbs-down reasons and how many carried a comment — never a comment or which
+         *     answer it was. Owner-scoped; never used to train a model.
+         */
+        get: operations["chat_feedback_summary_api_chat_feedback_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/starters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chat Starters
+         * @description The caller's starters for ``surface`` (see the module docstring).
+         */
+        get: operations["chat_starters_api_chat_starters_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/starters/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chat Starter Event
+         * @description Record that the caller saw, used or hid starters (see the module docstring).
+         */
+        post: operations["chat_starter_event_api_chat_starters_events_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chat Stream
+         * @description The streaming twin of ``POST /api/chat`` (same body, same preflight errors).
+         */
+        post: operations["chat_stream_api_chat_stream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/topics/{topic_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chat Topic
+         * @description The server's templated question for a console-map topic (``kpi:mtta``,
+         *     ``settings:models``). The page sends it with ``origin: "starter"``; client text
+         *     never stands in for it. 404 for an unknown topic.
+         */
+        get: operations["chat_topic_api_chat_topics__topic_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/turns/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Active Chat Turns
+         * @description The caller's own running chat turns, oldest first: ids, start time, an engine
+         *     label, lookups and tokens — never prompt, answer or log text. Process-local, like
+         *     the turn registry (the supported runtime is one backend process). With auth
+         *     disabled (targeted ``chat.turn`` frames never reach anonymous subscribers) the
+         *     client polls this every 5 s while it knows a turn is running.
+         */
+        get: operations["active_chat_turns_api_chat_turns_active_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/turns/{turn_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Chat Turn
+         * @description Stop the caller's own running turn. The in-flight step finishes and is
+         *     recorded, no new step starts, and the stream ends with ``turn.done`` carrying a
+         *     ``cancelled`` notice. 404 when unknown, finished or not the caller's (ownership
+         *     is indistinguishable from absence).
+         */
+        post: operations["cancel_chat_turn_api_chat_turns__turn_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/turns/{turn_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chat Turn Events
+         * @description Re-attach to the caller's own running (or just finished) turn (SPEC D13):
+         *     a replay of its bounded event ring after ``after`` — consecutive text deltas
+         *     coalesced, ``usage`` and ``step.progress`` at their latest — then the live tail,
+         *     ending with the terminal event. Resume with ``after=<last seq seen>``. 404 for an
+         *     unknown or expired turn and for anyone else's (ownership is indistinguishable
+         *     from absence). Reading never holds a concurrency slot and never stops the turn.
+         */
+        get: operations["chat_turn_events_api_chat_turns__turn_id__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/turns/{turn_id}/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chat Turn Seen
+         * @description The caller has their own turn's outcome on screen (an answer, a question or a
+         *     failure, in a Workspace or a Case Manager chat). Their other consoles hear it and
+         *     drop the mark they may hold for it. Nothing is stored. Always 204, for any
+         *     well-formed turn id: the notice goes only to the caller's own consoles and names
+         *     the turn, plus its conversation or case while the server still keeps the finished
+         *     turn (5 minutes).
+         */
+        post: operations["chat_turn_seen_api_chat_turns__turn_id__seen_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/connectors": {
@@ -2711,9 +3104,10 @@ export interface paths {
          *     a DASH rate and ``available: false`` with a reason, never a reassuring number. There
          *     is no composite score.
          *
-         *     READ-ONLY derivation over already-persisted cases, computed over up to the most
-         *     recent 5000 (``truncated`` says when the store held more). The auto-close policy is
-         *     read for DISPLAY only — nothing here is ever an input to ``decide()`` (#3).
+         *     READ-ONLY derivation over already-persisted cases — the ALL-TIME population (a case
+         *     created long ago can be decided today), exact up to ``_STORE_FETCH_LIMIT`` cases and
+         *     honestly ``truncated`` beyond. The auto-close policy is read for DISPLAY only —
+         *     nothing here is ever an input to ``decide()`` (#3).
          */
         get: operations["metrics_auto_close_health_api_metrics_auto_close_health_get"];
         put?: never;
@@ -2792,9 +3186,10 @@ export interface paths {
          *     ``ingested``/``clustered`` come from the DURABLE ``noise_counters`` store (raw-alert-by-
          *     severity, so they reflect the TRUE inbound volume even after low-value events are
          *     dropped at ingest); ``cases`` + the MECE outcomes (needs_human > escalated >
-         *     auto_cleared > true_positive residual) come from a case tally computed over up to the
-         *     most-recent 5000 cases (the ``cases_meta.truncated`` flag is True when the store held
-         *     more — the outcome tallies are then a lower bound). When the counters are still warming
+         *     auto_cleared > true_positive residual) come from a tally over every case in the window
+         *     (``cases_meta.truncated`` is True when the window holds more cases than
+         *     ``_STORE_FETCH_LIMIT`` or the read failed partway — the outcome tallies are then a
+         *     lower bound and ``store_total``/``fetched`` say by how much). When the counters are still warming
          *     up (``counters.available: false``) the ingested/clustered totals are ``null`` and the
          *     headline ``reduction.overall_pct`` is a DASH, so the UI degrades to a case-only funnel.
          *
@@ -2849,8 +3244,11 @@ export interface paths {
         /**
          * Metrics Posture
          * @description The rich security-posture rollup over the last ``window_hours``, computed over
-         *     up to the most-recent 5000 cases (the response's ``truncated`` flag is True when
-         *     the store held more).
+         *     every case the window (and, for ``compare=prev``, the preceding window) reaches
+         *     (Round 12). ``truncated`` is True when that span holds more cases than
+         *     ``_STORE_FETCH_LIMIT`` or the read failed partway; ``store_total`` is then the exact
+         *     number of in-scope cases and ``fetched`` the newest analysed, and
+         *     ``window_covered`` says whether the SELECTED window is still complete.
          *
          *     ``compare=prev`` adds period-over-period deltas vs the immediately-preceding
          *     equal-length window. SLA targets come from ``Preferences.sla`` (advisory; #3).
@@ -2885,12 +3283,11 @@ export interface paths {
          *       and human work is NEVER ``terminal_cases - auto_closed_cases``. These report the
          *       LAST recorded decider — see ``engine.metrics.quality_metrics`` for the caveat a
          *       "human vs AI" surface must disclose.
-         *     * ``window_covered`` is the honest-coverage flag. ``truncated`` alone is permanent
-         *       for any deployment above the 5000-case fetch bound; ``window_covered`` says
-         *       whether the SELECTED window is nonetheless fully answerable from the rows that
-         *       were read (cutoff at or after ``oldest_fetched_at``), which is what lets a tile
-         *       publish a real number instead of withholding forever. It does not apply to
-         *       ``open_now``, which carries its own ``complete`` flag.
+         *     * ``window_covered`` is the honest-coverage flag: whether the SELECTED window is
+         *       fully answerable from the cases that were read (cutoff at or after
+         *       ``oldest_fetched_at``). With the exact population it is True unless a single
+         *       window outgrew the in-memory bound. ``open_now`` is an exact store COUNT (window
+         *       exempt) and carries its own ``complete`` flag.
          *     * A case-store OUTAGE soft-fails to an empty fetch so the dashboard never 500s.
          *       Both completeness flags then go False with a reason naming the failure: the
          *       counts are still zeros, but zero-because-unreadable is not a measurement and must
@@ -2937,11 +3334,11 @@ export interface paths {
          *     ingested tallies (null when the counters are warming up / unreadable, and for
          *     buckets predating their first observation).
          *
-         *     Served from the SAME shared short-TTL case page as the other posture rollups
-         *     (one store scan per TTL window), computed over up to the most-recent
-         *     ``_STORE_FETCH_LIMIT`` cases — the ``truncated``/``store_total``/``fetched``
-         *     marker keeps a partial (newest-N) tally honest. DETERMINISTIC + advisory:
-         *     nothing here is read by ``case_manager.decide()`` (#3).
+         *     Served from the SAME shared short-TTL exact population as the other posture
+         *     rollups (every case the window reaches; one store scan per TTL window). The
+         *     ``truncated``/``store_total``/``fetched`` marker is True only when the window alone
+         *     outgrew ``_STORE_FETCH_LIMIT``. DETERMINISTIC + advisory: nothing here is read by
+         *     ``case_manager.decide()`` (#3).
          */
         get: operations["metrics_trends_api_metrics_trends_get"];
         put?: never;
@@ -2962,10 +3359,11 @@ export interface paths {
         /**
          * Mitre Coverage
          * @description Per-tactic MITRE ATT&CK technique coverage tallied from our case load against
-         *     the bundled corpus, over up to the most-recent 5000 cases (the response's
-         *     ``truncated`` flag is True when the store held more — the covered tally is then a
-         *     lower bound). ``window_hours=0`` (default) covers ALL fetched cases; a positive
-         *     value time-bounds to created-within. Invalid/forged technique ids are dropped (#9).
+         *     the bundled corpus, over every case in the window (``window_hours=0``, the default,
+         *     is all time; a positive value bounds to created-within). ``truncated`` is True when
+         *     that population outgrew ``_STORE_FETCH_LIMIT`` (or the read failed partway) — the
+         *     covered tally is then a lower bound over the newest cases, beside the exact
+         *     ``store_total``. Invalid/forged technique ids are dropped (#9).
          */
         get: operations["mitre_coverage_api_mitre_coverage_get"];
         put?: never;
@@ -3477,6 +3875,9 @@ export interface paths {
          * Prefs User Put
          * @description Patch the caller's PERSONAL prefs (theme, pins, last-list-state, …). Only the
          *     provided fields change. NOT admin-gated — every user edits only their own bucket.
+         *
+         *     A change to the saved chat prompts (the Round 12 prompt library) writes one
+         *     append-only audit row (#2) with counts only — never a prompt's title or text.
          */
         put: operations["prefs_user_put_api_prefs_user_put"];
         post?: never;
@@ -3989,6 +4390,160 @@ export interface paths {
          *     immediate purge that does not require a factory reset.
          */
         delete: operations["purge_replay_fixtures_api_replay_fixtures_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Reports
+         * @description The caller's reports, newest first (no items; open one with GET by id).
+         */
+        get: operations["list_reports_api_reports_get"];
+        put?: never;
+        /**
+         * Create Report
+         * @description Create an empty report. With ``conversation_id`` it becomes that (caller-owned)
+         *     conversation's draft; a conversation has at most one (409 with its id).
+         */
+        post: operations["create_report_api_reports_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reports/add": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add To Report
+         * @description Add one block (``block_id``) or the whole answer (a ``section``) of a persisted
+         *     Workspace answer the caller owns. The server resolves and snapshots the content;
+         *     with no ``report_id`` the conversation's draft is used (created on first add).
+         */
+        post: operations["add_to_report_api_reports_add_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reports/from-answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report From Answer
+         * @description Save one answer as the report its header asked for, after the server-side save
+         *     failed with a retryable error (``saved_report_error``). Idempotent PER ANSWER: the
+         *     report id derives from the owner, the conversation and the answer, so a second
+         *     click, another tab or a click after a reload returns the same report; an answer
+         *     already carrying ``saved_report`` returns that report without writing. The stored
+         *     answer then records ``saved_report`` and drops ``saved_report_error``, so a
+         *     reopened thread shows the saved line, never the offer again. Workspace answers
+         *     only (case-scoped turns never enter Workspace history, #5); audited (#2).
+         */
+        post: operations["report_from_answer_api_reports_from_answer_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reports/from-conversation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report From Conversation
+         * @description "Save conversation as report" (SPEC D11): every answer of one caller-owned
+         *     Workspace conversation becomes one section (its question as the heading, then
+         *     the answer text and blocks), in order, up to the report's item limit; a reply to a
+         *     chat command (``/compact``) is not an answer and is left out. The server
+         *     resolves every item from the persisted conversation; nothing is client-supplied
+         *     content. Case-scoped chat never enters Workspace history, so a case conversation
+         *     can never be saved this way.
+         */
+        post: operations["report_from_conversation_api_reports_from_conversation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reports/{report_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Report */
+        get: operations["get_report_api_reports__report_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Report
+         * @description Strict tombstone under ``expected_version`` (body, or the query parameter for
+         *     clients whose DELETE cannot carry a body), then removal from the index.
+         */
+        delete: operations["delete_report_api_reports__report_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Patch Report
+         * @description Title, template, item order, notes and removals in one strict-CAS write under
+         *     ``expected_version`` (409 ``report_version_conflict`` with ``current_version``).
+         */
+        patch: operations["patch_report_api_reports__report_id__patch"];
+        trace?: never;
+    };
+    "/api/reports/{report_id}/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Summarise Report
+         * @description Generate (or estimate) the AI executive summary: ONE ``gateway.complete`` call
+         *     with ``surface="report"`` over the §9.4 digest, so exactly one UsageDoc. Repeats
+         *     are bounded by the idempotency key (same key → the stored result, no call), a
+         *     per-report single-flight lock (a concurrent second click → 409) and a per-user
+         *     token bucket (10 per hour; Demo exempt). A report whose bounded digest could keep
+         *     none of its items is refused (409 ``report_too_large_to_summarise``) before any
+         *     spend, for the estimate too. Failure messages describe the summary, not a chat
+         *     turn (:data:`SUMMARY_FAILURE_MESSAGES`).
+         */
+        post: operations["summarise_report_api_reports__report_id__summary_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -6434,6 +6989,106 @@ export interface components {
             new_password: string;
         };
         /**
+         * ChatActiveTurn
+         * @description ``GET /api/chat/turns/active`` (SPEC D13): one of the caller's running turns.
+         *     ``label`` is an engine template, never model or log text.
+         */
+        ChatActiveTurn: {
+            /** Case Id */
+            case_id?: string | null;
+            /** Conversation Id */
+            conversation_id?: string | null;
+            /**
+             * Label
+             * @default
+             */
+            label: string;
+            /**
+             * Lookups
+             * @default 0
+             */
+            lookups: number;
+            /** Started At */
+            started_at: string;
+            /**
+             * Status
+             * @default running
+             * @enum {string}
+             */
+            status: "running" | "needs_input";
+            /**
+             * Tokens
+             * @default 0
+             */
+            tokens: number;
+            /** Turn Id */
+            turn_id: string;
+        };
+        /**
+         * ChatBudgetInfo
+         * @description The daily budget the meter's ring measures against. ``models:read`` only.
+         */
+        ChatBudgetInfo: {
+            /** Daily Limit */
+            daily_limit?: number | null;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * On Exceed
+             * @default block
+             * @enum {string}
+             */
+            on_exceed: "warn" | "block";
+            /**
+             * Soft Warn Pct
+             * @default 0.8
+             */
+            soft_warn_pct: number;
+        };
+        /**
+         * ChatCatchUp
+         * @description "Since {since_label}: clause, clause and clause." (at most 160 characters as a
+         *     whole line; the server drops clauses from the end until it fits).
+         */
+        ChatCatchUp: {
+            /** Clauses */
+            clauses?: components["schemas"]["ChatCatchUpClause"][];
+            /** Since */
+            since: string;
+            /** Since Label */
+            since_label: string;
+        };
+        /**
+         * ChatCatchUpClause
+         * @description One clause of the catch-up line ("5 new cases (2 critical)") and the starter
+         *     it sends when clicked (action ``send`` only; SPEC §3.6).
+         */
+        ChatCatchUpClause: {
+            starter: components["schemas"]["ChatStarter"];
+            /** Text */
+            text: string;
+        };
+        /**
+         * ChatClarify
+         * @description A clarifying question the model asked instead of guessing (SPEC D10). Option
+         *     text is model-authored and may echo log values: the UI renders it as untrusted
+         *     text, and a pick is sent with ``origin="clarify"`` (follow_up taint class, #9).
+         */
+        ChatClarify: {
+            /**
+             * Allow Custom
+             * @default true
+             */
+            allow_custom: boolean;
+            /** Options */
+            options?: string[];
+            /** Question */
+            question: string;
+        };
+        /**
          * ChatContext
          * @description On-screen context snapshot the global chat flyout may attach (Feature 1).
          *
@@ -6462,16 +7117,557 @@ export interface components {
             /** Url */
             url?: string | null;
         };
-        /** ChatConversationRenameRequest */
-        ChatConversationRenameRequest: {
+        /**
+         * ChatContextBounds
+         * @description The §4.2 bounds the meter and the run log display (no internal_domains).
+         */
+        ChatContextBounds: {
+            /**
+             * Allow Text Streaming
+             * @default true
+             */
+            allow_text_streaming: boolean;
+            /**
+             * Animated Brand
+             * @default true
+             */
+            animated_brand: boolean;
+            /**
+             * Default Stream Mode
+             * @default steps
+             * @enum {string}
+             */
+            default_stream_mode: "steps" | "text";
+            /** Final Max Tokens */
+            final_max_tokens: number;
+            /** Final Reserve Tokens */
+            final_reserve_tokens: number;
+            /** Max Indicator Lookups */
+            max_indicator_lookups: number;
+            /** Max Model Calls */
+            max_model_calls: number;
+            /** Max Parallel */
+            max_parallel: number;
+            /** Max Tool Calls */
+            max_tool_calls: number;
+            /** Model Step Timeout S */
+            model_step_timeout_s: number;
+            /** Observation Chars */
+            observation_chars: number;
+            /** Tool Timeout S */
+            tool_timeout_s: number;
+            /** Turn Timeout S */
+            turn_timeout_s: number;
+            /** Turn Token Ceiling */
+            turn_token_ceiling: number;
+        };
+        /**
+         * ChatContextInfo
+         * @description ``GET /api/chat/context`` (SPEC §8): everything the composer meter needs.
+         *     Money and budget fields are present only with ``models:read``; ``spent_today`` /
+         *     ``remaining`` additionally need ``cost:view``. Without them the meter shows
+         *     tokens only plus ``budget_state``.
+         */
+        ChatContextInfo: {
+            bounds: components["schemas"]["ChatContextBounds"];
+            budget?: components["schemas"]["ChatBudgetInfo"] | null;
+            /** Budget State */
+            budget_state?: ("ok" | "approaching" | "reached") | null;
+            /** Calibration */
+            calibration?: number | null;
+            /**
+             * Chars Per Token
+             * @default 4
+             */
+            chars_per_token: number;
+            /** Context Window */
+            context_window?: number | null;
+            /**
+             * History Exchanges
+             * @default 0
+             */
+            history_exchanges: number;
+            /**
+             * History Tokens
+             * @default 0
+             */
+            history_tokens: number;
+            /**
+             * Limits Mode
+             * @default unlimited
+             * @enum {string}
+             */
+            limits_mode: "unlimited" | "bounded";
+            /**
+             * Max Output Tokens
+             * @default 0
+             */
+            max_output_tokens: number;
+            /** Model */
+            model?: string | null;
+            rates?: components["schemas"]["ChatRates"] | null;
+            /** Remaining */
+            remaining?: number | null;
+            /** Simulated */
+            simulated?: boolean | null;
+            /** Spent Today */
+            spent_today?: number | null;
+            /** Starters */
+            starters?: components["schemas"]["ChatStarter"][];
+            /**
+             * Static Prompt Tokens
+             * @default 0
+             */
+            static_prompt_tokens: number;
+            text_streaming?: components["schemas"]["TextStreamingInfo"];
+            /**
+             * Timezone
+             * @default UTC
+             */
+            timezone: string;
+            /** Tools */
+            tools?: components["schemas"]["ChatToolInfo"][];
+        };
+        /** ChatConversation */
+        ChatConversation: {
+            /** Created At */
+            created_at: string;
+            /**
+             * Earlier Message Count
+             * @default 0
+             */
+            earlier_message_count: number;
+            /**
+             * History Truncated
+             * @default false
+             */
+            history_truncated: boolean;
+            /** Id */
+            id: string;
+            /**
+             * Message Count
+             * @default 0
+             */
+            message_count: number;
+            /** Messages */
+            messages?: components["schemas"]["ChatConversationMessage"][];
+            /** Model */
+            model?: string | null;
+            /** Oldest Retained At */
+            oldest_retained_at?: string | null;
+            /**
+             * Pinned
+             * @default false
+             */
+            pinned: boolean;
+            /**
+             * Preview
+             * @default
+             */
+            preview: string;
+            /** Report Id */
+            report_id?: string | null;
+            /** Source Id */
+            source_id?: string | null;
+            /** Source Name */
+            source_name?: string | null;
+            /**
+             * Status
+             * @default idle
+             * @enum {string}
+             */
+            status: "idle" | "running" | "needs_input" | "failed";
+            /** Summary Covers Through */
+            summary_covers_through?: string | null;
+            time_range?: components["schemas"]["TimeRange"] | null;
             /** Title */
             title: string;
+            /** Total Cost */
+            total_cost?: number | null;
+            /**
+             * Total Message Count
+             * @default 0
+             */
+            total_message_count: number;
+            /** Total Tokens */
+            total_tokens?: number | null;
+            /**
+             * Unread
+             * @default false
+             */
+            unread: boolean;
+            /** Updated At */
+            updated_at: string;
+            /** Usage Turns */
+            usage_turns?: number | null;
+        };
+        /**
+         * ChatConversationMatch
+         * @description Where a ``?q=`` search hit a conversation (SPEC §7.5 Search).
+         */
+        ChatConversationMatch: {
+            /** Message Id */
+            message_id?: string | null;
+            /**
+             * Snippet
+             * @default
+             */
+            snippet: string;
+        };
+        /**
+         * ChatConversationMessage
+         * @description One durable Workspace-chat message.
+         *
+         *     ``response`` keeps the bounded structured result needed to restore tables,
+         *     query links, cost and memory feedback.  It is plain JSON presentation data;
+         *     the authoritative chat engine still receives only ``role`` + ``content`` as
+         *     prior model history.
+         */
+        ChatConversationMessage: {
+            /** Content */
+            content: string;
+            /** Created At */
+            created_at?: string;
+            /** Id */
+            id?: string;
+            /** Idempotency Key */
+            idempotency_key?: string | null;
+            /** Model */
+            model?: string | null;
+            /** Response */
+            response?: Record<string, never> | null;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+            /** Source Id */
+            source_id?: string | null;
+            /** Source Name */
+            source_name?: string | null;
+        };
+        /**
+         * ChatConversationPage
+         * @description ``GET /api/chat/conversations``: one page of the caller's conversation
+         *     summaries. With ``?q=`` each row also carries ``match {message_id, snippet}``
+         *     (rows of a plain listing omit it; the route serialises with
+         *     ``response_model_exclude_unset`` so the wire shape is unchanged).
+         */
+        ChatConversationPage: {
+            /** Conversations */
+            conversations: components["schemas"]["ChatConversationSearchHit"][];
+            /** History Truncated */
+            history_truncated: boolean;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Oldest Retained At */
+            oldest_retained_at?: string | null;
+            /**
+             * Search Incomplete
+             * @default false
+             */
+            search_incomplete: boolean;
+            /** Total */
+            total: number;
+            /** Total Conversation Count */
+            total_conversation_count: number;
+        };
+        /**
+         * ChatConversationSearchHit
+         * @description A conversation summary returned by a content search (never persisted).
+         */
+        ChatConversationSearchHit: {
+            /** Created At */
+            created_at: string;
+            /**
+             * History Truncated
+             * @default false
+             */
+            history_truncated: boolean;
+            /** Id */
+            id: string;
+            match?: components["schemas"]["ChatConversationMatch"] | null;
+            /**
+             * Message Count
+             * @default 0
+             */
+            message_count: number;
+            /** Model */
+            model?: string | null;
+            /** Oldest Retained At */
+            oldest_retained_at?: string | null;
+            /**
+             * Pinned
+             * @default false
+             */
+            pinned: boolean;
+            /**
+             * Preview
+             * @default
+             */
+            preview: string;
+            /** Report Id */
+            report_id?: string | null;
+            /** Source Id */
+            source_id?: string | null;
+            /** Source Name */
+            source_name?: string | null;
+            /**
+             * Status
+             * @default idle
+             * @enum {string}
+             */
+            status: "idle" | "running" | "needs_input" | "failed";
+            time_range?: components["schemas"]["TimeRange"] | null;
+            /** Title */
+            title: string;
+            /** Total Cost */
+            total_cost?: number | null;
+            /**
+             * Total Message Count
+             * @default 0
+             */
+            total_message_count: number;
+            /** Total Tokens */
+            total_tokens?: number | null;
+            /**
+             * Unread
+             * @default false
+             */
+            unread: boolean;
+            /** Updated At */
+            updated_at: string;
+            /** Usage Turns */
+            usage_turns?: number | null;
+        };
+        /**
+         * ChatConversationUpdateRequest
+         * @description ``PATCH /api/chat/conversations/{id}`` (SPEC §7.5 Pin): rename and/or pin.
+         *     At least one field is required; pinning never changes ``updated_at``.
+         */
+        ChatConversationUpdateRequest: {
+            /** Pinned */
+            pinned?: boolean | null;
+            /** Title */
+            title?: string | null;
+        };
+        /**
+         * ChatEntityQuestion
+         * @description The server-worded question for one entity (sent with ``origin: "starter"``).
+         */
+        ChatEntityQuestion: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "ip" | "host" | "user" | "hash" | "domain" | "url" | "email" | "rule" | "case";
+            /** Question */
+            question: string;
+            /** Value */
+            value: string;
+        };
+        /**
+         * ChatEntityRef
+         * @description ``POST /api/chat/entity-question`` body: what an Ask AI chip asks about.
+         */
+        ChatEntityRef: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "ip" | "host" | "user" | "hash" | "domain" | "url" | "email" | "rule" | "case";
+            /** Value */
+            value: string;
+        };
+        /**
+         * ChatFeedbackEntryOut
+         * @description One of the caller's own ratings.
+         */
+        ChatFeedbackEntryOut: {
+            /**
+             * Comment
+             * @default
+             */
+            comment: string;
+            /** Conversation Id */
+            conversation_id: string;
+            /** Message Id */
+            message_id: string;
+            /** Rating */
+            rating: string;
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Updated At
+             * @default
+             */
+            updated_at: string;
+        };
+        /**
+         * ChatFeedbackList
+         * @description ``GET /api/chat/feedback``: the caller's ratings, newest first.
+         */
+        ChatFeedbackList: {
+            /** Feedback */
+            feedback?: components["schemas"]["ChatFeedbackEntryOut"][];
+        };
+        /**
+         * ChatFeedbackRequest
+         * @description ``POST /api/chat/feedback`` (SPEC §3.2). Stored per user and audited; never used
+         *     to train a model.
+         */
+        ChatFeedbackRequest: {
+            /**
+             * Comment
+             * @default
+             */
+            comment: string;
+            /** Conversation Id */
+            conversation_id: string;
+            /** Message Id */
+            message_id: string;
+            /**
+             * Rating
+             * @enum {string}
+             */
+            rating: "up" | "down";
+            /** Reason */
+            reason?: ("wrong" | "incomplete" | "slow" | "other") | null;
+        };
+        /**
+         * ChatFeedbackSummary
+         * @description ``GET /api/chat/feedback/summary``: the caller's ratings as aggregates only
+         *     (never a comment or which answer). ``down_by_reason`` holds every reason, zero
+         *     included; ``since`` echoes the filter.
+         */
+        ChatFeedbackSummary: {
+            /**
+             * Down
+             * @default 0
+             */
+            down: number;
+            /** Down By Reason */
+            down_by_reason?: {
+                [key: string]: number;
+            };
+            /**
+             * Down Without Reason
+             * @default 0
+             */
+            down_without_reason: number;
+            /** Since */
+            since?: string | null;
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+            /**
+             * Up
+             * @default 0
+             */
+            up: number;
+            /**
+             * With Comment
+             * @default 0
+             */
+            with_comment: number;
+        };
+        /**
+         * ChatMessagePage
+         * @description ``GET /api/chat/conversations/{id}/messages``: messages oldest first, each
+         *     restored to its full text, and how many older ones remain
+         *     (``earlier_message_count``; 0 = this page starts the conversation).
+         */
+        ChatMessagePage: {
+            /** Conversation Id */
+            conversation_id: string;
+            /**
+             * Earlier Message Count
+             * @default 0
+             */
+            earlier_message_count: number;
+            /** Messages */
+            messages?: components["schemas"]["ChatConversationMessage"][];
+        };
+        /**
+         * ChatPrompt
+         * @description One saved composer prompt (chat revamp SPEC §10.4). Plain user text: rendered
+         *     as text, sent as an ordinary user message (it is the user's own words).
+         *
+         *     Round 12 prompt library (SPEC §3.1): an optional ``category`` and a ``favorite``
+         *     star; ``{name}`` placeholders in ``text`` are filled in by the composer before
+         *     sending (client-side; the server stores the template as plain text).
+         */
+        ChatPrompt: {
+            /** Category */
+            category?: ("triage" | "hunt" | "ioc" | "posture" | "reporting" | "app_help") | null;
+            /**
+             * Favorite
+             * @default false
+             */
+            favorite: boolean;
+            /** Id */
+            id: string;
+            /** Text */
+            text: string;
+            /** Title */
+            title: string;
+        };
+        /**
+         * ChatRates
+         * @description Effective per-million-token rates (demo-aware). ``models:read`` only.
+         */
+        ChatRates: {
+            /** Cache Read Per Million */
+            cache_read_per_million?: number | null;
+            /** Input Per Million */
+            input_per_million: number;
+            /** Output Per Million */
+            output_per_million: number;
+        };
+        /**
+         * ChatReportSaveError
+         * @description Why the report a chat answer asked for was NOT saved (SPEC D11; additive). The
+         *     answer itself is saved; ``message`` is a server template, never model text.
+         *     ``retryable``: the same save may work later (a store outage), so the UI can offer
+         *     "Save as report"; a full library or an answer with nothing to save cannot.
+         *
+         *     ``title`` and ``template`` (additive) record what the answer's header asked for, so
+         *     "Save as report" (``POST /api/reports/from-answer``) saves the SAME report the server
+         *     could not; the server reads them from the stored answer, never from the client.
+         *     ``title`` is model-derived display text (#9); both are lenient on replay.
+         */
+        ChatReportSaveError: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "report_limit" | "report_unavailable" | "report_empty";
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /**
+             * Retryable
+             * @default false
+             */
+            retryable: boolean;
+            /** Template */
+            template?: ("investigation" | "hunt" | "ioc" | "shift" | "posture" | "custom" | "executive" | "monthly" | "infographic" | "investigation_brief") | null;
+            /** Title */
+            title?: string | null;
         };
         /** ChatRequest */
         ChatRequest: {
             /** Case Id */
             case_id?: string | null;
             context?: components["schemas"]["ChatContext"] | null;
+            /** Continue Of */
+            continue_of?: string | null;
             /** Conversation Id */
             conversation_id?: string | null;
             /** History */
@@ -6483,19 +7679,493 @@ export interface components {
             /** Model */
             model?: string | null;
             /**
+             * Origin
+             * @default user
+             * @enum {string}
+             */
+            origin: "user" | "follow_up" | "starter" | "command" | "continue" | "clarify" | "retry_step";
+            /**
              * Persist Conversation
              * @default false
              */
             persist_conversation: boolean;
+            /** Scopes */
+            scopes?: ("logs" | "cases" | "metrics" | "intel" | "docs" | "platform")[];
             /** Source Id */
             source_id?: string | null;
+            /**
+             * Stream Mode
+             * @default steps
+             * @enum {string}
+             */
+            stream_mode: "steps" | "text";
+            time_range?: components["schemas"]["TimeRange"] | null;
+            /** Topic */
+            topic?: string | null;
+        };
+        /** ChatResponse */
+        ChatResponse: {
+            /** Answer */
+            answer: string;
+            /**
+             * Answer Kind
+             * @default conversation
+             * @enum {string}
+             */
+            answer_kind: "data" | "product_help" | "mixed" | "conversation";
+            /** Blocks */
+            blocks?: Record<string, never>[];
+            /**
+             * Blocks Version
+             * @default 1
+             */
+            blocks_version: number;
+            /** Case Id */
+            case_id?: string | null;
+            case_save_notice?: components["schemas"]["TurnNotice"] | null;
+            /** Case Saved */
+            case_saved?: boolean | null;
+            /** Citations */
+            citations?: components["schemas"]["Citation"][];
+            clarify?: components["schemas"]["ChatClarify"] | null;
+            /** Command */
+            command?: "compact" | null;
+            /**
+             * Compacted
+             * @default false
+             */
+            compacted: boolean;
+            /** Console Links */
+            console_links?: components["schemas"]["ConsoleLink"][];
+            /**
+             * Continued
+             * @default 0
+             */
+            continued: number;
+            /** Conversation Id */
+            conversation_id?: string | null;
+            /** Conversation Title */
+            conversation_title?: string | null;
+            /**
+             * Cost
+             * @default 0
+             */
+            cost: number;
+            discover?: components["schemas"]["DiscoverLink"] | null;
+            /** Effective Model */
+            effective_model?: string | null;
+            /** Effective Source Id */
+            effective_source_id?: string | null;
+            /** Effective Source Name */
+            effective_source_name?: string | null;
+            /** Follow Ups */
+            follow_ups?: string[];
+            /** Idempotency Key */
+            idempotency_key?: string | null;
+            /** Memory Action */
+            memory_action?: Record<string, never> | null;
+            memory_proposal?: components["schemas"]["MemoryProposal"] | null;
+            memory_suggestion?: components["schemas"]["MemorySuggestion"] | null;
+            /** Message Id */
+            message_id?: string | null;
+            notice?: components["schemas"]["TurnNotice"] | null;
+            /** Query */
+            query?: string | null;
+            saved_report?: components["schemas"]["ChatSavedReport"] | null;
+            saved_report_error?: components["schemas"]["ChatReportSaveError"] | null;
+            /** Steps */
+            steps?: components["schemas"]["ChatStep"][];
+            /** Stream Mode */
+            stream_mode?: ("steps" | "text") | null;
+            /** Table */
+            table?: Record<string, never> | null;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /** Turn Id */
+            turn_id?: string | null;
+            usage?: components["schemas"]["TurnUsage"] | null;
+            /** User Message Id */
+            user_message_id?: string | null;
+        };
+        /**
+         * ChatSavedReport
+         * @description The report the server saved from this answer (SPEC D11). Created by the server
+         *     from the persisted message, never by the model. ``skipped`` (additive): sections
+         *     of the answer that did not fit the report's item or size limit.
+         */
+        ChatSavedReport: {
+            /** Id */
+            id: string;
+            /**
+             * Items
+             * @default 0
+             */
+            items: number;
+            /**
+             * Skipped
+             * @default 0
+             */
+            skipped: number;
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+        };
+        /**
+         * ChatStarter
+         * @description One starter card (SPEC §10.5; Round 13 SPEC-chat §3.2.1).
+         *
+         *     ``id`` is the FAMILY id (one card per family; the pre-Round-13 ids investigate,
+         *     hunt, posture, shift_brief, explain_metric and learn_app stay valid). ``label`` is
+         *     a short family name and ``description`` equals ``reason``, for older clients. For
+         *     action ``send``, ``prompt`` is both the visible question and the exact text the
+         *     client sends with ``origin: "starter"`` (never edited, never put in the composer);
+         *     dynamic templates render at most 100 characters. Action ``open_conversation`` and
+         *     ``use_prompt`` cards are display-only: ``prompt`` is their card text (at most 120
+         *     characters) and is never sent; ``ref`` names the conversation or saved prompt.
+         */
+        ChatStarter: {
+            /**
+             * Action
+             * @default send
+             * @enum {string}
+             */
+            action: "send" | "open_conversation" | "use_prompt";
+            /** As Of */
+            as_of?: string | null;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Expires At */
+            expires_at?: string | null;
+            /** Id */
+            id: string;
+            /** Key */
+            key?: string | null;
+            /** Label */
+            label: string;
+            /** Prompt */
+            prompt: string;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            ref?: components["schemas"]["ChatStarterRef"] | null;
+            /** Template */
+            template?: string | null;
+            /** Tools */
+            tools?: string[];
+            /**
+             * Urgency
+             * @default none
+             * @enum {string}
+             */
+            urgency: "none" | "attention" | "critical";
+        };
+        /**
+         * ChatStarterEvent
+         * @description ``POST /api/chat/starters/events`` body (SPEC §3.2.2, §3.6). Presentation state
+         *     only: it updates the caller's own starter state document, writes no audit row and
+         *     stores no text (D10). A ``thread`` ``viewed`` event carries no keys.
+         */
+        ChatStarterEvent: {
+            /** Keys */
+            keys?: string[];
+            /**
+             * Surface
+             * @default home
+             * @enum {string}
+             */
+            surface: "home" | "thread" | "case";
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "viewed" | "used" | "dismissed";
+        };
+        /**
+         * ChatStarterRef
+         * @description A typed reference a starter names (a case, rule, source, campaign, ATT&CK
+         *     technique) or opens (a conversation, a saved prompt). ``value`` passes its kind's
+         *     strict grammar (``chat_starter_text.ref_value``) unchanged, or the model refuses it:
+         *     a value is never cut, quoted or altered (SPEC §3.8.1).
+         */
+        ChatStarterRef: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "case" | "rule" | "source" | "campaign" | "technique" | "conversation" | "prompt";
+            /** Value */
+            value: string;
+        };
+        /**
+         * ChatStartersInfo
+         * @description ``GET /api/chat/starters`` (SPEC §3.2.2). ``enabled`` mirrors
+         *     ``chat_agent.dynamic_starters``; when it is false the server returns the evergreen
+         *     set only and no catch-up line. ``expires_at`` is ``as_of`` + 120 s.
+         */
+        ChatStartersInfo: {
+            /** As Of */
+            as_of: string;
+            catch_up?: components["schemas"]["ChatCatchUp"] | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Expires At */
+            expires_at: string;
+            /** Starters */
+            starters?: components["schemas"]["ChatStarter"][];
+            /**
+             * Surface
+             * @enum {string}
+             */
+            surface: "home" | "thread" | "case";
+            /** Timezone */
+            timezone: string;
+        };
+        /**
+         * ChatStep
+         * @description One row of a turn's run log (SPEC §3.3). Every string is engine-authored or
+         *     display-sanitised; ``untrusted_params`` and ``query`` may carry model/log-derived
+         *     values, which the UI renders as untrusted text/code and prompts fence.
+         */
+        ChatStep: {
+            /** Basis */
+            basis?: ("exact" | "newest_n" | "sample" | "cached") | null;
+            /** Coverage */
+            coverage?: string | null;
+            /**
+             * Duration Ms
+             * @default 0
+             */
+            duration_ms: number;
+            /** Group */
+            group?: number | null;
+            /** Index */
+            index: number;
+            /**
+             * Kind
+             * @default tool
+             * @enum {string}
+             */
+            kind: "tool" | "model";
+            /**
+             * Label
+             * @default
+             */
+            label: string;
+            /** Observation Ref */
+            observation_ref?: string | null;
+            /** Ordinal */
+            ordinal?: number | null;
+            /** Params */
+            params?: {
+                [key: string]: string | number | boolean | null;
+            };
+            progress?: components["schemas"]["ChatStepProgress"] | null;
+            /** Query */
+            query?: string | null;
+            /** Rows */
+            rows?: number | null;
+            /** Sources */
+            sources?: string[];
+            /**
+             * Status
+             * @default ok
+             * @enum {string}
+             */
+            status: "ok" | "error" | "denied" | "timeout" | "skipped" | "cancelled";
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /** Tool */
+            tool?: string | null;
+            /** Untrusted Params */
+            untrusted_params?: {
+                [key: string]: string;
+            };
+            usage?: components["schemas"]["StepUsage"] | null;
+        };
+        /**
+         * ChatStepObservation
+         * @description ``GET …/steps/{index}``: what the model saw for one lookup. ``observation`` is
+         *     the aggregate observation (never raw log rows); ``untrusted`` is always True —
+         *     its values come from logs and tools and are rendered as text. ``truncated``: the
+         *     stored copy was shortened structurally to fit its storage bound.
+         */
+        ChatStepObservation: {
+            /** Conversation Id */
+            conversation_id: string;
+            /** Index */
+            index: number;
+            /** Label */
+            label?: string | null;
+            /** Message Id */
+            message_id: string;
+            /** Observation */
+            observation?: Record<string, never>;
+            /** Ordinal */
+            ordinal?: number | null;
+            /** Params */
+            params?: {
+                [key: string]: string;
+            };
+            /** Status */
+            status?: string | null;
+            /** Stored At */
+            stored_at?: string | null;
+            /** Summary */
+            summary?: string | null;
+            /** Tool */
+            tool?: string | null;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /**
+             * Untrusted
+             * @default true
+             */
+            untrusted: boolean;
+        };
+        /**
+         * ChatStepProgress
+         * @description Progress of one long-running lookup (an exact aggregate scan). ``total`` is None
+         *     when the store cannot say up front; ``unit`` is a display noun ("cases").
+         */
+        ChatStepProgress: {
+            /**
+             * Done
+             * @default 0
+             */
+            done: number;
+            /** Total */
+            total?: number | null;
+            /**
+             * Unit
+             * @default
+             */
+            unit: string;
+        };
+        /**
+         * ChatStreamEventModel
+         * @description A named wrapper so the discriminated union appears in ``openapi.json`` as one
+         *     component (``/chat/stream`` documents each NDJSON line with this schema).
+         */
+        ChatStreamEventModel: components["schemas"]["TurnStartEvent"] | components["schemas"]["StepStartEvent"] | components["schemas"]["StepEndEvent"] | components["schemas"]["UsageEvent"] | components["schemas"]["TextDeltaEvent"] | components["schemas"]["TextResetEvent"] | components["schemas"]["TurnDoneEvent"] | components["schemas"]["TurnErrorEvent"] | components["schemas"]["PingEvent"] | components["schemas"]["StepProgressEvent"] | components["schemas"]["TextContinuedEvent"];
+        /**
+         * ChatToolInfo
+         * @description One row of the caller's tool catalogue ("What can the assistant access?").
+         */
+        ChatToolInfo: {
+            /**
+             * Allowed
+             * @default false
+             */
+            allowed: boolean;
+            /**
+             * Available
+             * @default true
+             */
+            available: boolean;
+            /**
+             * Data Source
+             * @default
+             */
+            data_source: string;
+            /** Kind Requires */
+            kind_requires?: {
+                [key: string]: string;
+            };
+            /** Kinds Allowed */
+            kinds_allowed?: string[];
+            /** Label */
+            label: string;
+            /** Missing */
+            missing?: string[];
+            /** Name */
+            name: string;
+            /** Requires */
+            requires?: string[];
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "logs" | "cases" | "metrics" | "intel" | "docs" | "platform";
+        };
+        /**
+         * ChatTopicQuestion
+         * @description ``GET /api/chat/topics/{topic_id}`` (SPEC §10.7 "Ask about this"): the
+         *     templated question for a console_map topic. The page sends this text with
+         *     ``origin="starter"``; it never sends free text of its own for a topic.
+         */
+        ChatTopicQuestion: {
+            /** Question */
+            question: string;
+            /** Topic */
+            topic: string;
         };
         /** ChatTurn */
         ChatTurn: {
             /** Content */
             content: string;
+            /** Origin */
+            origin?: ("user" | "follow_up" | "starter" | "command" | "continue" | "clarify" | "retry_step") | null;
             /** Role */
             role: string;
+        };
+        /**
+         * ChatTurnCancelResult
+         * @description ``POST /api/chat/turns/{turn_id}/cancel``: the Stop was accepted.
+         */
+        ChatTurnCancelResult: {
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+            /** Turn Id */
+            turn_id: string;
+        };
+        /**
+         * Citation
+         * @description A source the answer cites by id (``D1`` doc, ``C2`` case, ``K3`` knowledge,
+         *     ``M1`` ATT&CK, ``Q1`` query). The model references ids only; the server resolves
+         *     them; the client re-validates every target.
+         */
+        Citation: {
+            /** Case Id */
+            case_id?: string | null;
+            /** Doc */
+            doc?: string | null;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "doc" | "case" | "knowledge" | "mitre" | "query";
+            /** Snippet */
+            snippet?: string | null;
+            /** Technique */
+            technique?: string | null;
+            /** Title */
+            title: string;
+            /**
+             * Untrusted
+             * @default false
+             */
+            untrusted: boolean;
         };
         /**
          * ColumnState
@@ -6542,6 +8212,31 @@ export interface components {
             source_id?: string | null;
             /** Source Type */
             source_type?: string | null;
+        };
+        /**
+         * ConsoleLink
+         * @description A console destination resolved from ``console_map`` (never from model text).
+         *     ``allowed`` comes from the caller's grants; a disallowed link renders as plain
+         *     text naming the grant it ``requires``.
+         */
+        ConsoleLink: {
+            /**
+             * Allowed
+             * @default false
+             */
+            allowed: boolean;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Opts */
+            opts?: {
+                [key: string]: string | number;
+            };
+            /** Page */
+            page: string;
+            /** Requires */
+            requires?: string | null;
         };
         /**
          * CorrelationMode
@@ -6872,6 +8567,34 @@ export interface components {
         DemoIncidentBody: {
             /** Scenario Id */
             scenario_id?: string | null;
+        };
+        /**
+         * DiscoverLink
+         * @description Payload the plugin feeds to Kibana's locators API (Section 8.1).
+         */
+        DiscoverLink: {
+            /**
+             * Data View Pattern
+             * @default all-logs-*
+             */
+            data_view_pattern: string;
+            /**
+             * Language
+             * @default kuery
+             */
+            language: string;
+            /** Query */
+            query: string;
+            /**
+             * Time From
+             * @default now-24h
+             */
+            time_from: string;
+            /**
+             * Time To
+             * @default now
+             */
+            time_to: string;
         };
         /**
          * Disposition
@@ -7237,6 +8960,11 @@ export interface components {
         LoginBody: {
             /** Password */
             password: string;
+            /**
+             * Remember
+             * @default false
+             */
+            remember: boolean;
             /** Username */
             username: string;
         };
@@ -7265,6 +8993,41 @@ export interface components {
             count: number;
             /** Entries */
             entries?: Record<string, never>[];
+        };
+        /**
+         * MemoryProposal
+         * @description A memory change the MODEL proposed (§4.8). Never executed by the engine: the
+         *     UI confirms it through the existing memory routes under ``memory:manage``.
+         *     ``remove`` takes exact entry ids only (no text matching from chat).
+         */
+        MemoryProposal: {
+            /** Ids */
+            ids?: string[];
+            /**
+             * Op
+             * @enum {string}
+             */
+            op: "add" | "remove";
+            /** Text */
+            text?: string | null;
+        };
+        /**
+         * MemorySuggestion
+         * @description A durable fact the chat agent NOTICED and proposes to remember. The UI shows
+         *     it for the analyst to confirm before it is saved — the agent never auto-saves a
+         *     suggestion (only explicit "remember: …" commands are executed).
+         */
+        MemorySuggestion: {
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /**
+             * Text
+             * @default
+             */
+            text: string;
         };
         /** MemoryUpdate */
         MemoryUpdate: {
@@ -7460,6 +9223,14 @@ export interface components {
             index?: string | null;
             /** Source */
             source?: Record<string, never>;
+        };
+        /** PingEvent */
+        PingEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "ping";
         };
         /**
          * PlaybookCreateRequest
@@ -7794,6 +9565,360 @@ export interface components {
             enabled: boolean;
             /** Repository Url */
             repository_url: string;
+        };
+        /**
+         * Report
+         * @description A per-user report document (SPEC §9.1): <= 40 items, strict-CAS ``version``.
+         */
+        Report: {
+            /** Conversation Id */
+            conversation_id?: string | null;
+            /** Created At */
+            created_at?: string;
+            /** Id */
+            id: string;
+            /** Items */
+            items?: components["schemas"]["ReportItem"][];
+            /** Owner */
+            owner: string;
+            summary?: components["schemas"]["ReportSummary"] | null;
+            /**
+             * Template
+             * @default custom
+             * @enum {string}
+             */
+            template: "investigation" | "hunt" | "ioc" | "shift" | "posture" | "custom" | "executive" | "monthly" | "infographic" | "investigation_brief";
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at?: string;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+        };
+        /**
+         * ReportAddRequest
+         * @description ``POST /api/reports/add``: add BY REFERENCE. The server loads the block (or the
+         *     whole answer as a ``section`` when ``block_id`` is absent) from the caller-owned
+         *     persisted Workspace message and snapshots it; client-supplied block JSON is never
+         *     accepted, so case-scoped content cannot be added by construction.
+         */
+        ReportAddRequest: {
+            /** Block Id */
+            block_id?: string | null;
+            /** Conversation Id */
+            conversation_id: string;
+            /** Message Id */
+            message_id: string;
+            /** Report Id */
+            report_id?: string | null;
+        };
+        /**
+         * ReportAddResponse
+         * @description ``POST /api/reports/add``: the updated report and the item id. ``added`` is
+         *     False when the same source was already in the report (idempotent add);
+         *     ``created_report`` is True when this add created the conversation's draft.
+         */
+        ReportAddResponse: {
+            /**
+             * Added
+             * @default true
+             */
+            added: boolean;
+            /**
+             * Created Report
+             * @default false
+             */
+            created_report: boolean;
+            /** Item Id */
+            item_id: string;
+            report: components["schemas"]["Report"];
+        };
+        /**
+         * ReportCreateRequest
+         * @description ``POST /api/reports``.
+         */
+        ReportCreateRequest: {
+            /** Conversation Id */
+            conversation_id?: string | null;
+            /**
+             * Template
+             * @default custom
+             * @enum {string}
+             */
+            template: "investigation" | "hunt" | "ioc" | "shift" | "posture" | "custom" | "executive" | "monthly" | "infographic" | "investigation_brief";
+            /**
+             * Title
+             * @default Untitled report
+             */
+            title: string;
+        };
+        /**
+         * ReportDeleteRequest
+         * @description ``DELETE /api/reports/{id}`` body (strict tombstone under ``expected_version``).
+         */
+        ReportDeleteRequest: {
+            /** Expected Version */
+            expected_version: number;
+        };
+        /**
+         * ReportDeleteResponse
+         * @description ``DELETE /api/reports/{id}``.
+         */
+        ReportDeleteResponse: {
+            /** Id */
+            id: string;
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+        };
+        /**
+         * ReportFromAnswerRequest
+         * @description ``POST /api/reports/from-answer``: "Save as report" for one caller-owned
+         *     Workspace answer whose header-requested report could not be saved (D11). Nothing
+         *     else is client-supplied: the title and template the answer asked for are read
+         *     from the stored answer, and the content is resolved from it like every add.
+         */
+        ReportFromAnswerRequest: {
+            /** Conversation Id */
+            conversation_id: string;
+            /** Message Id */
+            message_id: string;
+        };
+        /**
+         * ReportFromConversationRequest
+         * @description ``POST /api/reports/from-conversation``: save a whole Workspace conversation as
+         *     a new report (each answer one section). ``idempotency_key`` makes a retry return
+         *     the same report.
+         */
+        ReportFromConversationRequest: {
+            /** Conversation Id */
+            conversation_id: string;
+            /** Idempotency Key */
+            idempotency_key?: string | null;
+            /** Template */
+            template?: string | null;
+            /** Title */
+            title?: string | null;
+        };
+        /**
+         * ReportFromConversationResponse
+         * @description The saved report, how many items it holds, how many answers did not fit
+         *     (``skipped``) and whether this call created it (False: an idempotent replay).
+         */
+        ReportFromConversationResponse: {
+            /**
+             * Created
+             * @default true
+             */
+            created: boolean;
+            /** Items */
+            items: number;
+            report: components["schemas"]["Report"];
+            /**
+             * Skipped
+             * @default 0
+             */
+            skipped: number;
+        };
+        /**
+         * ReportItem
+         * @description One report item: a validated block snapshot or a whole-answer section.
+         */
+        ReportItem: {
+            /** Added At */
+            added_at?: string;
+            /** Block */
+            block: Record<string, never>;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @default block
+             * @enum {string}
+             */
+            kind: "block" | "section";
+            /** Note */
+            note?: string | null;
+            scope?: components["schemas"]["ReportItemScope"];
+            source: components["schemas"]["ReportItemSource"];
+        };
+        /**
+         * ReportItemScope
+         * @description Scope captured server-side at add time (never client-supplied).
+         */
+        ReportItemScope: {
+            /** App Version */
+            app_version?: string | null;
+            /**
+             * Demo
+             * @default false
+             */
+            demo: boolean;
+            /** Generated By */
+            generated_by?: string | null;
+            /** Sources */
+            sources?: string[];
+            /** Window */
+            window?: string | null;
+        };
+        /**
+         * ReportItemSource
+         * @description Where an item came from (a caller-owned persisted Workspace message).
+         */
+        ReportItemSource: {
+            /** Block Id */
+            block_id?: string | null;
+            /** Conversation Id */
+            conversation_id: string;
+            /** Message Id */
+            message_id: string;
+        };
+        /**
+         * ReportListEntry
+         * @description One row of the per-user report index (``GET /api/reports``).
+         *
+         *     ``conversation_id`` names the conversation whose DRAFT this report is (at most one
+         *     per conversation); ``source_conversation_id`` names the conversation the report
+         *     came from (the one conversation all its items name, else the draft's), for the
+         *     library's "Source conversation" column. A report saved from an answer or a whole
+         *     conversation is never a draft, so it carries only the second. Rows written before
+         *     the field existed read ``None`` until the report next changes.
+         */
+        ReportListEntry: {
+            /** Conversation Id */
+            conversation_id?: string | null;
+            /** Created At */
+            created_at?: string | null;
+            /**
+             * Has Summary
+             * @default false
+             */
+            has_summary: boolean;
+            /** Id */
+            id: string;
+            /**
+             * Item Count
+             * @default 0
+             */
+            item_count: number;
+            /** Source Conversation Id */
+            source_conversation_id?: string | null;
+            /**
+             * Template
+             * @default custom
+             * @enum {string}
+             */
+            template: "investigation" | "hunt" | "ioc" | "shift" | "posture" | "custom" | "executive" | "monthly" | "infographic" | "investigation_brief";
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: string;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+        };
+        /**
+         * ReportListResponse
+         * @description ``GET /api/reports``: ``{reports: [...]}`` newest first, plus the cap.
+         */
+        ReportListResponse: {
+            /**
+             * Limit
+             * @default 100
+             */
+            limit: number;
+            /** Reports */
+            reports?: components["schemas"]["ReportListEntry"][];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+        };
+        /**
+         * ReportPatchRequest
+         * @description ``PATCH /api/reports/{id}``: title, template, item order, notes, removals —
+         *     all under ``expected_version`` (409 ``report_version_conflict`` on mismatch).
+         *     ``item_order`` must be a permutation of the remaining item ids; ``notes`` maps
+         *     item id → note (``null`` clears it).
+         */
+        ReportPatchRequest: {
+            /** Expected Version */
+            expected_version: number;
+            /** Item Order */
+            item_order?: string[] | null;
+            /** Notes */
+            notes?: {
+                [key: string]: string | null;
+            } | null;
+            /** Remove Items */
+            remove_items?: string[] | null;
+            /** Template */
+            template?: ("investigation" | "hunt" | "ioc" | "shift" | "posture" | "custom" | "executive" | "monthly" | "infographic" | "investigation_brief") | null;
+            /** Title */
+            title?: string | null;
+        };
+        /**
+         * ReportSummary
+         * @description The AI-written executive summary (one gateway call over the §9.4 digest).
+         *     Stale when ``based_on_version`` lags the report's ``version``.
+         */
+        ReportSummary: {
+            /**
+             * Based On Version
+             * @default 0
+             */
+            based_on_version: number;
+            /**
+             * Executive Summary
+             * @default
+             */
+            executive_summary: string;
+            /** Generated At */
+            generated_at?: string;
+            /** Model */
+            model?: string | null;
+            /** Next Steps */
+            next_steps?: string[];
+            usage?: components["schemas"]["TurnUsage"];
+        };
+        /**
+         * ReportSummaryEstimate
+         * @description ``POST /api/reports/{id}/summary?dry_run=1``: what generating would cost.
+         */
+        ReportSummaryEstimate: {
+            /** Cost */
+            cost?: number | null;
+            /** Max Output Tokens */
+            max_output_tokens: number;
+            /** Model */
+            model?: string | null;
+            /** Prompt Tokens */
+            prompt_tokens: number;
+            /**
+             * Simulated
+             * @default false
+             */
+            simulated: boolean;
+            /** Total Tokens */
+            total_tokens: number;
+        };
+        /**
+         * ReportSummaryRequest
+         * @description ``POST /api/reports/{id}/summary`` body (``?dry_run=1`` is a query flag).
+         */
+        ReportSummaryRequest: {
+            /** Expected Version */
+            expected_version?: number | null;
+            /** Idempotency Key */
+            idempotency_key?: string | null;
         };
         /** ResetBody */
         ResetBody: {
@@ -8291,6 +10416,139 @@ export interface components {
              */
             to_status: string;
         };
+        /** StepEndEvent */
+        StepEndEvent: {
+            step: components["schemas"]["ChatStep"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "step.end";
+        };
+        /**
+         * StepProgressEvent
+         * @description Progress of one running step (SPEC §3.3), e.g. an exact aggregate scan:
+         *     ``done`` of ``total`` (``None`` when the store cannot say up front) in ``unit``
+         *     (an engine noun such as "cases"). The step's final ``progress`` arrives in its
+         *     ``step.end``.
+         */
+        StepProgressEvent: {
+            /**
+             * Done
+             * @default 0
+             */
+            done: number;
+            /** Index */
+            index: number;
+            /** Total */
+            total?: number | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "step.progress";
+            /**
+             * Unit
+             * @default
+             */
+            unit: string;
+        };
+        /** StepStartEvent */
+        StepStartEvent: {
+            step: components["schemas"]["StepStartInfo"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "step.start";
+        };
+        /**
+         * StepStartInfo
+         * @description What a step announces before it runs (its final shape arrives in step.end).
+         */
+        StepStartInfo: {
+            /** Group */
+            group?: number | null;
+            /** Index */
+            index: number;
+            /**
+             * Kind
+             * @default tool
+             * @enum {string}
+             */
+            kind: "tool" | "model";
+            /**
+             * Label
+             * @default
+             */
+            label: string;
+            /** Ordinal */
+            ordinal?: number | null;
+            /** Params */
+            params?: {
+                [key: string]: string | number | boolean | null;
+            };
+            /** Tool */
+            tool?: string | null;
+        };
+        /**
+         * StepUsage
+         * @description Usage of ONE model call (or one query-embedding call on a tool step).
+         *     ``estimated`` marks a provider that omitted usage or a call cancelled mid-stream
+         *     (input = provider count or chars/4, output = chars/4 of what was received).
+         */
+        StepUsage: {
+            /**
+             * Cache Read Tokens
+             * @default 0
+             */
+            cache_read_tokens: number;
+            /**
+             * Cache Write Tokens
+             * @default 0
+             */
+            cache_write_tokens: number;
+            /**
+             * Cost
+             * @default 0
+             */
+            cost: number;
+            /**
+             * Embedding Calls
+             * @default 0
+             */
+            embedding_calls: number;
+            /**
+             * Embedding Cost
+             * @default 0
+             */
+            embedding_cost: number;
+            /**
+             * Embedding Tokens
+             * @default 0
+             */
+            embedding_tokens: number;
+            /**
+             * Estimated
+             * @default false
+             */
+            estimated: boolean;
+            /**
+             * Input Tokens
+             * @default 0
+             */
+            input_tokens: number;
+            /**
+             * Latency Ms
+             * @default 0
+             */
+            latency_ms: number;
+            /**
+             * Output Tokens
+             * @default 0
+             */
+            output_tokens: number;
+        };
         /**
          * StorageLifecycleConfig
          * @description Desired lifecycle for Agentic SOC's OWN application state.
@@ -8433,6 +10691,62 @@ export interface components {
                 [key: string]: string;
             };
         };
+        /**
+         * TextContinuedEvent
+         * @description The answer was cut at the output limit and continues as part ``part`` (≥ 2)
+         *     (SPEC D3). A quiet run-log marker: the text keeps streaming, no ``text.reset``.
+         */
+        TextContinuedEvent: {
+            /** Part */
+            part: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "text.continued";
+        };
+        /**
+         * TextDeltaEvent
+         * @description Answer text (Live text mode only, after the header parsed as ``final``).
+         *
+         *     Lone surrogate halves are dropped (a delta can split nothing valid in two: the
+         *     engine slices Python strings, whose astral characters are single code points, so
+         *     a surrogate here came from a JSON escape in the model output). ``ChatResponse``
+         *     drops them the same way, so the streamed text and the final answer agree.
+         */
+        TextDeltaEvent: {
+            /** Text */
+            text: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "text.delta";
+        };
+        /**
+         * TextResetEvent
+         * @description Discard all text streamed so far for this turn.
+         */
+        TextResetEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "text.reset";
+        };
+        /**
+         * TextStreamingInfo
+         * @description Whether "Type out answers" can work for the effective chat model (§6.3).
+         */
+        TextStreamingInfo: {
+            /**
+             * Available
+             * @default false
+             */
+            available: boolean;
+            /** Reason */
+            reason?: ("disabled_by_admin" | "model_does_not_stream") | null;
+        };
         /** ThreadEditBody */
         ThreadEditBody: {
             /**
@@ -8548,6 +10862,29 @@ export interface components {
             wilson_z: number;
         };
         /**
+         * TimeRange
+         * @description The composer time window ``{from, to}`` (SPEC §3.1).
+         *
+         *     Each bound is ``now``, ``now-<n>[m|h|d|w|M|y]`` (lower-case ``m`` is minutes,
+         *     ``M`` months, ``y`` years) or ISO-8601, and ``from`` may also be ``all``
+         *     (``{"from": "all"}``, the "All time" chip, Round 12, which never clamps); ``from``
+         *     must be strictly before ``to``, else 422. Round 12 (SPEC D7a): chat scope windows
+         *     have no span limit (:attr:`MAX_SPAN_DAYS` is ``None``). It applies to every
+         *     windowed chat tool; precedence is the model's explicit window from the user's
+         *     words, then this, then ``context.time_range``, then the tool's own default. Serialises as ``{"from",
+         *     "to"}`` (both keys, always) regardless of ``by_alias`` or ``exclude_defaults``, so
+         *     stored and wire shapes never diverge.
+         */
+        TimeRange: {
+            /** From */
+            from: string;
+            /**
+             * To
+             * @default now
+             */
+            to: string;
+        };
+        /**
          * TriggerReason
          * @description Deterministic explanation of WHY a cluster was triggered (Feature 3).
          *
@@ -8611,6 +10948,175 @@ export interface components {
              * @default 0
              */
             window_start: number;
+        };
+        /**
+         * TurnDoneEvent
+         * @description The persisted response: the client renders this, not its streamed state.
+         */
+        TurnDoneEvent: {
+            response: components["schemas"]["ChatResponse"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "turn.done";
+        };
+        /**
+         * TurnErrorEvent
+         * @description A turn that produced no response after the stream started.
+         */
+        TurnErrorEvent: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "provider_unavailable" | "budget_blocked" | "breaker_open" | "history_unavailable" | "internal";
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            notice?: components["schemas"]["TurnNotice"] | null;
+            /**
+             * Retryable
+             * @default false
+             */
+            retryable: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "turn.error";
+        };
+        /** TurnEstimate */
+        TurnEstimate: {
+            /**
+             * Prompt Tokens
+             * @default 0
+             */
+            prompt_tokens: number;
+        };
+        /**
+         * TurnNotice
+         * @description Why a turn is partial, stopped, refused or not saved. ``message`` is an engine
+         *     template; ``retryable`` decides whether the UI offers Retry.
+         */
+        TurnNotice: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "partial" | "cap" | "budget" | "provider" | "breaker" | "denied" | "timeout" | "cancelled" | "unsupported" | "not_saved" | "limited" | "stopped_repeating" | "compacted";
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /**
+             * Retryable
+             * @default false
+             */
+            retryable: boolean;
+        };
+        /** TurnStartEvent */
+        TurnStartEvent: {
+            /** Conversation Id */
+            conversation_id?: string | null;
+            estimate?: components["schemas"]["TurnEstimate"];
+            /** Model */
+            model?: string | null;
+            /**
+             * Replayed
+             * @default false
+             */
+            replayed: boolean;
+            /**
+             * Stream Mode
+             * @default steps
+             * @enum {string}
+             */
+            stream_mode: "steps" | "text";
+            /** Turn Id */
+            turn_id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "turn.start";
+        };
+        /**
+         * TurnUsage
+         * @description Running/final usage of one turn: the sum of its model calls plus any
+         *     query-embedding calls. ``cost`` includes embedding cost; ``simulated`` marks Demo
+         *     Mode synthetic pricing; ``estimated`` is true when any part was estimated.
+         */
+        TurnUsage: {
+            /**
+             * Cache Read Tokens
+             * @default 0
+             */
+            cache_read_tokens: number;
+            /**
+             * Cache Write Tokens
+             * @default 0
+             */
+            cache_write_tokens: number;
+            /**
+             * Calls
+             * @default 0
+             */
+            calls: number;
+            /** Context Window */
+            context_window?: number | null;
+            /**
+             * Cost
+             * @default 0
+             */
+            cost: number;
+            /**
+             * Embedding Calls
+             * @default 0
+             */
+            embedding_calls: number;
+            /**
+             * Estimated
+             * @default false
+             */
+            estimated: boolean;
+            /**
+             * Input Tokens
+             * @default 0
+             */
+            input_tokens: number;
+            /**
+             * Latency Ms
+             * @default 0
+             */
+            latency_ms: number;
+            /** Model */
+            model?: string | null;
+            /**
+             * Output Tokens
+             * @default 0
+             */
+            output_tokens: number;
+            /**
+             * Peak Prompt Tokens
+             * @default 0
+             */
+            peak_prompt_tokens: number;
+            /** Pricing Source */
+            pricing_source?: string | null;
+            /**
+             * Simulated
+             * @default false
+             */
+            simulated: boolean;
+            /**
+             * Total Tokens
+             * @default 0
+             */
+            total_tokens: number;
         };
         /** UpdateBackup */
         UpdateBackup: {
@@ -8898,6 +11404,18 @@ export interface components {
             last_job?: components["schemas"]["UpdateJob"] | null;
             release_discovery: components["schemas"]["UpdateReleaseDiscovery"];
         };
+        /**
+         * UsageEvent
+         * @description Running totals after a model call (the meter ticks on every one).
+         */
+        UsageEvent: {
+            totals: components["schemas"]["TurnUsage"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "usage";
+        };
         /** UserCreateBody */
         UserCreateBody: {
             /** Custom Roles */
@@ -8940,6 +11458,8 @@ export interface components {
          *     granular edits).
          */
         UserPrefsPatchBody: {
+            /** Chat Prompts */
+            chat_prompts?: components["schemas"]["ChatPrompt"][] | null;
             /** Last List State */
             last_list_state?: {
                 [key: string]: Record<string, never>;
@@ -9928,6 +12448,7 @@ export interface operations {
         parameters: {
             query: {
                 provider: string;
+                remember?: boolean;
             };
             header?: never;
             path?: never;
@@ -10526,6 +13047,10 @@ export interface operations {
                 sort_field?: string | null;
                 sort_order?: string | null;
                 status_group?: string | null;
+                q?: string | null;
+                assignee?: string | null;
+                severity?: string | null;
+                verdict?: string | null;
             };
             header?: never;
             path?: never;
@@ -11571,7 +14096,40 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["ChatResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_context_api_chat_context_get: {
+        parameters: {
+            query?: {
+                conversation_id?: string | null;
+                model?: string | null;
+                case_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatContextInfo"];
                 };
             };
             /** @description Validation Error */
@@ -11590,6 +14148,7 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
+                q?: string | null;
             };
             header?: never;
             path?: never;
@@ -11603,7 +14162,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["ChatConversationPage"];
                 };
             };
             /** @description Validation Error */
@@ -11634,7 +14193,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["ChatConversation"];
                 };
             };
             /** @description Validation Error */
@@ -11679,7 +14238,7 @@ export interface operations {
             };
         };
     };
-    rename_chat_conversation_api_chat_conversations__conversation_id__patch: {
+    update_chat_conversation_api_chat_conversations__conversation_id__patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -11690,7 +14249,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ChatConversationRenameRequest"];
+                "application/json": components["schemas"]["ChatConversationUpdateRequest"];
             };
         };
         responses: {
@@ -11700,8 +14259,503 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["ChatConversation"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_conversation_messages_api_chat_conversations__conversation_id__messages_get: {
+        parameters: {
+            query?: {
+                before?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatMessagePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_conversation_message_api_chat_conversations__conversation_id__messages__message_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatConversationMessage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_step_observation_api_chat_conversations__conversation_id__messages__message_id__steps__index__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+                message_id: string;
+                index: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatStepObservation"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mark_chat_conversation_read_api_chat_conversations__conversation_id__read_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_entity_question_api_chat_entity_question_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatEntityRef"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatEntityQuestion"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_chat_feedback_api_chat_feedback_get: {
+        parameters: {
+            query?: {
+                conversation_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatFeedbackList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_feedback_api_chat_feedback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatFeedbackRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_feedback_summary_api_chat_feedback_summary_get: {
+        parameters: {
+            query?: {
+                since?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatFeedbackSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_starters_api_chat_starters_get: {
+        parameters: {
+            query?: {
+                surface?: "home" | "thread" | "case";
+                conversation_id?: string | null;
+                case_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatStartersInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_starter_event_api_chat_starters_events_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatStarterEvent"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_stream_api_chat_stream_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatRequest"];
+            };
+        };
+        responses: {
+            /** @description NDJSON: one ChatStreamEvent per line. turn.start first; turn.done (the persisted response) or turn.error last; ping every idle 10 s. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-ndjson": components["schemas"]["ChatStreamEventModel"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_topic_api_chat_topics__topic_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                topic_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatTopicQuestion"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    active_chat_turns_api_chat_turns_active_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatActiveTurn"][];
+                };
+            };
+        };
+    };
+    cancel_chat_turn_api_chat_turns__turn_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                turn_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatTurnCancelResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_turn_events_api_chat_turns__turn_id__events_get: {
+        parameters: {
+            query?: {
+                after?: number;
+            };
+            header?: never;
+            path: {
+                turn_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description NDJSON: the turn's events after `after` (each line also carries its `seq`; answer text coalesced), then the live tail, ending with turn.done or turn.error; ping every idle 10 s. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-ndjson": components["schemas"]["ChatStreamEventModel"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_turn_seen_api_chat_turns__turn_id__seen_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                turn_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -14732,6 +17786,298 @@ export interface operations {
                 };
                 content: {
                     "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    list_reports_api_reports_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportListResponse"];
+                };
+            };
+        };
+    };
+    create_report_api_reports_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReportCreateRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Report"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_to_report_api_reports_add_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportAddRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportAddResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    report_from_answer_api_reports_from_answer_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportFromAnswerRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSavedReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    report_from_conversation_api_reports_from_conversation_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportFromConversationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportFromConversationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_report_api_reports__report_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Report"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_report_api_reports__report_id__delete: {
+        parameters: {
+            query?: {
+                expected_version?: number | null;
+            };
+            header?: never;
+            path: {
+                report_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReportDeleteRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDeleteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_report_api_reports__report_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportPatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Report"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    summarise_report_api_reports__report_id__summary_post: {
+        parameters: {
+            query?: {
+                dry_run?: boolean;
+            };
+            header?: never;
+            path: {
+                report_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReportSummaryRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description The report with its new summary, or with ``dry_run=1`` the ReportSummaryEstimate (no model call). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Report"] | components["schemas"]["ReportSummaryEstimate"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

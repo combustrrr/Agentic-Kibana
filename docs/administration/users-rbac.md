@@ -26,7 +26,7 @@ authorization boundary.
 
 ## Add a local user
 
-1. Open **Settings → Users**.
+1. Open **Settings → Security & access → Users**.
 2. Create a unique username and a strong initial password.
 3. Assign the smallest built-in or custom role that covers the user's duties.
 4. Require a password change when appropriate.
@@ -65,6 +65,9 @@ Administrators can revoke an individual session, revoke all sessions for a user,
 disable/delete an account. Session revocation is checked on subsequent authenticated
 requests. Preserve at least one working `super_admin` account and verify it before
 changing another administrator's role.
+
+Deleting an account also deletes that user's Workspace chat conversations, answer
+ratings and reports, and stops their running chat answers. Audit records are kept.
 
 ## Limitations
 

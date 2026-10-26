@@ -38,8 +38,184 @@ case state.
 - Prefer transparent sections separated by `border-border` over card-inside-card
   layouts. A card is reserved for a selectable record, contained editor, dialog, or
   genuinely independent widget.
-- Controls are compact and squared/quiet (`Button`, `Select`, `SegmentedControl`,
-  `TimeRangePicker`); keep one visual grammar in light and dark themes.
+- Controls are compact and quiet with concentric radii (`Button`, `Select`,
+  `SegmentedControl`, `TimeRangePicker`); keep one visual grammar in light and dark
+  themes.
+
+## Foundations
+
+Restraint is expressed through space, type, and one material for floating chrome, not
+through new chrome. These rules are implemented once — `tailwind.config.js`,
+`styles/theme.css`, `lib/ui-recipes.ts`, `components/motion/variants.ts`, and the
+`src/ui` primitives — and pinned by `src/design-system/__tests__/foundations.test.ts`
+and `src/ui/__tests__/foundations.round12.test.tsx`. Compose them; do not restate them.
+
+**Spacing.** Tailwind's 4px scale on an 8px rhythm, in `rem` so zoom and text size
+scale the layout. Dense inside, generous between: `1` (4px) inside chips and menu
+insets, `2`–`3` (8–12px) between related controls and for row padding, `4`–`5`
+(16–20px) for instrument and pane insets (a grouped dashboard panel grows to `6`, 24px,
+from 1920px), `6` (24px) for column gutters (between grouped panels the gutter matches
+the panel padding: 16, 20, then 24px), `8`–`10` (32–40px) between bands (a grouped
+dashboard's bands sit 48px apart from 1920px), and otherwise `12` (48px) only for sparse
+identity screens. The container sets rhythm with `gap-*`/`space-y-*`; children never add
+sibling margins, and a run of siblings that needs a different rhythm gets its own group
+container. One 16–24px rail per pane; never stack page, pane, and panel padding.
+
+**Radii.** One concentric scale on the brandable `--radius` (10px by default):
+inner radius = outer radius − inset.
+
+| Surface | Radius | Class |
+|---|---|---|
+| Badges, chips, menu and list items, tab triggers, segments | 6px | `rounded-sm` |
+| Buttons, inputs, selects, segmented rails, cards | 8px | `rounded-md` |
+| Menus, popovers, hover cards, tooltips, toasts | 10px | `rounded-lg` |
+| Dialogs, sheets (leading edge only, from `sm`), the command palette | 14px | `rounded-xl` |
+| Grouped dashboard panels (`.surface-panel`: each primary-dashboard module and its KPI strip) | 14px | `rounded-xl` (in the recipe) |
+| Bands, list rows, tables, flat KPI strips, split panes | 0 | divider-led |
+
+A 10px menu with a `p-1` inset holds 6px items; a 14px dialog holds its own 8px
+controls. Focus rings follow the element's radius. Use the `rounded-tr-xl
+rounded-br-xl` pair rather than `rounded-r-xl`, which collides with the `r-xl` token
+key. The 14px step is `--radius + min(--radius, 4px)`, so the brand "Square" preset
+(`--radius: 0rem`) squares every step, dialogs and sheets included. A rounded side
+sheet clips its children to the curve (`overflow-hidden`), so a full-bleed child with
+its own fill never paints square corners over it.
+
+**Typography.** Inter Variable stays the face (identical metrics offline, tabular
+figures, the `ss01`/`cv01`/`zero` sets that keep IOCs legible). Tracking is
+size-specific and follows Inter's dynamic-metrics curve, carried by each `fontSize`
+step: +0.005em at 11px, 0 at 12px, −0.003 to −0.011em from 13 to 16px, tightening to
+−0.022em at 32px. Do not add `tracking-tight`/`tracking-wide` on top of a size step.
+Leading is inverse (looser body, tighter display); `leading-none` only on single-line
+numerals. Hierarchy comes from weight + size + leading together; weights stay 400–650.
+Reading prose (chat answers, questions, suggestion text, conversation titles, answer
+block titles and captions, and the answer's scope line) sets `proportional-nums`: the
+body's tabular figures also widen Inter's hyphen ("Read - only", "Highest - risk").
+So do text values on answer blocks: an indicator card's facts and provider names
+("demo-synthetic"), case titles, table text cells, timeline lines, notes, Brief section
+summaries and KPI tile labels. Figures, dates, scores, meta rows and KPI values keep
+tabular numerals. A short reference in chat text (a case number, technique id or rule id of up to
+27 characters, its punctuation not counted: "CASE-000089?", "sigma-win-proc-creation-01")
+never breaks inside, not even at its hyphen; the sentence wraps between words, and a word
+of 28 characters or more breaks where its line ends, its ends kept
+(`starters/soft-breaks.tsx`; 27 is also the longest reference the server writes into a
+start question). On start cards and case chips a kept reference is an inline block no
+wider than its line, so one wider than the whole card line wraps inside it instead of
+running past the card. A start card's question is `text-wrap: balance`, so its last word
+never stands alone.
+11px (`text-2xs`) is for badges, axis ticks and timestamps only; content text,
+legends, captions and stat context are 12px or larger.
+
+**Numerals.** A numeral never truncates and is never broken inside its digits: no
+ellipsis, no clip, no `break-words` split, because a cut number is a plausible wrong
+number ("≥77,77" over "7"). Nothing shares its line — a metric's context sits on its
+own line under it and wraps, a delta chip wraps under it when the row is short, and a
+tile's corner icons (help, drill-down) sit in the label row's corner, which reserves
+their width, never over the numeral. The hero ladder counts what is drawn, the `≥`
+floor mark included. `KpiTile` then measures the numeral against the row it is really
+in and steps the size down — then abbreviates through `formatCompact`, with the exact
+value as text, and keeps measuring the short form (it starts on the size its own length
+earns and steps down again) — until it fits; only a value with a real space may take a
+second line, after the smallest step. The smallest step is the floor (18px): a cell whose
+numeral row is narrower than the short form at 18px (under about 100px of tile) cannot
+hold a number, so never lay one out that narrow — `KpiTileGrid` keeps every tile at
+least 10rem wide. `KpiTile size="fluid"` sizes the hero numeral from its own
+tile, never the viewport: the numeral row is a size container and the rungs are `cqi`
+clamps (25 / 20 / 15% of the row, 24–44px on the top rung) with −0.021em tracking.
+Use it inside a sized cell. Tile grids use `KpiTileGrid`, whose column count follows
+the tile count, so a grid never draws an empty track.
+
+**Materials.** One translucent material, for floating chrome only: the top bar, sticky
+page/control/filter bars, a sticky table or record header. Use the `materialBar`
+recipe (or `materialThick` for large floating panes, or `MaterialBar` from
+`@/design-system`); never a page-local `bg-*/95 backdrop-blur`. Content — tables,
+charts, transcripts, evidence — always sits on an opaque canvas or card, and menus,
+popovers, dialogs and sheets are solid, so translucent never stacks on translucent (a
+material nested in another material, or in the glass top bar, is painted solid). The
+fill hides what scrolls beneath on its own, in every engine: 0.97 for bars and the top
+bar, 0.98 for thick panes. The backdrop blur is decoration that cannot be relied on, and
+it stops at a backdrop root: never put a filling animation (`both`/`forwards`), `opacity`
+below 1 or a `filter` on an ancestor of a bar. The entrance utilities (`animate-fade-in`,
+`animate-rise-in`, `animate-scale-in`) fill `backwards` for this reason; the route
+wrapper's `both`-filled fade once stopped the sticky Overview band's blur on first load
+(`material-gate.test.ts`). Text beneath must read as a wash of
+colour, never as words: at most about 1.07:1 against the bar in both themes, measured by
+`src/design-system/__tests__/foundations.test.ts` (a 0.80 fill let chart labels and
+card text read through). On a material, small
+text uses `text-foreground` or `text-secondary-foreground` at `font-medium`, and colour
+lives on solid chips (a sticky table header lifts its column labels to
+`text-secondary-foreground`). Under sticky chrome the scroll-edge fade replaces a hard
+divider: `PageHeader`, `ControlBar`, `FilterBar` and `TableHeader` with `sticky`,
+`MaterialBar` and the Settings section strip show it only while content is scrolled
+beneath the pinned bar (`useScrollEdge` / `useScrollEdgeRef`), and drop their own
+hairline while pinned. The fade hangs below the bar, so a material never sets `overflow`
+on itself (a horizontally scrolling row goes inside it). Each recipe has its own opaque
+token (`--material-solid`: the background for a bar, the popover colour for a thick
+pane), which both the fade and every solid fallback paint, so neither changes the surface's
+colour. Never animate `backdrop-filter`. `src/design-system/__tests__/material-gate.test.ts`
+fails on a new page-local blur or translucent sticky fill.
+
+Nothing lands under a sticky page band, neither keyboard focus nor a heading (WCAG
+2.4.11). While a `sticky` `PageHeader` is pinned it sets the document scroller's
+`scroll-padding-top` to the top bar, its measured height and the 16px scroll-edge fade
+(`bandScrollPadding`), and clears it when it unmounts or stops being pinned (a
+`max-sm:static` band on a phone). Every scroll-into-view honours scroll padding: Tab and
+Shift+Tab, in-page links, `scrollIntoView` and find-in-page all stop with the target in
+full view below the band. Do not add a `scroll-margin-top` for the band on the page's
+own elements as well: margin and padding add up and push the target too low.
+
+Sticky chrome needs a scroller that actually scrolls. The shell clips horizontal
+overflow with `overflow-x-clip`, never `overflow-x-hidden`: a lone hidden axis turns
+the element into a vertical scroll container that never scrolls, and every sticky
+descendant — the top bar included — then leaves with the page. Pin below the top bar
+with `top-[var(--header-h)]`, never a bare `top-0`/`top-4` in a window-scrolled page. A
+full-width sticky bar (anything on the material) pins FLUSH at `top-[var(--header-h)]`:
+an offset such as `calc(var(--header-h)+0.5rem)` leaves an unpainted slit between the top
+bar and the bar through which scrolled content shows. Want breathing room? Pad inside
+the material. A `calc()` offset is only for a sticky aside in its own column (a section
+rail), which no content scrolls past. `material-gate.test.ts` fails on an offset material.
+
+**Elevation.** Borders for tiled and scrolled content; shadows only for detached
+portals. Menus and select lists use `shadow-menu`; popovers, hover cards, tooltips,
+dialogs, sheets and the palette use `shadow-overlay`. No resting shadows on
+instruments; `hover-lift` only on genuinely clickable standalone tiles. Modal tasks dim
+the page with the shared scrim; a non-blocking side pane gets no scrim.
+
+**Motion.** One spring vocabulary (`components/motion/variants.ts`): `SPRING_UI`
+(critically damped, `bounce: 0`, 0.3s visual duration) is the default for tabs,
+disclosure, row reflow and the bulk bar; `SPRING_PANE` (0.35s) for sheets, side panes
+and the report panel; `SPRING_MOMENTUM` (a little bounce) only after a pointer release
+that carried velocity, never for click-driven motion. `HOUSE_SPRING` is a deprecated
+alias of `SPRING_UI`. Exits are short tweens. CSS overlays use the same curve through
+`ease-spring` (a sampled critically damped `linear()` where supported) with
+`duration-ui` / `duration-pane`. Overlays scale from their trigger: menus, popovers,
+hover cards, tooltips and selects zoom from Radix's `--radix-popper-transform-origin`
+through one base rule in `theme.css` (no per-primitive class), and a
+dialog opened from state passes `origin` (the trigger's centre) to `DialogContent`.
+Enter and exit follow the same path. Press feedback is immediate: buttons settle to
+97% in 100ms on pointer-down (`motion-safe` only; link-styled buttons never scale),
+and full-width rows darken on `:active` instead of scaling — the `Button` base does
+this for any `w-full` button. Animate `transform` and
+`opacity` only, from the current value, and never lock input during a transition.
+Data on an automatic refresh never animates (`KpiTile roll={false}`).
+
+**Accessibility media queries.** All three signals are honoured.
+`prefers-reduced-motion`: JS motion keeps only opacity (`MotionConfig
+reducedMotion="user"`), CSS overlays swap their scale/slide keyframes for a 150ms
+opacity-only cross-fade, and press scale is dropped. `prefers-reduced-transparency`
+(and `data-transparency="reduced"` on `<html>`, the in-app override for browsers that
+never report it): every material and the top bar become solid. The override is the
+per-user Settings → Appearance & customization → "Reduce transparency" choice
+(System / On), stored in `UserPrefs.misc.transparency`, mirrored on the device in
+`soc.transparency` and stamped before first paint by `index.html`
+(`design-system/transparency.ts`); Safari never reports the media query and Firefox
+only behind a flag.
+`prefers-contrast: more`: hairlines become ≥3:1 structural lines — including the
+alpha hairline variants (`border-border/70` and the like), through the
+`--border-alpha-floor` the `border` colour carries — secondary text strengthens (and
+is never weaker than muted text), the login identity canvas strengthens its own
+borders, field edges and text, and materials turn solid with a defined bottom rule
+instead of the scroll-edge fade.
 
 ## Page anatomy
 
@@ -117,11 +293,74 @@ viewport edge. Inside the detail pane, header, tabs, and every tab panel share o
 responsive 16–24px content rail. Do not stack page, pane, and panel padding into
 separate 32px gutters; the resizable detail pane must spend its width on evidence.
 
+Queue rows are a divided list, not boxed cards. A row has two lines: the title and its
+relative age, then the severity word, risk score, display id, a secondary fact only
+when it adds to the title, and the status as sentence-case text with its glyph. The
+word carries severity; a left rail only reinforces it (solid for critical and high,
+dashed for medium, none below). Hover, keyboard focus, selected (checked box and a
+light tint) and open (a stronger tint, a primary edge rail and `aria-current`) never
+look alike. Labels and titles are sentence case, never tracked capitals. Panels inside a
+resizable pane lay out against the pane width with container queries, not the viewport.
+
+The Case Manager queue (Round 12) keeps that grammar and adds to it. Its scope (Active,
+Mine, All), filters, search and sort are answered by the server over every case, paged
+with Load more, and the scope line always states loaded against total; a client-side
+filter of a recent window is never the queue. The comfortable row may carry a third
+line (the middle-ellipsised id and the secondary fact, which shrinks first and hides in
+a narrow queue but stays in the row's accessible name); a compact density is one line.
+The second line names the case outcome (§ Case outcome) beside severity and risk. The
+list is one tab stop with a roving focus (↑/↓ or J/K move and open, X or Space select,
+Enter moves into the case, / searches, ? lists the shortcuts) and rows update live from
+the `cases` realtime topic. A live change is checked against the whole view (scope,
+status, owner, search, severity): a row that no longer matches leaves the window and the
+total, a case that now lists inside the loaded window appears, and Load more re-reads the
+window rather than skip a case when the live order has shifted. "N new cases · Show"
+re-reads the window grown by the new cases, never just the first page, so rows the
+analyst loaded (and the open case) keep their place. When the open case leaves the view
+(a plain Close, or a live change), the roving stop moves to the row that took its place
+and the first J/↓ (K/↑ when the last row closed) or Enter opens that row rather than
+skipping it. A count that claims an exact total (the Cases "Needs human" tile) is made
+from structured filters (status, AI verdict), never the free-text search. A single-letter shortcut
+never fires while focus is in a control that takes letters itself (text, a select, a
+menu, a radio group).
+
 Row selection is independent of row navigation. “Select visible” means the filtered
-rows in the loaded client window and never implies every server match. Mixed bulk
-operations expose progress and per-record partial failures; successful records leave
-the selection while failures remain retryable. Permission hiding in the Console is
-guidance—the API must recheck every action.
+rows in the loaded client window and never implies every server match; "Select all N
+matching" is a separate, explicit control that snapshots the server's matches. A row
+checkbox is a sibling of the row's open control, never nested in it; it may appear on
+hover or focus, but stays visible on touch screens and once anything is selected (the
+Case Manager shows it always). Mixed bulk operations expose progress and per-record
+partial failures; successful records leave the selection while failures remain
+retryable. Every bulk or single path that ends a case (close, resolve) collects a
+disposition first. Permission hiding in the Console is guidance—the API must recheck
+every action.
+
+**Case outcome.** Status answers "where is the work", the outcome answers "what was it"
+and the AI verdict answers "what did the model think"; the three never share a style
+(status is glyph and text, the outcome a filled disposition badge with an `Analyst`
+tag, the AI verdict an outline chip with the AI glyph). Once an analyst classifies a
+case (the classification history entry, exactly as the ground-truth authority reads
+it), the classification is the headline ("Closed as false positive") and the AI verdict
+stays as a labelled secondary line. One shared helper decides it for the case header,
+queue rows, the Cases list, hover cards and grading; a disposition value alone is never
+treated as an analyst's call.
+
+**Case header.** The header stays put above every tab: the title (one line in a narrow
+pane, its full text on hover and in its accessible name), one meta row (id, severity,
+risk with its band, status, outcome, AI verdict, owner, tags, times and SLA, campaign),
+one primary contextual action plus the full Take action menu. Facts about the case live
+once, in a facts rail beside every tab (a non-blocking Details sheet in a narrow pane);
+the tabs hold the evidence narrative. The title shares its row with the actions only
+when the whole title fits beside them; otherwise the actions wrap below it, so the title
+is never squeezed. Lifecycle dialogs keep their actions in a footer that never scrolls
+away, open with focus on the field the analyst must fill (the disposition), and return
+focus to the control that opened it, or, when that control left with its row, to the
+row that took its place ("Close & next" lands on the next case's row). The confirmation
+after a close offers **Reopen**, never "Undo": reopening keeps the recorded outcome until
+the case is closed again with a new one, and the toast says so. Closing a Needs-human
+case the analyst did not grade records no AI agreement either way; a grade the analyst
+does give there (or on a duplicate close, or a case with no AI verdict) carries no
+assessment, and the Agreement rate counts only grades that compare with the AI verdict.
 
 Campaigns is analyst-first. The default **Campaign review** workspace owns the current
 group list, detail, and read-only refresh; manual correlation and saved cadence belong
@@ -153,85 +392,537 @@ or the agent assessment, while deterministic case policy makes the final route.
 
 ## Conversation workspaces
 
-Workspace Chat is a conversation workspace, not an empty dashboard. On desktop it
-uses one quiet 264px history rail separated from the active thread by a hairline; below
-the desktop breakpoint, the rail becomes a left Sheet opened by an explicit
-**History** control. The list is searchable, newest-first, and grouped by recency. Its
-rows show title, preview, age, and message count; the selected row exposes
-`aria-current`, while rename and delete remain secondary row actions. Loading, empty,
-partial-error, and no-match states occupy the rail rather than replacing the usable
-active transcript. Desktop exposes one page-level **New chat** action; the mobile Sheet
-may repeat it locally because the page action is no longer in view.
+Workspace Chat is a three-zone conversation workspace: a history rail, the
+conversation, and an on-demand report panel. Zones follow the **measured** width of
+the chat frame (a ResizeObserver), never viewport breakpoints, because the app
+navigation rail (240 or 64 px) and the shell gutter have already taken their share.
+The conversation always keeps at least 640 px:
 
-The Chat workspace owns one fluid `PageContainer`; a route wrapper must not place the
-split conversation workspace inside a second fixed-width container.
+- The history rail docks at 264 px plus a hairline while the frame minus 265 px still
+  leaves 640 px; below that it becomes a 48 px icon strip (New chat, Search, Show
+  history), and below a 640 px frame a left Sheet opened by **History** in the toolbar.
+  A viewer may collapse the docked rail to the strip; that choice persists locally.
+- The report panel opens as a split column (default 360 px, 320–480 px, plus its 9 px
+  separator handle) only when the conversation keeps 640 px, collapsing the docked rail
+  to the strip first if that is enough; otherwise it is an overlay Sheet. The split
+  reuses the queue/detail separator idiom: one focusable 9 px handle around a centred
+  1 px hairline (`role="separator"` with value attributes), arrow keys in small steps,
+  Shift for larger ones, Home/End, double-click to reset, pointer drag, and a width
+  persisted per viewer. Split mode never moves focus; the overlay moves focus to the
+  panel heading and returns it on close. The first Add to report of a conversation
+  opens the split without moving focus; in overlay geometry it never auto-opens, and a
+  toast offers **Open** instead.
+- Exactly one **New chat** is visible at every width: in the docked rail header, in the
+  icon strip, or in the toolbar when the rail is a Sheet.
 
-Its height follows the available viewport below the shared shell header. Do not impose
-a fixed `rem` minimum on the transcript/workbench: short desktop windows must keep the
-single docked composer fully visible while the transcript becomes the scroll owner.
+**Chrome.** The Chat route owns its frame: it bleeds the shell's whole inset with
+`-mx-4 -my-6 sm:-mx-6` and `w-auto` (the matched pair of `CONTENT_INSET`'s
+`px-4 py-6 sm:px-6`), so the rail, strip and report panel sit flush with the nav rail and
+the window edge with no canvas strips beside them, and it is exactly
+`h-[calc(100dvh-3.5rem)]` tall, so the document never scrolls at 1280×560, 1440×900,
+1920×1080 or 390×844. The frame is `overflow-clip`, never `overflow-hidden`: a clipped box
+cannot be scrolled by a `focus()`, a contents jump or find-in-page, so the toolbar never
+slides under the header and no blank band opens below the composer. It
+does not sit inside a `PageContainer` or `PageHeader`. Headings: one `sr-only`
+`<h1>Chat</h1>`; the thread title is the 44 px toolbar's `<h2>` (click to rename, full
+text in a tooltip, rendered as text only); every turn has a hidden `<h3>`. The toolbar
+holds, left to right, History (Sheet mode only), the title, **Report** (with a count
+badge only when the analyst has added items; its tooltip and accessible name say "items
+you added from this chat", never "Report · 0"), New chat (Sheet mode only) and ⋯. It
+carries no inline total (Round 13, SPEC-chat T10, A68): the ⋯ menu opens with the
+conversation's usage line, "This chat: 12.4k tokens · $0.03" (`tabular-nums`, muted;
+"Usage not recorded" for an older thread, never a dash placeholder), then Rename, Pin
+(Unpin), Export ▸, Save conversation as report and Delete once the thread is saved (the
+rail's words), a separator, and a **View** group whose conversation width is three radio
+items described in words, not pixels: Comfortable ("Narrower, easier to read"), Wide
+("Wider, centred") and Full width ("Fills the space (default)"), offered on drafts too,
+but only where a choice changes the lane (`laneWidthChoiceMatters`: the lane, the
+conversation less its gutters, is wider than Comfortable's 64rem; not on a phone or beside
+a docked rail at 1440).
+While a New chat's first answer is written, the title is the client title (the
+question's first 48 characters cut at a word boundary, with an ellipsis after the last
+whole word) and the thread has no actions until it is saved; the title the model names
+in the first answer's header replaces it when the answer lands (SPEC-chat T6, T21, A67).
+Tooltips of History, Collapse/Show history and New chat name
+their shortcut (Ctrl/⌘+Shift+S, Ctrl/⌘+Shift+O); `aria-keyshortcuts` carries the
+machine form. An inline rename (title or rail row) returns focus to what it replaced,
+and a rename started from a menu begins only after the menu has closed, so the menu's
+focus trap cannot pull focus out of the field. Focus handed back by code (a rename
+ending, a sheet, panel or popover closing, such as the Read-only chip's) never opens that
+control's tooltip; focus the analyst moves (Tab, arrow keys) still shows it. When the
+control that had focus leaves the page (Collapse history and Show history swap the rail
+and the strip; the docked report's Close leaves with its panel), focus moves quietly to
+the toggle on screen then; focus kept elsewhere stays where it is.
 
-History truth is fail-closed. A storage/read failure is an explicit retryable error and
-must never render the calm **No previous conversations** state. Revalidate the newest-
-first summary list when the workspace mounts and when its browser tab regains focus so
-another tab or device does not leave a stale rail indefinitely. Same-origin tabs may
-announce mutations for faster refresh, but focus revalidation remains the correctness
-fallback; keep the already-open transcript usable while that background refresh runs.
+**Lane.** One lane, two edges (`message/lane.ts`). The conversation zone is an
+`@container`; the lane is `min(conversation − 2·gutter, cap)` with the gutter
+`clamp(1rem, 2.5cqi, 2.5rem)` and the cap the viewer's **Width** preference: Comfortable
+64rem, Wide 88rem, Full width (no cap, the default since the Round 12 final review, so with
+the side menus collapsed the conversation fills the screen), kept in localStorage and
+`UserPrefs.misc.chat_lane_width` (written through the prefs provider, so the choice
+survives leaving Chat and coming back; a stored Comfortable or Wide choice is kept, and the
+menu marks Full width "(default)"). However wide the lane, reading never widens with it
+(Round 13, SPEC-chat §5.1, A66): one **reading column** of 42rem (`READING_COL`) sits on
+the lane's LEFT edge (never centred) and holds notices, the run log, the clarify card,
+the follow-up row, the shared scope line, the meta row of an answer without a wide
+block, and every **compact** block. Answer prose and model-written `markdown` blocks keep
+a 38rem prose measure inside it (`PROSE_COL`: Inter at 15/24 holds about 86 to 90
+characters a full line; at 42rem it measured 99), and a `callout` box sits on the prose
+edge like a notice. A block is compact or wide from its type and size
+(`data-block-width`, `blocks/layout.ts`): a `kpi_group` of at most 4 figures, `entity`,
+`case_list`, `mitre`, a `table` of at most 3 columns and a categorical `hbar`, `bar`,
+`donut` or `funnel` of at most 12 categories are compact; everything else is wide and
+spans the lane, and a run of two or more entity cards shares one wide row. A block's own
+Full width toggle is unchanged. From a conversation of 40rem a framed card hangs into
+the gutter by its border and padding (13 px) so its title and table text start on the
+prose edge, and a compact card's text ends exactly on the reading column's right edge;
+below 40rem (a phone) cards sit inside the lane, so the scroll lane never clips a frame.
+The meta row follows the widest block of its answer: the whole lane under a wide block,
+the reading column otherwise. The user bubble sits on the lane's RIGHT edge; the
+composer and the start stack span the lane. Answer prose is `text-md` with `leading-6`
+(15/24); the Case Manager embed keeps its host's `text-sm`. Inline code has no border,
+wraps anywhere and keeps its background on every line
+(`[box-decoration-break:clone]`, `[overflow-wrap:anywhere]`). The gutters are grid tracks, never
+padding, so the transcript and the composer resolve the same edges. Every exchange repeats
+the same three-track list (an off-screen exchange uses `content-visibility: auto`, whose
+layout containment turns a subgrid into a plain grid) and each message subgrids its
+exchange, so every turn and the composer share the same edges. The scroll lane is
+`relative`, the containing block of every absolutely positioned descendant (the sr-only
+turn headings), so none can escape its clip. A `kpi_group` (a period comparison's tiles
+included) uses `KpiTileGrid` with as many
+columns as figures (never an empty track). Inside a framed host (a block card, an entity's
+own frame) it draws no frame of its own and hangs by the tiles' padding, so every label and
+numeral starts on the card's content edge, the same edge as the card title and the prose;
+where nothing frames it (a report leaf, the expanded sheet, a report panel item) it keeps
+its own closed frame. Its static and print form, an entity's counts included, has no tile
+buttons and puts each change chip on its own line.
+The
+transcript is the only scrolling region and the composer stays docked below it in the
+empty, restoring, error and populated states. The empty state is a **bottom-anchored
+stack** (Round 13, SPEC-chat D6): `Transcript` renders it in a cell that fills the scroll
+lane (`min-h-full`) and aligns it to the bottom, so the start stack sits 24 px above the
+docked composer frame and spans the lane (the card grid, the pills and the composer share
+both edges), next to where the analyst types. Nothing moves when the first question is
+sent, because the composer never changed position. A stack taller than the lane scrolls
+and opens at its end. It is never a centred marketing panel and never top-aligned.
 
-The transcript begins at the top of a readable 52–54rem measure and uses ordinary
-speaker labels, neutral operator messages, and flat assistant responses. Keep exactly
-one thread header, one `Agent ready|working` status, and one composer. The composer
-remains docked at the bottom in empty, restoring, error, and populated states; it is
-disabled while a saved thread restores or a turn is in flight. Source and model live in
-the composer's settings and quiet footer, not in a second status band. The empty state
-is compact and top-aligned, with no vertically centered marketing panel. Do not add an
-assistant accent rail, a blue user-message wash, duplicate readiness/source/model
-strips, or a second inline composer.
+**Suggestions (Round 13).** The Workspace start stack (`chat/starters/`) is, top to
+bottom: the greeting, an `h3` (`text-2xl`, 20/26, 600; "Good morning", "Good afternoon"
+or "Good evening" by the browser's local time, then the display name's first word, else
+the username, else nothing); the catch-up line ("Since 09:12: 5 new cases (2 critical), 1
+of your cases changed and Wazuh quiet for 3 hours.", `text-base` muted, each clause a
+`text-foreground font-medium` inline button named by its text and described by the
+question it sends) or else the capability line "Ask about cases, logs, metrics or this
+console."; 16 px; the card grid (`gap-2`, `auto-rows-fr`); 12 px; the category pills.
+Columns follow the stack's MEASURED width, never a viewport query: 1 column and 3 cards
+below 560 px, 2 columns and 4 cards from 560 px, 4 columns from 1,040 px. A card is a
+`button`: `rounded-md`, `px-3 py-3`, `min-h-[4.5rem]`, no border, `bg-muted/40` at rest,
+`bg-hover` on hover, `bg-accent` pressed, the shared `focusRing`, and a 1 px
+`border-border-strong` under `prefers-contrast: more` (`CanvasText` in forced colours).
+It holds a 16 px muted family icon, the question in `text-base font-medium` (wrapping,
+never truncated or clamped) and the reason line in `text-xs text-muted-foreground` after
+a decorative 6 px urgency dot (`bg-critical` or `bg-warning`, `aria-hidden`; the reason
+words carry the meaning). No coloured badges. The stack is a `section` labelled by its
+greeting; the cards are a `ul` named "Suggested questions", each card named by its
+question and described by its reason. The grid is one tab stop (roving `tabIndex`): every
+arrow key moves in reading order and wraps, Home and End jump to the ends, Enter or Space
+sends, and a send hands focus to the composer. **Hide for a day** is a 24 px `X` in the
+card's top-right corner, shown by opacity on hover and keyboard focus (always on touch
+screens, never an invisible target), `tabIndex=-1`; Delete or Backspace (never its
+auto-repeat, never on a card paused by a running turn) hides the focused card. The next ranked
+card takes the hidden card's OWN slot and every other card keeps its slot and DOM node
+(`starterSlots` replays the hide and Undo history over the server order); a "Hidden for a
+day" toast offers **Undo** for 10 seconds, which puts the card back in its slot with focus
+on it, and in either order the first card hidden from a slot comes back to it. The toast
+opens 20 px under the thread toolbar, centred over the conversation lane, so neither it nor
+the 15 px strip above it that also takes clicks covers the console header, the toolbar, the
+navigation, the history rail or the composer. The `dismissed` event is
+posted only when the toast closes without Undo (or the page hides, or after 60 seconds),
+so Undo posts nothing. A swap is an opacity cross-fade (no translate or scale on cards);
+within one applied result and card count the stack never gets shorter (cards landing
+shorter than their skeleton, or a shorter stand-in, leave their spare height as a spacer
+under the cards, above the pills, so the greeting, the catch-up line, the cards' top and
+the pills hold still and the cards keep their 16 px under the catch-up line; the stack is
+anchored at its bottom, so spare height above the greeting would move it), and a fresh result
+is held while the pointer is over the grid or focus is inside it, so nothing reorders
+under the analyst. Nothing on the start screen is a live region and a refresh is never
+announced. States: skeletons of exactly the visible count at the cards' height (the heights last
+measured for this viewer and width, else a typical question and its reason line at the
+current card width, the first card of one column a long one; no pulse under reduced
+motion), and while they load in one column the capability line keeps two lines for the
+catch-up line that usually replaces it; "Couldn't load suggestions." with **Retry**, which keeps its
+row busy until the read lands and hands focus to the first card only when focus was still
+on Retry; a viewer who switched suggestions off gets the greeting, the capability line and
+the pills, and no request is made; below a 480 px lane height the greeting is visually
+hidden (it still names the section). The category pills are one row of ghost pills
+(`h-7 rounded-sm px-2.5 text-xs`, a 14 px icon, `gap-1.5`, `hover:bg-hover`):
+Investigate, Hunt, Posture, Report, Learn the app and All prompts, each opening the
+prompt library filtered to its categories (`openPromptLibrary({categories})`); a pill
+whose categories hold no allowed prompt is hidden (all show while the catalogue is
+unavailable), cancelling the library returns focus to the pill, and below 560 px the row
+scrolls sideways under a right-edge fade with scroll margins that keep a focused pill and
+its ring clear of the fade. The 12 px above the pills is a margin on an outer box, never
+one merged onto the scrolling row, whose 4 px of ring padding its negative margins pull
+back, so the gap is 12 px at every width. The start screen has no "What can the assistant access?" or
+"Browse the prompt library" link (the Read-only chip and the All prompts pill do those
+jobs). Every card, reason and clause is server text rendered as React text only; a send
+card's question goes out byte for byte with `origin: "starter"` and nothing from a card
+ever enters the composer; a Continue card selects its conversation and moves focus to the
+composer, and a saved-prompt card runs the library's **Use** (`pickPromptFromLibrary`).
+In an open conversation whose last answer settled 30 minutes ago or more, one quiet
+catch-up line can sit above the composer (`ThreadCatchUp`): it goes when the composer gets
+text, a turn starts, the thread changes, or **Hide this summary** is pressed (focus then
+moves to the composer), and it shows at most once per thread per visit. The viewer's
+"Suggestions when a chat starts" switch (`UserPrefs.misc.chat_suggest_start`) turns off
+both the cards and the thread line.
 
-The answer is the primary object. Query, tools, knowledge, citations, reasoning, model,
-and per-message cost belong in one collapsed **Evidence & execution** disclosure beneath
-that answer instead of separate cards or debug bands. If a bounded saved snapshot omits
-larger evidence structures, the disclosure must say that explicitly. New turns follow automatically
-only while the analyst is already near the transcript bottom. If the analyst is reading
-older evidence, preserve their position and reveal **Jump to latest** when new content
-arrives; smooth scrolling must respect reduced-motion preference.
+**Block chrome (Round 13).** At rest a block card's header shows only its ⋯ menu (T9,
+BLOCKS amendment 33). The menu's first line is a non-interactive provenance line
+("Measured by a lookup", "Computed by code", "Stated by the model"), then Add to report,
+Expand, Show as, the chart's Series (when its lines are labelled at their ends), Show
+table or chart, Copy data, the downloads, Copy query and Open in; the italic "Values
+stated by the model, not measured" caption stays under a model-stated block. When two or
+more consecutive framed data blocks of one answer share caption parts (split on " · ")
+and the same "as of" minute, ONE scope line (`text-xs text-muted-foreground`, reading
+column) states them above the first, and each card's caption keeps only its other parts
+(the full caption stays available to screen readers). Only prose may sit between the
+cards a line covers, so no card sits under a neighbour stating another window. Print,
+every export, Add to report and the expanded sheet keep each block's full caption. A
+Brief reads "Brief: {title}" (no prefix when the title already says brief), states its
+window once, from engine text only (a model subtitle never becomes the scope line), shows
+its provenance counter only when model-stated figures exist ("Includes 2 figures stated
+by the model"), and shows its on-screen Contents from 4 sections (the static and print
+Contents from 2); an infographic hero inside a Brief draws no inner frame. However wide a
+Brief, its prose keeps the reading measures: a `markdown` leaf and a section summary 38rem,
+a note 42rem (print keeps the page width). A block table wider than its frame scrolls
+inside it, and the side that holds more columns fades out over 1.5rem (`data-x-scroll`,
+`blocks/scroll-edges.ts`, the start pills' fade), so a cut column reads as more, not as
+clipped. The Active
+Risk Index tile in a `kpi_group` is a 56×28 decorative arc beside a text numeral with the
+band word stacked over "/100", and its context line holds only the context ("Right now"
+for a figure that is not windowed), so the tile has a captioned neighbour's three lines at
+every width (the arc narrows, never the figure). A case reference reads its case number
+(mono) then its title; without a number, the title is followed by a muted mono short id
+(middle ellipsis; the full id in its tooltip and as sr-only text), and titles wrap.
 
-Execution provenance is per turn, not inferred from the conversation's latest selector.
-Show the effective source and effective model that actually served the answer. When an
-operator explicitly selects a source that is disabled, missing, non-queryable, or cannot
-be built, fail that turn with a scoped recovery message; never run it against Primary and
-then label the answer with the requested source. Primary is the fallback only when the
-operator made no explicit source selection.
+**History rail.** New chat and a server-side content search sit in the header; every
+hit shows its snippet under its title (`text-xs text-muted-foreground`, two lines, the
+match in `font-medium` through text segments, as plain text: `plainSnippet` strips inline
+Markdown markers, and the command palette's chat hits use it too; the hit's name states a
+snippet that repeats the title only once), and opening it scrolls to and highlights the
+matching message. In the phone Sheet the search field takes focus on open
+(`data-autofocus`), so no tooltip opens over it. While a New chat's first answer is
+written, its temporary row sits at the top of Today with the running glyph and
+`aria-current`, no menu and no message count; activating it closes the phone Sheet.
+Time labels are `shrink-0 pl-3 tabular-nums`; a row's time is hidden exactly while its
+⋯ shows (hover, keyboard focus in the row, its menu open), so a row focused by a click
+keeps its time. When opening the report panel collapses the
+docked rail to the strip, that is announced once per opening ("History collapsed to make
+room for the report"), and closing the panel restores a rail that was docked. Groups are Pinned, Today, Yesterday, Previous 7 days, Previous 30 days, then
+month; the group labels label `role="group"` lists and are not headings (the page
+outline is h1 Chat → h2 thread title → h3 turns). Rows are one line (title and a quiet
+relative time, with the full title and exact date in a tooltip) whose accessible name
+is "title, state, exact date · N messages" (the state, "answering", "needs your input",
+"answer failed" or "new answer", only when the row has one; the temporary row has no
+count); the active row carries `aria-current`, and ↑/↓/
+Home/End move between rows through a single roving tab stop that always lands on an
+existing, enabled row. The row menu offers Rename (inline, IME-safe), Pin/Unpin, Open
+report (when the thread has one; disabled with its reason while another thread's turn
+runs), Export and Delete; Delete confirms that the report stays in Reports and is
+disabled for the thread a turn is running in. History truth is fail-closed: a read failure is an explicit
+retryable error, never the calm **No previous conversations** state. The footer
+discloses retention when history was truncated or at least 45 conversations exist.
 
-A new conversation is a truthful local draft until its first successful response is
-saved and the backend confirms that the record is durable. Selecting an existing
-conversation restores the server transcript and its source/model inside the still-mounted
-workspace. Preserve the unsent composer draft independently for the new-chat draft and
-for each visited saved thread; switching threads must not erase analyst input or write it
-to server history. A restore failure leaves that frame
-and its single disabled composer in place, with explicit **Retry** and **Start new chat**
-recovery. Stale in-flight replies must not land in a newly selected thread, and thread
-switching is disabled while the current turn is being committed. Case Manager chat is
-a separate case-scoped entry point to the same engine and must never appear in personal
-Workspace history. On narrow layouts, closing the History Sheet returns focus through
-the Radix trigger path.
+**Turns.** A user turn is a compact muted bubble, right-aligned, at most 36rem, showing
+the display form of the prompt. An assistant turn is unboxed with no avatar. While it
+runs, the run log sits expanded under the user turn. Before the first lookup it reads
+"Reading your question…", then "Choosing lookups…" (never "No lookups yet."). Then one
+row per tool call or framed parallel batch, each with a leading 16 px status icon (a
+check with an sr-only "Done"; the status word is written only for Failed, Timed out,
+Denied, Skipped and Stopped), the engine label, a muted "· 61 ms", parameter chips in
+product words (verdicts, statuses, kinds and transitions through the shared label maps,
+"Open → Escalated"; known reason codes as sentences, unknown codes as written; a chip over
+several sources reads "3 sources" as a disclosure whose names element has an id per
+lookup), the summary, rows/basis/coverage, **Inspect** on the right, and the exact query
+behind a collapsed disclosure rendered as untrusted code. Engine values are never shown
+raw: a case reads by its number (mono) then title, the internal id in its tooltip. Model
+steps add no rows except the step the turn is waiting on and a failed call; their tokens
+tick on the header: "Working · 3 lookups" on the left and "1.2k tokens · $0.002" on the
+right, muted and `tabular-nums` (Round 13, T20). The state sentence wraps between words
+and only the figure groups stay whole, so on a phone the usage drops under the progress
+and the chevron never covers text. A block placeholder reserves the block's height (a
+KPI row 112 px, a chart 280 px, a table 32 px per row up to 10) on `bg-muted/40`, with no
+dashed border. The log collapses when answer text starts. A finished turn reads answer →
+blocks → meta row → follow-ups (latest turn only).
+The meta row is one 28 px `text-xs` line (Round 13, T10, A68): on the left a disclosure
+that reopens the run log in place ("4 lookups · 6.2 s"; "Answered in 1.1 s" without
+lookups; the lead never truncates), the cost, which opens the usage card that holds the
+tokens (a popover: click, tap, Enter, or hover with a mouse; a turn without a cost keeps
+the token figure as the trigger; its accessible name starts with the visible figure,
+"$0.004 · 2.1k tokens. Usage details"), and **Sources n**; on the right an "In report"
+chip while the whole answer is in the report (a pressed toggle that shows at rest on every
+turn), then Copy, the rating pair and ⋯ (Add answer to report, Add to case…, Ask again).
+The actions are always visible on the latest turn and revealed on hover or focus-within on
+older ones by opacity, never `visibility: hidden` (a hidden control cannot take focus),
+with their space reserved. Below a 30rem meta row the lead, the thumbs and ⋯ stay, and ⋯
+also holds Copy answer, Usage details and Sources, so no figure is ever cut.
+A turn without recorded usage reads "Usage not recorded", never 0 and never a dash,
+followed by the model and source it ran on when known; Demo Mode appends "simulated".
+Follow-ups are ONE wrapping row of ghost chips in the reading column, spaced by the
+turn's 8 px grid gap (the same as `mt-2`): no border, `min-h-7 rounded-sm px-2 text-xs
+text-foreground hover:bg-hover`, a leading `CornerDownRight` glyph (`size-3.5`, muted),
+and a label that wraps inside the chip, never truncated. Zero-result chips join the same
+row after them behind a muted "Widen the search:" label. After five answers in a row whose
+chips were shown and none used, only the first chip shows until one is used again (per
+browser, `soc.chat.followups.ignored`, every storage access guarded);
+`UserPrefs.misc.chat_suggest_follow_ups === false` hides the follow-ups but never the
+zero-result chips. Quiet lines
+follow when relevant: a memory echo or proposal (confirmable only with
+`memory:manage`; a removal first resolves its ids and lists exactly the facts it would
+forget, skipping unknown ones) and the not-saved line: **Not saved**, the notice's own
+sentence, and, when the save can be retried, **Run again to save** with "asks the model
+again and uses tokens again" (honestly a new, billed run, not a save-only retry).
+Restored turns render collapsed. Aim for no more than 40 px of chrome per historical
+turn.
 
-Every persisted Workspace turn carries one stable 8–128 character
-`idempotency_key`. Retrying an ambiguous response reuses that identifier; the server
-returns the previously committed turn or commits it once, never bills or appends a
-duplicate exchange. Do not promote a draft into the saved rail until the verified-save
-response arrives. If generation succeeds but persistence does not, retain the local
-turn attempt with an explicit **not saved** state and one retry path rather than
-claiming durability; do not put the failed attempt into hidden model history.
+**Add to report.** The answer's toggle is "Add answer to report" in its ⋯ menu, and the
+"In report" chip on the meta row is its pressed state. A block's Add to report shows
+beside its ⋯ on hover or focus-within (opacity), always while the block is in the report,
+and is also the first action of the block's ⋯ menu, so touch screens reach it. The
+toggles keep one stable name and use `aria-pressed`. They never unmount while a request is
+in flight (a click then is ignored) or when the report is full: the answer's item becomes
+`aria-disabled` with the reason ("Report is full (60 items)") under it, a new add is
+refused with that reason, and an item already in the report stays removable. The report
+panel lists "Saved from this chat" at its top (each saved report's title, **Open** and
+**Export**; re-read when the panel opens, on report events and when a turn of the
+conversation settles), reads "Nothing added yet. Use Add to report on an answer or a
+block." while the working report is empty, titles itself with the working report's title
+(else "Report"), counts "1 of 60 items", uses sentence-case section headings, and lets
+full item titles wrap.
 
-History remains intentionally bounded. The current contract retains at most 50
-conversations per user and 100 messages per conversation. When an older conversation or
-turn is removed, disclose the boundary in the rail/transcript; message counts describe
-retained messages and must not imply that a clipped transcript is complete. Use the
-server's `history_truncated`, total-count, and `oldest_retained_at` metadata rather than
-inferring completeness in the client. Persisted history is partitioned by normalized
-user identity so one operator's append does not rewrite every user's transcript.
-Deployments upgrading from the legacy shared document must migrate it through the
-compatibility path without requiring an operator reset.
+**Answer features (Round 12).** A clarify answer shows its question in a card with up
+to four option chips and "Something else…" (a pick is `origin: clarify`, typed words are
+the analyst's own); the card says "Needs input" on the latest turn and becomes a quiet
+"Asked: …" line once answered. A lookup that matched nothing offers the engine's
+widen-the-search chips LAST, after the follow-ups in the same row (Round 13): they load
+after the answer, so they only append (nothing before them moves, and a chip a shown
+follow-up already asks is left out instead of removing that follow-up). Their labels are
+display words ("Without the source IP filter", "Open and closed cases"), and the question
+a chip sends keeps the label's own case after its first word ("Show the same without the
+source IP filter"). Every settled lookup in the run log has **Inspect**, a side sheet that opens
+on its title, with what was sent (an input shown as untrusted is not repeated as a plain
+value), its rows and tokens under a heading named for what it holds ("Sources and
+tokens", "Coverage and tokens" or "Tokens"), and the stored observation the model saw as
+untrusted text. The header is "Step N:" and what the lookup did, in its run-log words
+("Step 2: Searched logs"), over one status line (status, time, then rows or coverage).
+**What was sent** opens with **Lookup**: the catalogue label with the tool id beside it in
+muted mono text ("Search logs (search_logs)"); **Explain this step** and **Retry step**
+are secondary buttons (the chat has no filled primary button), and the query and the
+result keep their lines (`whitespace-pre overflow-x-auto`). In both halves (untrusted inputs, the query
+as run, and the observation) invisible and bidi characters are written as visible `\uXXXX`
+escapes as the model read them; a copy cut for storage says the model saw the full result.
+**Explain this step** and, for a failed lookup, **Retry step** name the answer by quoting
+its question (step numbers restart in every answer) and, when several answers replied to
+the same question, by its recency ("your second most recent answer to …"). The thumbs are
+one single-choice group ("Rate this answer", radios, one tab stop): a rating can be
+changed, not withdrawn. Thumbs down opens a reason panel (Wrong, Incomplete, Slow, Other,
+an optional comment, "never used to train a model"), scrolled clear of the transcript's
+bottom band; **Add details** beside a down rating reopens it. The stored rating shows on
+reload. A report the server saved reads "Saved to Reports: {title} · Open · Export", once,
+with no second success toast (the announcement stays); when
+that save failed and may work later, **Save as report** saves the same report once per
+answer and records it on the answer. **Add to case** previews the exact comment as plain
+text (no Markdown syntax; a cited `[D1]` marker is kept and resolved by a "Sources:" list
+at the end, an uncited one is dropped), picks the case from a single-choice list with a
+result count, and posts only after a case is picked; chart and table blocks stay in chat.
+A long answer gets a one-line contents row and **Jump to end** (an in-flow end marker, so
+it lands where the answer ends), and Ctrl/⌘+Shift+C copies the latest answer under the
+chat shortcut rules (the typed character decides, never during IME composition or on
+repeat, and never while a dialog or sheet owns the keyboard). An investigation brief is
+labelled "Advisory: the case decision is made by policy, not by this brief" in chat, in
+the Reports library, in Print and in every export.
+
+**Notices.** Partial, denied, timeout, provider, breaker, cancelled, unsupported, limited,
+stopped-repeating and budget notices are one callout at the top of the answer, with
+Retry only when the notice is retryable. Chat has no answer limits (Round 12 SPEC D2/D3):
+there is no Continue chip, and a limit never earns a "Partial" label (that word is kept
+for a real failure); in the operator's bounded mode a capped answer says so in its
+callout. A summary of earlier messages is a quiet line and a run-log note, never a
+callout; continuation and a very long investigation's wrap-up are run-log notes. An
+unsupported answer names a console page only when one resolved. A failed turn offers **Retry same request** (same idempotency key) or, when retrying
+cannot help, **Ask again** (a new key). A locally stopped turn says "Stopped. The saved
+version appears after refresh." The daily AI budget never limits chat (Round 12 SPEC D5):
+it bounds automatic investigations, and chat's spend is recorded in the cost ledger without
+counting against it. So budget state appears as one window-neutral, dismissible warning
+above the composer that says what happens to automatic investigations ("paused until it
+resets, so new cases wait for an analyst") and that chat keeps answering; it never uses a
+critical tone, never says AI answers are paused, and a spent budget never disables Send.
+Only the optional chat cap, off by default, stops a chat answer, and then the answer's own
+budget notice says so.
+
+**Composer.** A textarea over ONE 32 px control row of 28 px chips, about 86 px at rest and
+never more than 88 px; there is no permanent footer line. Left: the **Read-only** chip (it
+opens the access popover), the Scope chip (source and time range in one popover) and removable
+`@` scope chips. The Scope chip reads "<source> · <range>": the source truncates, the range
+never does. Its time presets sit in a three-column grid of radios (`SegmentedControl
+orientation="both"`, so every arrow key moves to the next or previous preset); the default,
+**Auto**, chooses no range and names its meaning to screen readers, and **24h** is a separate
+explicit range, so the chip never shows "24h" for a default that is not 24 hours. The
+popover says the range in one line ("Auto: each lookup uses its own default window.") with
+the rest behind a "How ranges work" disclosure; its source list is at most `max-h-48`
+with a bottom fade only while it can scroll, it is never taller than the space it has (it
+scrolls instead), and opening it focuses the chosen source, else the chosen time range.
+Right: the token estimate with the context-window ring (the next request ÷ the model's
+`context_window`, "<1%" rather than "0%" for a real share; never today's spend), Options ⋯
+(Model, Type out answers with the one-line helper "Shows the answer as it is written.",
+the viewer's **Suggestions when a chat starts** and **Suggested follow-ups** checkboxes,
+Prompts with "Favourites", Keyboard shortcuts) and Send, which becomes Stop while a turn
+runs. At rest (an empty draft and under half the context window used) the meter keeps its
+slot but is invisible and not focusable; typing, or a conversation past half the window,
+shows it as "≈ 4.1k tokens" (only the ring below 560 px, inside the button that names the
+estimate). The placeholder is "Ask about cases, logs, metrics or this console" ("Ask a
+question" below 560 px); a muted "/ commands · @ scope" hint sits at the right of the
+control row only while the Workspace field is focused and empty (not below 560 px). The
+focus frame is a 1 px `border-ring` plus `ring-1 ring-ring` (`COMPOSER_FOCUS_FRAME`, about
+4.7:1 against the resting border in light and 8:1 in dark, measured by a test), quieter at
+rest than the Round 12 frame. The Options tooltip never opens while a composer layer is
+open, and stays held after the menu closes until the pointer leaves ⋯ (or the next hover,
+when the pointer was elsewhere). Below `sm` Options lists Model (in a 12rem scroll box) and
+Prompts inline instead of as submenus. Every chat layer keeps a 16 px gap from the screen
+edge (`collisionPadding={16}`). The access popover shows an allowed lookup's label and
+data source only; a locked one reads as a sentence with its code muted ("Needs permission
+to read sources (sources:read)"), so an administrator can still grant it.
+Below 560 px of composer width the Scope and `@` chips merge into "Scope · n", the
+**Read-only** chip shows only its lock (its accessible name is unchanged), and a
+non-default model chip turns icon-only but stays visible and removable. The Case Manager composer has no menus and
+reads "Ask about this case" on one line (its resting estimate takes no width; below
+560 px its estimate shows as the context ring, the estimate in the button's name). In the `/` and `@` menus only Enter chooses; Tab keeps its focus
+meaning and never sends a command or adds a scope, and the `@` menu waits for the tool
+catalogue. The `/` menu has one icon per group heading, sticky headings
+(`sticky top-0 bg-popover`), rows that put the label (`text-sm`) over a wrapping
+description (`text-xs` muted, at most 60 characters by copy; a ready-made prompt reads
+"{Category} · Asks for …"; the analyst's own prompts clamp to two lines) and a bottom fade
+while it can scroll. Each menu opens on its first row; arrow keys and list changes keep
+the highlighted row clear of the sticky heading and the fade, and a pointer highlight
+never scrolls the list. The composer listens for the library events
+(`openPromptLibrary({categories})`, `pickPromptFromLibrary(id)`) and runs a picked prompt
+through the library's **Use**; an id that is no longer saved shows "That saved prompt is no
+longer available." and a failed read "Saved prompts could not be loaded. Try again.", and
+neither changes the draft. A command that takes a value fills the composer and selects its placeholder rather
+than sending, so the value goes out as the analyst's own text. A blocked Enter announces its
+reason and adds it to the field's description. Esc closes the topmost layer first and stops a
+running turn only from inside the composer with no layer open. The meter card is a Popover
+(mouse hover, click or tap; it never takes focus), because a HoverCard trigger cancels taps on
+touch screens. It leads with the context window ("12% used · ≈ 24k of 200k tokens" and, in
+unlimited mode, "summarised automatically near the limit … no hard cap"), then the next
+request, and ends with the daily AI budget: a bar, the spend, and the note that automatic
+investigations count against it while chat is recorded but never paused by it. Its
+history row counts what the next request replays: "History: none yet" on a new chat (0 is
+a count, never missing), "History: 3 exchanges, summarised near the limit" in unlimited
+mode (no exchange cap to name), and "History: summary of earlier messages" after
+`/compact`. When the tool catalogue cannot load, one line, "Couldn't load what the
+assistant can access.", with **Retry** replaces the access list; the start screen then
+shows every category pill (the library gates its own prompts), and its cards come from
+their own read.
+
+**Scrolling and announcements.** On send, the user turn moves to the lane top with a
+48 px peek of the previous turn; the lane follows new content only while the reader is
+within 72 px of the bottom and only until that turn's top reaches the lane top.
+**Jump to latest** shows whenever any content is hidden below the fold (more than 8 px),
+as a round pill centred on the lane's bottom edge over a band the lane fades out with a
+scroll-edge mask while the pill shows, so it never covers a line of text, a chip or a row.
+The lane keeps a bottom padding equal to the pill zone (the 28 px pill, a 12 px gap and
+8 px) whenever the transcript has turns, so the last line scrolls fully clear and showing
+the pill never snaps the scroll; the mask covers exactly that zone.
+The mask spares the scrollbar gutters (the thumb and arrows stay visible), and a
+transparent band inside the lane takes the pointer over the faded strip, so nothing that
+cannot be seen there is clickable or hoverable, while wheel and touch still scroll. The
+pill's focus ring is never clipped (the compact embed's bar keeps room above and below
+it). After a jump, or when a thread opens, the lane sticks
+to the bottom while a turn runs or late content lands (lazy answer blocks), until the
+reader scrolls, points or focuses inside it; content growth is observed, so **Jump to
+latest** returns whenever new content lands below a reader who scrolled away. A requested
+message that is not in the restored thread is dropped and the thread opens at its
+latest turn. Reduced motion means no smooth scrolling and no typewriter effect.
+Off-screen exchanges use `content-visibility: auto`. The transcript is `role="log"` with
+an explicit `aria-live="off"` (the role is implicitly polite and would read every
+delta); every announcement ("Working", throttled step progress, "Answer ready",
+"Stopped", "Error: …", "Added to report (n items)") goes through the shell announcer.
+Focus never jumps on new content, and an action whose control is replaced or disabled
+by the send — a starter, a quick action, a follow-up, Continue, Ask again, Retry, Jump
+to latest — hands focus to the composer instead of dropping it to the page.
+
+**Truth and persistence.** A new conversation is a local draft until its first answer
+is saved; selecting a thread restores the server transcript and its time range in the
+still-mounted frame, with **Retry** and **Start new chat** on a restore failure. The model
+returns to the default and the source to **All sources**, and `@` scopes are cleared:
+the stored model and source are what the server resolved for the last turn, not the
+analyst's choice, so adopting them would pin both on the next question. Each restored
+answer still names the model and source it ran on.
+Drafts are kept per thread and never written to the server. Every persisted turn
+carries one stable idempotency key; a turn whose first model call failed is shown but
+never enters model history. A deep link (`#/chat?conversationId=&messageId=`) selects,
+scrolls to and highlights the message for 2 s and is cleared from the hash once the
+selection moves; a missing thread reads "This conversation is no longer available".
+History is bounded (50 conversations, 10 of them pinnable beyond the limit) and every
+boundary is disclosed rather than inferred. Since Round 12 no message is removed: the
+transcript opens on the newest 100 messages, and a quiet **Show earlier messages** control
+above the first turn (with how many remain) pages older ones in, 50 at a time, keeping the
+reader's position: the first message in view is measured before the load and the lane is
+scrolled by exactly how far it moved. The control keeps focus through loading (never
+`disabled`), shows an error with Retry, and gives way to "Start of the conversation".
+
+**Case Manager chat** is the same engine scoped to one case: compact presentation, its
+one-line status and quick actions, the compact composer, no rail, no report panel and no
+Add to report. Case turns never enter personal Workspace history. Its empty state is the
+compact capability line (with the access popover link) and up to three case chips read from
+`GET /api/chat/starters?surface=case` (`CaseStarterChips`: ghost chips like the
+follow-ups, 28 px, wrapping, never truncated), chosen from the case state and naming no
+value, sent in the case chat with `origin: "starter"`. While the chips show or load, the
+quick-action row ("Summarise the case", "Check indicators", "Suggest remediation") stays
+hidden; it appears after the first message or when no chip loads.
+
+**Context failures.** When `/chat/context` fails with nothing cached, the empty state and
+the composer's access popover say so with **Retry** (in Workspace and Case Manager
+alike); they never show skeletons or "Checking…" forever.
+
+**Chart interactions (Round 12).** Every chart interaction is client-side and read-only,
+never a re-query or a model call, and is stated wherever the chart travels: **Group by**
+re-bins a calendar series only to a unit the server allowed (`allowed_rebin`) and the
+caption, table, Copy data, CSV and image say "grouped by month"; **zoom** on line and
+area charts keeps a zoom row on screen at all times (a hint before a zoom, then the range
+and **Reset zoom**) so the plot never moves under the pointer, and is dropped when the view
+changes. Since Round 13 (T16) Group by and the zoom row share ONE 28 px control row:
+Group by on the left, the hint, range and Reset zoom on the right; the hint is never cut
+("Drag to zoom" on a narrow row, nothing where even that does not fit). **Legend
+toggles** keep at least one series and say "Showing 1 of 2 series"; a chart whose line
+end labels are all whole and distinct draws no legend (it would name each series twice),
+and its series toggles move to the block menu's **Series** (checkbox items with the line
+colour, at least one kept); otherwise the legend stays, on screen and on paper. A donut's
+legend uses one marker (the shape in the series colour), `max-w-[16rem]`, beside the
+donut from a 30rem card and under it below; a horizontal bar's value sits just after the
+bar's end;
+**Download PNG / SVG** draws the chart as shown, in the card's theme, with its grouping,
+zoom and hidden series written on the image; **Full width** lets one block leave the
+conversation lane for the conversation's gutters and is offered only when there is room to
+gain (under Comfortable or Wide, never in a Full width lane). Line charts with 2 to 4 series
+label each line's end with as much of its name as fits in a quarter of the chart (never fewer
+than 14 characters), with the whole name as the label's hover title when it is clipped. Calendar axes name their time zone and draw the in-progress period lighter with
+"(in progress)".
+
+**The working indicator (Round 12).** While an answer is being written, the Chat item
+shows one glyph in every navigation form (expanded rail, collapsed rail, mobile sheet):
+a turning quarter arc while running, an accent dot for an unread answer, amber for a
+question waiting for input that the analyst has not opened yet, red for a failure; its
+text ("Chat: 1 answer in progress: <title>") is the item's description, never a live
+region. Glyph and text come and go together: a question already looked at keeps "Needs
+input" on its history row only, and a fresh visit to Chat opens the newest conversation
+rather than that thread. Reduced motion keeps the same
+static arc and the tooltip says "Working"; forced colors use system colors. The optional
+ring around the logo tile follows `chat_agent.animated_brand`; an operator's logo itself
+never moves. Below `sm` (Round 13, T32) the ring attaches to the Chat item's glyph only,
+the mobile menu button gets a 6 px dot instead, and the logo ring is hidden. The tab title takes a "●" (running) or "✓" (unread) prefix, and an answer that
+finishes off screen raises one "Answer ready" toast and one announcement.
 
 ## Navigation and information architecture
 
@@ -269,6 +960,31 @@ do not hand-build a second nav list.
   launcher should offer one calm first decision, then reveal precision on demand.
   Because the palette has wide, compact, and keyboard openers outside its Dialog,
   remember the exact opener and restore focus to it on Escape, selection, or close.
+- The top bar compacts by its OWN width (`@container/topbar`; the tiers are
+  `TOP_BAR_TIERS` in `soc/AppShell.tsx`), never the viewport, because the rail decides
+  its width as much as the window does. The current page name has priority: it never
+  wraps on a desktop bar and is never squeezed while anything else can give (a phone may
+  give a long name a second line, breaking only between words; a single word wider than
+  its room ends in an ellipsis, with the full name in its tooltip, and never breaks
+  inside). Below `sm` the bar's gaps are 6px, so "Workspace" stays whole beside
+  "v0.1.13 · Testing" on a 360px phone. The search field shrinks first, down to 11rem,
+  and becomes its icon opener below 46rem of bar; below 62rem the chips
+  (Demo mode, platform health, update, source notice, account name) go icon-only, each
+  with a tooltip and its full accessible name; below 72rem the product name leaves the
+  breadcrumb (the rail carries the logo); below 40rem appearance, the account menu and a
+  source notice move into the Console controls sheet. Width tiers cannot know which
+  chips are present, so the bar also measures itself (`useTopBarFold`,
+  `soc/top-bar-fold.ts`): while the field would get less than 11rem, labels fold one at
+  a time, least important first (product name, account name, source, update, health,
+  Demo mode), and only when every label has folded may the field narrow further. The
+  field reads by its own width (its own size container): the full placeholder from
+  19rem, "Search…" and the shortcut from 9.5rem, below that only its icon, never a
+  clipped word. Nothing in the bar wraps or squeezes:
+  the cluster and every chip are `shrink-0` and `whitespace-nowrap`. Release identity,
+  the notification bell (with its unread, jobs and health marks), the demo chip and an
+  actionable update stay in the bar at every desktop width. One chip says "Demo mode": while
+  demo mutes platform health, the health indicator leaves the bar and the demo chip's
+  popover says health checks are muted (a backend outage still shows).
 - Product documentation is a bottom utility destination, separate from operational
   feature groups.
 - The in-app **Documentation** destination opens the version-matched Help Center
@@ -302,10 +1018,14 @@ background data refreshes still follow the `LoadingState` / `LoadingBar` contrac
 
 Motion explains state change: route entry, disclosure, row insertion/removal, or a
 terminal live marker. It does not decorate static content. Honor
-`prefers-reduced-motion`; no required information depends on animation. Only the newest
-terminal timeline marker may pulse continuously. A successfully committed data refresh
+`prefers-reduced-motion`; no required information depends on animation. Only two things
+may animate continuously: the newest terminal timeline marker, and the single
+agent-activity glyph while a chat turn is running (a rotation or arc sweep of about a
+1.2–1.35s period — never a slow "breathing" loop — with a static mark and the word
+"Working" under reduced motion). A successfully committed data refresh
 may replay one short transform/opacity-only cue tied to the new payload; it must never
-run on its own timer or imply that a request is in flight when it is not.
+run on its own timer or imply that a request is in flight when it is not. Springs,
+press feedback and overlay origins follow **Foundations → Motion**.
 
 ## Detection-rule authoring honesty
 
@@ -327,16 +1047,139 @@ authority. Rule preview sends the same single authoritative predicate that Save 
 ## Operational metric and tuning surfaces
 
 Operational summaries use one continuous strip rather than a row of independent
-cards. The strip owns its outer hairlines; each metric supplies only the responsive
+cards. The strip owns its outer hairlines (on the primary dashboard its grouped panel
+takes their place, see "Dashboard bands"); each metric supplies only the responsive
 internal divider needed for the current column count. At every column count a strip
-uses — they differ per surface, and the primary dashboard runs one, two, three and five
+uses — they differ per surface, and the primary dashboard runs one, two, three and six
 — no cell may acquire both a left and top divider or lose the line that separates it
-from the preceding row. Use the compact `KpiTile` density whenever the
-strip is one band among several rather than the surface's only content — including the
-primary dashboard, where the strip heads a page that must also seat a flow diagram, a
-case queue and a timing pair. Reserve the default density for a strip that stands alone.
-Density changes padding and numeral scale only; it must never alter the cell count or the
-per-breakpoint divider rules above, which are tuned to an exact number of cells.
+from the preceding row. A strip that HEADS a dashboard page uses the `comfortable`
+density (between compact and default: `px-4 py-3` at `xl`, `px-5 py-4` at `2xl`, about
+120px tall, 13px label and context lines) with the fluid hero numeral (`size="fluid"`,
+24 → 44px, growing with its own tile). Use the compact density when the strip is a band
+embedded in a denser surface (a panel, a tab, a chat answer), and the default density for a
+strip that stands alone. Density changes padding and numeral scale only; it must never alter
+the cell count or the per-breakpoint divider rules above, which are tuned to an exact number
+of cells. Numerals roll (count up) on the first load and on a window change, never on a LIVE
+or manual refresh (`roll={false}`): data on an automatic refresh does not animate. The rule
+covers every counting numeral on the page — donut centres, hero counts and flow stage totals
+included — not only the strip; a one-shot sweep may replay on a refresh, its numerals may not. A strip tile's focus ring is drawn inset: the tile's cell clips anything
+drawn outside it, and an outset ring there is invisible to a keyboard user.
+
+A hero strip (`numeral="hero"`, the primary dashboard) reads top to bottom as a quiet
+sentence-case label, the numeral, and exactly one muted **context line** that answers
+"compared to what?" ("17% of 47 cases", "36 of 47 verdicted"). The line is data, never a
+sentence about the metric; that belongs in help. A state disclosure (loading,
+unavailable) takes the line first, then a conditional bound, then the context, so the
+row's rhythm never changes with state. The line wraps and is never ellipsized: every hero
+line reserves a two-line slot (`min-h-[2lh]`), so a caption that wraps keeps its numeral
+level with its neighbours' and nothing is left to a mouse-only `title`. Never put context
+beside the numeral: at six columns flex shrinks the numeral first. Hero numerals are
+neutral ink; only a non-zero critical count is red. Hero tiles carry no icon, and their help and drill-down marks
+appear on hover or focus beside the numeral (always shown on devices without hover).
+A strip on the canvas is followed by the next band after the normal band gap; its own
+bottom rule closes the strip, and the band below draws no second rule against it. The
+primary dashboard's strip sits on its own grouped panel instead (see "Dashboard bands").
+
+**Dashboard bands.** The primary dashboard is a sequence of TITLED bands whose modules sit
+on **grouped panels**, so where one module ends and the next begins reads at a glance,
+without a line or a box edge. Every module (each instrument, the KPI strip, and the Deeper
+analytics header and, open, its timing strip and instruments) sits on its own soft tinted
+panel: the `.surface-panel` recipe in `theme.css`, the `--panel` fill (a step deeper than the
+canvas in light, a step lighter in dark), a 14px `rounded-xl` corner, no border and no resting
+shadow. Band and sub-band titles stay outside the panels, on the canvas; module titles sit
+inside them. Panel padding and the gutters between panels grow together: 16px, 20px from
+1280px, 24px from 1920px. The bands sit 40px under the KPI strip and 40px apart (48px from
+1920px), and the Deeper analytics header sits 40px under the last band (the strip, the
+bands and the fold are one group with that rhythm). Never nest a panel in a panel, and never
+add a border, a resting shadow or a lattice of hairlines between modules: the panels do the
+separating. Two modules that share one panel (the two case snapshots) are split by one thin
+hairline centred in the gap between them. The first KPI tile of each strip row (the page's
+strip and the Deeper analytics timing strip, whose rows follow its own width) starts at the
+panel padding, so the KPI labels and the module titles share one left edge, and from 1280px
+the strip's column rules stop 12px short of the panel's top and bottom edges. A module's
+inner layout follows the panel, not the viewport: a ring and its legend sit side by side only
+when the panel holds both (a container query), and stack otherwise. Inside a panel every
+neutral step that paints on it moves with it, in the canvas's own order: muted (progress
+tracks, `hover:bg-muted`, secondary badges), hover and the selected wash each one notch deeper
+(`--panel-muted`, `--panel-hover`, `--panel-accent`), the structural line one step deeper
+(`--panel-border-strong`, the panel's `--input` and `--border-strong`), and the semantic text
+retuned (`--panel-<axis>-text`: darker in light, critical one notch lighter in dark), so
+nothing that shows on the canvas (a track, a hovered row, a KPI hover wash, a selected
+item) vanishes into the panel, a control edge clears 3:1 against the panel, and a
+badge clears 4.5:1 on a resting panel and on a hovered row. A chip that lifts on hover uses
+the hover step, never `--popover`. MEASURED by the contrast gate: the panel against the canvas
+is 1.09:1 in light and 1.12:1 in dark (a grouping cue, not a WCAG bar), muted 1.08:1 and
+1.11:1 against the panel, and body, muted and link text clear AA on the panel and on its
+hovered row in both themes. No
+operator-writable brand token is redefined inside a panel. Increased contrast gives every
+panel a solid 1px structural edge (3.46:1 against the light canvas, 3.17:1 against the panel)
+and turns every rule inside it into a ≥3:1 line against the panel; forced colours give it a
+system-colour edge. Nothing on a panel is translucent or moves, so reduced transparency and
+reduced motion change nothing. On paper a panel prints as its fill. The dashbar is clear at
+rest and takes the Console material once content scrolls under it, so the top of the page
+shows two surface levels, canvas and panel.
+
+Modules in one band row share one height (`items-stretch`, modules `h-full flex flex-col`),
+and a list fills its share of that height (a queue shows as many rows as fit, within a floor
+and a cap) instead of driving the row taller. The floor is set in rem, so a larger browser
+text size grows it with the rows, and a wider screen never shows fewer rows than a narrower
+one. A module with spare height spreads it between its parts rather than pooling it at the
+bottom (the response pair). From 1920px the queue holds eight rows: its band becomes two rows
+(the snapshots over the response pair on the left, the queue spanning both on the right, the
+rail at `4xl`) and the snapshot rings grow to 192px, so the modules, not blank space, take the
+height the queue sets. On paper the queue is laid out in flow and kept on one page with its
+header. Modules side by side that share a structure (two snapshots) share their rows
+(`grid-rows-subgrid`), so a caption that wraps in one moves both donuts and both footnotes
+together. The dashbar pins from `sm` up; on a phone it scrolls away with the page. Above
+1920px a dashboard widens by COLUMN COUNT, not by stretching: `wide` width, rising to 2400px
+at `4xl` (≥2200px), where bands share one track template with a 460px rail. A secondary fold
+is ONE disclosure, with no nested panels or collapsibles, whose open/closed choice is
+remembered and whose collapsed header states what it holds. That summary wraps (beside the
+title from `md`, under it below) and never truncates; a long item label in it is capped so
+the count after it stays visible, and the whole sentence is the header's tooltip.
+
+Dashboard type ladder: page title 30px at `2xl` (the `4xl` step; 24px below); band titles 15px semibold
+with a 13px muted caption; instrument titles 14px; KPI numerals fluid (24 → 44px);
+instrument numerals 24–28px; lists, legends and stage labels 13–14px; metadata 12px (mono
+only for identifiers); 11px only for chart ticks, badges and timestamps. Section titles are
+sentence case; tracked uppercase is not used for titles or for labels on the dashboard.
+Band headers may carry a quiet right-hand freshness stamp ("Updated 2m ago") — slices load
+independently, so each band states its own. A figure that repeats on the page (a cohort
+count beside a stock, a tile beside the instrument that partitions it) gets a distinct label
+and a quiet cross-reference line, never a second identical label.
+
+Every instrument describes ONE population: a donut's centre, its legend and any row beside
+it count the same cases over the same span, and a centre labelled "AI verdicts" counts only
+verdicted cases. Where a band mixes spans (a fold holding window figures, store-wide all-time
+counts and live coverage), each instrument's caption names its span ("last 24 hours", "all
+time", "right now"), and a row that drills through opens a list over that same span — an
+all-time count opens the list without a window. A tally over a bounded case page says so on
+the instrument ("Lower bound · counted from the newest 200 of 450"), and its change chip is
+withheld, since a change between two floors is not a change. A collapsed summary names a
+"top" item only when it genuinely leads (more than one case, ahead of the next) and states
+its count.
+
+Period-over-period chips on small counts state the absolute difference ("+8"), not a
+percentage of a tiny base; percentages are for bases of 20 or more and moves under 100%,
+and the chip's title names both counts. On a dashboard the chip is borderless tinted text.
+Hover trends — and any dashboard chart of counts per period — draw one column per bucket in
+its real time slot (unmeasured buckets as a muted floor tick, never as zero) with a readout
+of the pointed bucket; never a smoothed line over measured points only.
+
+**Metric drill-down dialogs** grow out of the tile that opened them. Their chrome text is
+12–13px; the trend and the page-scoped scalars share one row (chart about 60%, a 2 × 2 or
+1 × 4 set of unboxed stats about 40%) so the table keeps most of the height (about ten rows
+at 1440 × 900). What the rows ARE stays on screen — the rows-read sentence with its "lower
+bound", the completeness badge, any range narrowing — while the long explanation of how
+they were read sits behind one "About these rows" disclosure. A whole-window partition beside
+the stats lays its label · value pairs out two per row, so it never makes the stats column
+taller than the trend (Resolved / Closed keeps ten rows at 1440 × 900). Below `sm` the
+dialog's actions sit under its title; below `md` the switcher, the filters and the evidence
+scroll as one body, so a phone never shows three fixed bands over a sliver of rows. When the
+dialog closes and focus returns to its tile, the tile's hover trend refuses a FOCUS-driven
+open until the operator moves on (Radix restores focus after the exit animation, and a card
+springing back over a strip just dismissed with Escape reads as a bug); pointer movement over
+the tile is a hover and still opens it.
 
 Observed-outcome metrics embedded in another operational page use the integrated
 `ComparisonMetric` variant. Keep the shared reporting window, evidence state, and
@@ -448,6 +1291,21 @@ are authoritative:
   rail its own sentence whenever the rail is what shows. Copy that states one rule while
   the visible percentages follow another is a defect, not a wording preference; keep any
   always-rendered clause true on every surface it can be read against.
+- Whether the flow band or the rail shows is decided by the **measured** labels against the
+  **measured** container, never by a fixed breakpoint (Round 12 polish 3: a 656px column
+  sat just over a 38rem cut-off and drew labels on top of the Escalated node). A drawn flow
+  keeps every label clear of every other label and of every node marker, keeps a stretch of
+  at least 32px of every case-flow ribbon that no label covers (a label right of its node,
+  such as "Closed by analyst policy", hides the escalated ribbons as easily as one left of
+  its node), and spreads labels that share a column instead of stacking them, clear of any
+  ribbon crossing that column. Labels start on one line; the ones that collide switch
+  to two lines (name over count and share, a column switching together, the right-hand
+  resolution labels first); when that still collides, the rail replaces the graph. Before
+  anything has measured, the container query stands in. The drawing is exactly as wide as
+  its measured box, never letterboxed, so the HTML labels stay on their nodes. Measure
+  layout sizes (`offsetWidth`, `offsetHeight`), never painted ones: Full screen measures
+  while its dialog's opening animation still scales it to 95%, and a transform is not a
+  resize, so a `getBoundingClientRect` reading stays 5% small after the animation ends.
 - **Open cases** is current lifecycle state from the selected-window posture count. It is
   not equal to Escalated minus human closure, so keep it outside the conserved graph as a
   labelled, keyboard-operable queue action. If the bounded scan is truncated, display the
@@ -529,10 +1387,11 @@ and a supported supervisor capability. Do not replace the badge, add a persisten
 banner, infer installability from SemVer alone, or expose a Testing observation as an
 installable release.
 
-Below the desktop breakpoint, the top bar still shows that release badge and any
-candidate, active, or failed update action directly. Group secondary utilities
-(notifications, appearance, health detail, account links, source-only observations,
-and non-actionable update setup or receipts) in one labelled, non-menu Sheet. The
+Below the desktop breakpoint (and on a desktop bar narrower than 40rem), the top bar
+still shows that release badge and any candidate, active, or failed update action
+directly; a desktop bar also keeps its notification bell. Group secondary utilities
+(appearance, health detail, account links, source-only observations, non-actionable
+update setup or receipts, and on a phone notifications) in one labelled, non-menu Sheet. The
 Sheet must use normal buttons and sections rather than ARIA menu roles, provide 44px
 touch targets, close on Escape, and return focus to its trigger. Do not let shell
 chrome create document-wide horizontal scrolling at 320px, 390px, or 600px.
@@ -757,6 +1616,9 @@ scroll inside that frame.
 - Maintain WCAG AA token contrast in both themes and never disable paste. A measured
   `*-text` token has no headroom left: do not dim it with an `opacity-*` modifier on the
   wash it was tuned for—use the token as rendered, or pick a different token.
+- Honour reduced motion, reduced transparency, and increased contrast as described in
+  **Foundations**; the increased-contrast border and secondary-text values are measured
+  in both themes by the foundations test, alongside the design gates.
 
 Before handoff, run typecheck, lint, design gates, focused tests, the complete Console
 suite, and the production build. Use the in-app browser to inspect both themes, a narrow

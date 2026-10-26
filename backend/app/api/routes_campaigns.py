@@ -6,7 +6,9 @@ READ-ONLY surfaces over the campaign list the deterministic clustering pass
 * ``GET  /api/campaigns``               — the running campaign list (newest first),
                                           each with its member case ids / entities /
                                           MITRE / severity rollup.
-* ``GET  /api/campaigns/{id}``          — one campaign (404 when absent).
+* ``GET  /api/campaigns/{id}``          — one campaign (404 when absent), with the
+                                          display number of each member case
+                                          (``case_numbers``) for the detail sheet.
 * ``GET  /api/cases/{id}/campaign``     — the campaign a case belongs to, or ``null``.
 * ``POST /api/campaigns/recorrelate``   — trigger the deterministic pass ON DEMAND;
                                           returns the freshly-built campaigns. It is a
@@ -34,6 +36,7 @@ into a prompt. Values are returned as plain, length-bounded strings.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -41,6 +44,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ..config import CampaignConfig
 from ..constants import ActionType
+
+# ``_safe`` and ``_campaign_json`` moved to ``engine/views.py`` (chat revamp SPEC §5.3)
+# so the chat ``list_campaigns`` tool serialises campaigns the same way; re-exported
+# here under their historical names.
+from ..engine.views import campaign_json as _campaign_json
+from ..engine.views import safe_text as _safe
 from ..models import Campaign
 from ..state import AppState
 from .deps import current_username, get_state, require_admin, require_permission
@@ -53,13 +62,6 @@ router = APIRouter(prefix="/api")
 # --------------------------------------------------------------------------- #
 # Helpers — plain-data serialisation (#9)
 # --------------------------------------------------------------------------- #
-def _safe(value: Any) -> str:
-    """Return ``value`` as a plain, length-bounded string for the client (#9): the UI
-    renders it escaped and it is never fed back into a prompt. Bounds a runaway,
-    source-influenceable string so a hostile upstream can't blow up the response."""
-    return str(value)[:2000]
-
-
 def _deep_update(dst: dict[str, Any], src: dict[str, Any]) -> dict[str, Any]:
     """In-place recursive merge of ``src`` INTO ``dst`` — a PUT deep-merges only the
     keys the caller sent (mirrors ``routes.py:_deep_update`` + the ``PUT /api/settings``
@@ -71,30 +73,6 @@ def _deep_update(dst: dict[str, Any], src: dict[str, Any]) -> dict[str, Any]:
         else:
             dst[key] = value
     return dst
-
-
-def _campaign_json(campaign: Campaign) -> dict[str, Any]:
-    """One campaign as a plain, #9-fenced dict.
-
-    Entity ``value``s + MITRE ids + the display name are source-derived — each is
-    coerced to a bounded plain string so nothing attacker-influenceable is echoed
-    raw. Numeric/id fields pass through; ``case_ids`` are plain ids."""
-    return {
-        "id": _safe(campaign.id),
-        "name": _safe(campaign.name),
-        "status": str(getattr(campaign.status, "value", campaign.status)),
-        "case_ids": [_safe(cid) for cid in campaign.case_ids],
-        "case_count": len(campaign.case_ids),
-        "entities": [
-            {"entity_type": _safe(e.entity_type), "value": _safe(e.value)}
-            for e in campaign.entities
-        ],
-        "mitre": [_safe(t) for t in campaign.mitre],
-        "severity_rollup": _safe(campaign.severity_rollup) if campaign.severity_rollup else None,
-        "first_seen": campaign.first_seen,
-        "last_seen": campaign.last_seen,
-        "created_at": campaign.created_at,
-    }
 
 
 # --------------------------------------------------------------------------- #
@@ -184,7 +162,12 @@ async def get_campaign(
     _=Depends(require_permission("cases", "read")),
 ) -> dict[str, Any]:
     """One campaign by its (content-hash) id — its member case ids, shared entities,
-    MITRE union and severity rollup. 404 when absent. Read-only advisory (#3/#4)."""
+    MITRE union and severity rollup. 404 when absent. Read-only advisory (#3/#4).
+
+    ``case_numbers`` (Round 13 polish, additive) maps a member case id to its display
+    number ("CASE-000045"), so the Campaigns detail sheet names members the way the rest
+    of the console does. Bounded (:data:`_MEMBER_NUMBER_READS` reads); a member without
+    a number, past the bound or whose read fails is simply absent and keeps its id."""
     try:
         campaign = await state.campaign_store.get(campaign_id)
     except Exception as exc:  # noqa: BLE001
@@ -192,7 +175,40 @@ async def get_campaign(
         campaign = None
     if campaign is None:
         raise HTTPException(status_code=404, detail="campaign not found")
-    return {"campaign": _campaign_json(campaign)}
+    return {
+        "campaign": _campaign_json(campaign),
+        "case_numbers": await _member_numbers(state, campaign.case_ids),
+    }
+
+
+#: The most member cases one campaign read resolves display numbers for.
+_MEMBER_NUMBER_READS = 200
+#: Member reads in flight at once.
+_MEMBER_NUMBER_CONCURRENCY = 8
+
+
+async def _member_numbers(state: AppState, case_ids: list[str]) -> dict[str, str]:
+    """``{case_id: display number}`` for up to :data:`_MEMBER_NUMBER_READS` distinct
+    members. Read-only (one bounded ``get`` each); a failed read or a case without a
+    number is left out. NEVER raises."""
+    cases = getattr(state, "cases", None)
+    if cases is None:
+        return {}
+    ids = list(dict.fromkeys(str(c) for c in case_ids if c))[:_MEMBER_NUMBER_READS]
+    gate = asyncio.Semaphore(_MEMBER_NUMBER_CONCURRENCY)
+
+    async def one(cid: str) -> tuple[str, str | None]:
+        async with gate:
+            try:
+                case = await cases.get(cid)
+            except Exception as exc:  # noqa: BLE001 — the id alone still names it
+                logger.info("campaign member read failed (%s)", exc)
+                return cid, None
+        number = _safe(getattr(case, "case_number", "") or "") if case is not None else ""
+        return cid, (number or None)
+
+    pairs = await asyncio.gather(*(one(cid) for cid in ids))
+    return {_safe(cid): number for cid, number in pairs if number and number != cid}
 
 
 # --------------------------------------------------------------------------- #

@@ -130,7 +130,8 @@ import type {
 /** Payload for POST /api/cases/{id}/feedback (analyst grading). */
 export interface CaseFeedbackInput {
   analyst?: string;
-  assessment: 'agree' | 'partial' | 'disagree';
+  /** Omitted when the grade states no agreement (the backend defaults it to empty). */
+  assessment?: 'agree' | 'partial' | 'disagree';
   accuracy?: number;
   reasoning_quality?: number;
   action_appropriateness?: number;
@@ -646,8 +647,11 @@ interface RequestOptions {
  * Fetch one authenticated response and apply the shared error/session/step-up flow.
  * Keeping this below both JSON and Blob readers means binary downloads cannot bypass
  * the exactly-once re-auth retry or accidentally turn an error response into a file.
+ * Exported (with {@link request}) for lazy data layers such as the chat module, whose
+ * NDJSON stream reader needs the raw Response but must keep the same 401 / step-up /
+ * error contract as every other call; the eager `api` object gains no methods for it.
  */
-async function requestResponse(
+export async function requestResponse(
   method: string,
   path: string,
   opts: RequestOptions = {},
@@ -705,13 +709,27 @@ async function requestResponse(
   return res;
 }
 
-async function request<T>(
+export async function request<T>(
   method: string,
   path: string,
   opts: RequestOptions = {},
 ): Promise<T> {
   const res = await requestResponse(method, path, opts);
   return (await parseBody(res)) as T;
+}
+
+/**
+ * `/api/account/me` (GET, PUT) and `PUT /api/me/avatar` nest the profile under `user`
+ * (`{authenticated, auth_enabled, env_managed, user}` and `{ok, user}`). Unwrapped once
+ * here, so every caller reads one flat {@link AccountProfile} with the route's
+ * `env_managed` on it. A flat body (a `username` at the top, or no `user` object)
+ * passes through as it is. Kept small: this module is on first paint.
+ */
+function accountProfileOf(body: AccountProfile): AccountProfile {
+  const { user, env_managed } = body ?? {};
+  return user && typeof user === 'object' && typeof body.username !== 'string'
+    ? { ...(user as AccountProfile), env_managed }
+    : body;
 }
 
 async function requestBlob(
@@ -830,8 +848,12 @@ export const api = {
   // ---- Auth (optional; OFF-safe) ---------------------------------------- //
   auth: {
     me: () => request<AuthMe>('GET', 'auth/me'),
-    login: (username: string, password: string) =>
-      request<LoginResult>('POST', 'auth/login', { body: { username, password } }),
+    // `remember` (Round 12) asks for a persistent, server-bounded session; the
+    // server decides and reports `remembered` / `remember_reason`.
+    login: (username: string, password: string, opts?: { remember?: boolean }) =>
+      request<LoginResult>('POST', 'auth/login', {
+        body: { username, password, ...(opts?.remember ? { remember: true } : {}) },
+      }),
     logout: () => request<{ ok: boolean }>('POST', 'auth/logout'),
     changePassword: (currentPassword: string, newPassword: string) =>
       request<{ ok: boolean }>('POST', 'auth/change-password', {
@@ -878,8 +900,10 @@ export const api = {
       // PUBLIC: the enabled providers for the login screen.
       providers: () => request<SsoProvidersResponse>('GET', 'auth/sso/providers'),
       // PUBLIC: the IdP authorization URL to redirect the browser to.
-      authorize: (provider: string) =>
-        request<SsoAuthorizeResult>('GET', 'auth/sso/authorize', { query: { provider } }),
+      authorize: (provider: string, opts?: { remember?: boolean }) =>
+        request<SsoAuthorizeResult>('GET', 'auth/sso/authorize', {
+          query: { provider, ...(opts?.remember ? { remember: '1' } : {}) },
+        }),
       // Admin: set/clear a provider's OIDC client secret (write-only).
       setSecret: (providerId: string, clientSecret: string | null) =>
         request<{ ok: boolean; configured: boolean }>(
@@ -953,14 +977,15 @@ export const api = {
   // The signed-in user's OWN profile. Gated server-side by current_user (NOT
   // users:manage). Secrets are never returned; the avatar string is a tiny
   // data: URL the browser has already cropped/resized to 256x256 WebP.
+  // All three return the flat profile (see accountProfileOf).
   account: {
-    get: () => request<AccountProfile>('GET', 'account/me'),
+    get: () => request<AccountProfile>('GET', 'account/me').then(accountProfileOf),
     put: (patch: AccountProfileBody) =>
-      request<AccountProfile>('PUT', 'account/me', { body: patch }),
+      request<AccountProfile>('PUT', 'account/me', { body: patch }).then(accountProfileOf),
     // Thin set/clear of just the avatar. `value` null/"" clears it. The backend
     // validates the data: URL (png/webp/jpeg, magic-byte sniff, bounded length).
     avatar: (value: string | null) =>
-      request<AccountProfile>('PUT', 'me/avatar', { body: { avatar: value } }),
+      request<AccountProfile>('PUT', 'me/avatar', { body: { avatar: value } }).then(accountProfileOf),
   },
 
   // ---- OOBE first-run setup (PUBLIC status) ---------------------------- //

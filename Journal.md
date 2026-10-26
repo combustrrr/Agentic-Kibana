@@ -11993,3 +11993,408 @@
 - Tests: Not run yet; synchronization inspection is in progress.
 - Status: in-progress
 - Next: Fetch both remotes, compare `Testing` and `main`, integrate upstream changes without overwriting fork-only CI, verify, and push only to the fork.
+### 2026-10-05 14:45Z — sub-agent (Human vs AI chart) — stacked-column close-attribution chart with rich hover/keyboard breakdown
+- Context: Operator found the Human vs AI chart ugly and unreadable; rebuild it (UI only).
+- Did: New `webui/src/soc/components/CloseAttributionChart.tsx` (hand-built SVG stacked columns: AI agent chart-1 base, Human chart-2, System chart-8; 1px inset gaps, 2px top radius, 2px floor; integer y ticks + solid hairlines; UTC x labels; hatched unmeasured buckets; in-progress bucket at 0.6 opacity; empty-window line; tooltip with full UTC range, per-closer rows incl. zeros + shares, arrivals/sent-to-human/FP rate/alerts, lower-bound note; one tab stop with ←/→/Home/End/Esc, polite live region, sr-only table; numerals withheld while stale). `HumanVsAiCard`: extended `HumanVsAiPoint`, square legend swatches, sentence-case title, "times in UTC" footer. Overview `humanVsAi` memo passes the extra bucket fields. No backend change; no new deps.
+- Tests: 4 recharts-pinned assertions re-pointed; 17 added. Full `test:strict` 327 files, 2380 passed / 9 skipped.
+- Status: done (b14fae6).
+- Next: orchestrator aligns the other Overview section titles with the sentence-case h2.
+
+### 2026-10-06 06:55Z — sub-agent (Case Manager) — divided queue, title-led header, sentence-case overview
+- Context: Operator-requested Case Manager design rework (practical, calm, flat; keep all data).
+- Did: `CaseManager.tsx`: boxed 112px cards → divided two-line rows (~59px, about twice as many visible) with severity word + risk score (loaded but never shown before) + id + de-duplicated entity/source + sentence-case status; solid/dashed/no severity rail; four distinct row states (open = tint + primary edge rail + `aria-current`); sibling checkbox revealed on hover/focus, always on touch or once selecting; header without eyebrow, one compact band. `CaseDetail.tsx` embedded header: title is the h2, id a wrapping mono line with copy button, severity + SAMPLE on the meta line, icon tile and resting shadow removed, text-only tabs, Share folds to its icon in narrow panes. `OverviewPanel`/`InvestigationInputs`/`MetaItem`: tracked-uppercase labels → sentence case; names in sans, identifiers mono; lanes keyed to pane width via `@container/overview`. `ui-standard.md` documents the queue-row grammar.
+- Tests: re-pointed 3 heading names + 1 border-class assertion; added 8 tests. Full `test:strict` 327 files, 2388 passed / 9 skipped.
+- Status: done (5190847, merged as 55fca9d).
+- Next: see the orchestrator entry below for the follow-ups taken.
+
+### 2026-10-06 08:15Z — orchestrator — Overview and Case Manager design rework
+- Context: Operator asked for a readable Human vs AI chart with far richer hover detail, less wasted space between the KPI strip and the noise-reduction flow, a less "AI-like" tile look, and a practical design rework of the dashboard and Case Manager without removing data. Operator choices (asked mid-way): a context line under each KPI number; refined flat layout; red only for Critical.
+- Did (Overview, 341928c / 2ca7467): `KpiTile` hero tiles gained a `context` line under the numeral (state, then bound, then context; exactly one shows); sentence-case labels, no icons, neutral numerals with red only for a non-zero critical count; help and drill-down marks moved beside the numeral and revealed on hover/focus (always shown without hover). Overview wires the contexts ("arrivals, last 24h", "17% of 47 cases", "any arrival date", "36 of 47 verdicted", "95% of worked closes"); the help keeps the long forms via `scaleAside`. The strip's bottom rule is now the lattice's top edge (no 16px gap, no doubled hairline). Section titles sentence case (`text-sm font-semibold`), including `NoiseFunnel` and `DashboardGroup`. Snapshot deltas state the count below a base of 20 or at ≥100% moves ("+8", not "+400%"), with both counts in the title. Latest cases are a flat divided list, title first, id and age beneath. The timing pair splits its cell evenly at `xl`. `NoiseFunnel` before-side labels anchor by their right edge so they no longer wrap under themselves. The Human vs AI tooltip now sits beside the hovered column inside the card. `MetricTrendBody` (every KPI hover card and drill-down) draws one column per bucket in its real time slot, with unmeasured buckets as a muted floor tick, a dated readout for the pointed bucket and first/peak/latest, replacing a smoothed sparkline over measured points only. `DashboardGroup` title no longer truncates at phone width.
+- Did (Case Manager follow-ups): the overview's decision headline steps down to `text-lg` so the case title leads; rule chips use `overflow-wrap:anywhere` instead of `break-all` (no more mid-word splits like "foll owed"; long space-less ids still wrap); `ui/checkbox` renders a dash and filled box for `checked="indeterminate"` so a partial "Select visible" no longer shows a tick.
+- Docs: `ui-standard.md` (six-cell strip, hero context line, sentence-case section titles, small-base deltas, column hover trends); `CHANGELOG.md` [Unreleased].
+- Tests: re-pointed the strip's face/ink assertions and two hero-bound sr-only assertions to the visible line; headline and rule-chip class assertions; added `MetricTrendBody.test.tsx` (5), `ui/__tests__/checkbox.test.tsx` (2), hero context-line tests (4) and a small-base delta page test. `npm run test:strict` 329 files / 2408 passed, exit 0. `tsc --noEmit` clean; `lint --max-warnings=0` clean; `gates` 6/6; `npm run build` clean, entry 396.36 kB against the 400 kB ceiling (was 396.08). The "Unexpected Nn" CSS minifier warning predates this work (a `Cases.tsx` comment scanned by Tailwind).
+- Visual verification: real Chromium on the demo stack at 1280/1440 light and dark plus 390, hover states for the chart, the KPI tiles and the hover trend; no horizontal overflow anywhere.
+- Status: done on `claude/dashboard-casemanager-redesign`; backend untouched, no new dependencies, `decide()` untouched.
+- Next: the entry chunk has ~3.6 kB of headroom left, so the next shared-primitive addition should be checked against `bundle-first-paint`. Below `sm` the strip is still one column (six tall cells); a two-column phone layout needs new divider math and its pinned class tests. Queue ids truncate at the default 400px pane (full id in tooltip, checkbox label and detail header).
+
+### 2026-10-07 11:40Z — orchestrator — Chat page revamp: session start
+- Context: Operator asked for a from-scratch rework of the Chat page: professional and practically useful, multiple lookups per question, query anything, a live token count, basic reports in the chat with interactive graphs and infographics, chat history, and answers about the app itself; neat and space-efficient (current page judged cluttered). Research the UI standard first, then build with sub-agents.
+- Did: Branch `claude/chat-revamp` cut from `origin/Testing` at 05a40d1 (PR #126 merged). Launching research: backend chat/gateway/tools maps, frontend chat map, docs corpus, chart infrastructure, and external UI/UX research.
+- Status: in-progress.
+- Next: research synthesis → design spec → implementation agents → adversarial review → screenshots.
+
+
+### 2026-10-08 08:45Z — WP-A Contracts sub-agent — Chat revamp shared contracts
+- Context: Chat revamp SPEC v2 wave 1, package WP-A: the shared wire, storage and protocol contracts every later package builds against (SPEC §3, §4.2, §4.5, §5.2, §6.2, §7, §7.6, §9.1; D2 prefs).
+- Did:
+  - models.py: ChatRequest additions (stream_mode, scopes with unknown values dropped, a validated TimeRange, origin, continue_of) and a fingerprint_payload() that keeps pre-revamp fingerprints byte-identical.
+  - models.py: ChatResponse additions that replay leniently, plus run-log steps, usage, citations, console links, memory proposals and turn notices; the /chat/context model; report models and request bodies; conversation pin/rename/search models.
+  - config.py: Preferences.chat_agent with a repairing clamp (a bad stored value never resets Preferences), plus saved chat prompts and the per-viewer stream mode on UserPrefs.
+  - constants.py: the reports KV namespace, the shared invisible-character ranges, ActionType.REPORT.
+  - chat_events.py: the NDJSON event union, encoder and parser, and the protocol markers and tool-call header grammar.
+  - blocks.py: block models, validate_blocks, the position-keeping replay parse, the §7.3 view table, display_text; stubs to_blocks/revise_view for WP-F.
+  - chat_tools/base.py: ChatTool, ToolOutcome, Artifact, ChatToolContext and the header/signature renderers.
+  - prompts.py: the single §7.6 marker normaliser, now also used by render_memory.
+  - Webui: types.ts mirror, stream-events.ts (parser, guards, normaliseChatResponse, displayText), blocks/schema.ts (parseBlocks), and two contract JSON files with paired tests on both sides.
+- Tests:
+  - New: 101 backend contract tests, 55 normaliser tests, 124 webui specs. Existing fencing/prompt/memory/RAG/chat tests (528) still pass.
+  - Full backend run: 3,834 collected, 23 failed. 18 pass on re-run; they failed while WP-C was editing the gateway and providers. 5 are caused by this sandbox: the live DShield network and an injected AWS key.
+  - Webui tsc, lint (0 warnings), gates and strict tests are clean.
+- Status: done.
+- Next:
+  - WP-H: switch _chat_request_fingerprint to body.fingerprint_payload(); declare response_model=ChatResponse; document /chat/stream; add chat_prompts to UserPrefsPatchBody.
+  - WP-F: implement blocks.to_blocks and revise_view against ARTIFACT_DATA_SHAPES.
+  - WP-I: render through parseBlocks and normaliseChatResponse; remove the deprecated types.ts fields together with ChatPanel.tsx.
+  - WP-I/WP-L: add chat_agent to the curated settings lists once its editor exists.
+  - WP-L: regenerate openapi.json and the generated types.
+
+### 2026-10-08 09:50Z — WP-A (contracts) — chat revamp review fix round
+- Context: Fix the independent reviewer's 1 blocker and 5 majors (plus 8 minors) in the WP-A contracts package.
+- Did:
+  - **Fenced keys never merge (#9, the blocker).** The prompt marker normaliser now matches markers on a folded view of the text (invisible, format and combining characters dropped, each character NFKC-folded) and replaces only the matched span. `fence_block` leaves invisible characters to `json.dumps(ensure_ascii=True)`, which prints them as visible escapes. Rewritten keys that collide get a ` [dup N]` suffix, so a forged `severity`+ZWSP can no longer overwrite the code-computed `severity`.
+  - **Visible escapes in raw prompt text.** Invisible characters in raw prompt-bound text are rendered as `\uXXXX` instead of being deleted, so they stay visible as evidence.
+  - **Invisible set completed.** INVISIBLE_TEXT_RANGES is now the full Default_Ignorable set, including the TAG block and the variation selectors. The Python and JS class generators are astral-safe.
+  - **G5 is now fixed by origin.** `validate_blocks(model_authored=True)` forces every block to provenance `ai`, so a model-written data block is always dropped.
+  - **Typed schemas.** TimeRange serialises through a TypedDict and always emits both bounds. The KPI null value is kept by `dump_block` instead of an untyped serializer.
+  - **Report sections.** A section snapshot holds 13 blocks (the answer plus a full turn) and says when it was clipped (`truncated`).
+  - **One timestamp grammar,** pinned in the answer-blocks contract with shared examples tested on both sides.
+  - **Client sanitisation.** The client sanitises every ChatResponse string, `answer` included, and checks console-link options against the router guards.
+  - **Smaller fixes.** `Artifact.title_trusted`; tools gated only by kind; tool-call headers inside fences are ignored; lone surrogates are stripped; `display_text` matches the JS `displayText`.
+- Tests:
+  - Backend full suite (offline): 3,993 passed, 4 skipped, 1 failed. The failure (test_round3_wave5_isolation stale-NRT) comes from the in-flight `llm/gateway.py`/`providers.py`, not WP-A.
+  - Webui: tsc clean; chat strict Vitest 135/135; eslint 0/0.
+- Status: done.
+- Next:
+  - Spec owner: amend SPEC §7.6 from "strip" to "escape visibly" for prompt-bound text.
+  - WP-F: send model-written blocks only through `parse_final_block_requests`/`to_blocks` or `validate_blocks(model_authored=True)`. Tools must set `title_trusted` only for fixed-template titles.
+  - Report UI: parse sections with `limit: LIMITS.section_blocks`.
+  - Gateway owner: fix the isolation test.
+
+### 2026-10-08 07:55Z — WP-B (implementation agent) — Chat revamp: route-helper extraction + resolve_grants
+- Context: SPEC §5.3 "Route-private helpers move first" and §5.1 `resolve_grants`, on `claude/chat-revamp`.
+- Did:
+  - Moved `_build_rationale`/`_audit_get` to `engine/case_rationale.py`.
+  - Moved `_cluster_for_case`, `_entity_events_widening`, `_reconstruct_cluster_from_case`, `_manual_trigger_reason` and the widen-ladder helpers to `engine/case_cluster.py`, now taking es/log_source/prefs/query_source explicitly; added `bind_cluster_for_case`.
+  - Moved `_sources_health_rows`, `_cursor_millis`, `_wallclock_last_event_millis` to `engine/source_health.py`.
+  - Moved `_log_row`, `_log_message`, `_browse_truncated`, `_source_can_browse` and the GET /api/logs scatter-gather to `engine/log_rows.py` as `BrowseTarget` readers plus `fan_out`.
+  - Moved `_proposal_public`, `_campaign_json`, `_safe` to `engine/views.py`.
+  - `routes.py` and `routes_campaigns.py` re-export every old name; the state-reading ones are thin wrappers with unchanged signatures. No route path, response shape, permission or behaviour changed.
+  - `api/deps.py`: new `AccessView` + `resolve_access`, the one non-auditing RBAC core now used by `_enforce`; `resolve_grants(request, pairs)` writes no audit rows; `record_chat_tool_denial(...)` writes one ACCESS_DENIED row with surface "chat".
+- Tests: new `test_engine_extractions.py` (39) and `test_resolve_grants.py` (11) pass. The 59 route test files covering the moved helpers pass. A scratchpad check against the pre-change `routes.py` gave 19/19 identical outputs, including Demo Mode. Full suite: 3,669 passed, 4 skipped, 5 failed; the 5 fail only because of sandbox-injected `AWS_ACCESS_KEY_ID` and HTTPS-proxy network access, and pass with those unset. Ruff fatal set clean.
+- Status: done.
+- Next: WP-D builds on `engine/log_rows`, `case_cluster`, `source_health`, `views` and `case_rationale`. WP-H wires `resolve_access`/`resolve_grants` and the bound engine callables into `build_chat_tool_context`. WP-F imports `record_chat_tool_denial` lazily (circular import via `app.state`).
+
+### 2026-10-08 — WP-B (extraction and grants) — fix round after independent review
+- Context: Chat revamp SPEC §5.1/§5.3. The reviewer found two major issues in record_chat_tool_denial and five minor ones in WP-B.
+- Did:
+  - deps.record_chat_tool_denial now writes the authenticated username as the actor (control characters removed, 160 cap, 'default' when empty) instead of cleaning it to identifier characters, so email and free-text usernames stay findable by records_for_actor and audit actor filters (#2).
+  - It accepts ChatToolContext.missing()-style 'r:a' strings as well as (r, a) pairs. The summary is built outside the guarded write and cannot raise. A step that cannot be converted drops only 'step='. A failed write logs a warning.
+  - engine/log_rows.fan_out clamps sq.size to 1..200 itself and gained raw_errors (False gives 'timeout' or 'error' and logs the detail, for chat). The route envelope is unchanged.
+  - New pure engine/source_health.coverage_rollup(rows, now_ms). GET /api/sources/coverage now calls it, with the same key order and values.
+  - Added a fan_out golden-envelope test, a resolve_grants test with global rbac.denies, and an email-actor round trip.
+  - The helper was not moved out of api/deps: every destination is outside WP-B's files. The lazy-import requirement is documented.
+- Tests: test_engine_extractions + test_resolve_grants 62 passed. Related route/RBAC suites 314 passed; the 1 failure is an existing get_event_loop ordering problem that reproduces on clean HEAD. Full suite 3881 passed, 6 failed, 4 skipped: 5 failures are from the sandbox (live network, AWS env var) and also fail on clean HEAD; 1 (wave5 isolation ledger cost) passes on HEAD plus the WP-B files and comes from another package's in-progress change. ruff clean on WP-B files.
+- Status: done.
+- Next: WP-F calls record_chat_tool_denial (imported lazily) with missing=ctx.missing(tool, kind), actor=ctx.user and step=n. WP-D calls fan_out(..., raw_errors=False) for search_logs, and sources_health_rows plus coverage_rollup for source_health. The orchestrator assigns the wave5 isolation regression to whoever owns gateway/providers.
+
+### 2026-10-08 08:35Z — WP-C implementation agent — Chat revamp: gateway streaming
+- Context: Chat revamp SPEC §6.3 and the gateway parts of §4.5 (package WP-C: llm/gateway.py, llm/providers.py, tests).
+- Did: `LLMGateway.complete(..., on_text=None)` now streams through `provider.complete_stream` while budget preflight, breaker, classification and the single `_record` stay in `complete()` (one UsageDoc per call on success, error and cancel, #6). Added real SSE streaming for OpenAI/OpenAI-compatible (`include_usage`; compatible 400 retries once without `stream_options`, then falls back to blocking; a plain-JSON reply is accepted) and Anthropic (`message_start`/`message_delta` usage). Everything else uses the one-shot default; Azure explicitly does not inherit OpenAI streaming. Retries happen only before the first delta; later failures raise `StreamInterrupted`, classified `stream_interrupted` (a provider class, not an immediate trip). Cancelled calls now record provider-reported input or chars/4 of the messages, plus chars/4 of received output, instead of 0/0. Added `CompletionResult.finish_reason` (normalised), `usage_estimated`, and gateway-stamped `pricing_source`/`latency_ms`; `BudgetBlocked(GatewayError)` (no ledger row, no health or breaker effect); Demo simulated streaming (`DEMO_STREAM_DELAY_S`) with WP-G hooks for the chat-agent and report-summary markers; `text_streaming_supported` and `provider_streams_text`.
+- Tests: new tests/test_gateway_streaming.py, 45 passed offline. Existing gateway/provider/budget/breaker/demo/chat/replay suites green; CI ruff gate clean. Full suite: 3,868 passed, 4 skipped, 6 failed. Five come from the sandbox (live network egress reaching dshield; AWS_ACCESS_KEY_ID set in the environment). One (test_round3_wave5_isolation stale-NRT cost bound) is caused by abandoned calls now carrying real cost; a validated test patch was handed to the orchestrator.
+- Status: done. Pending: the isolation-test patch and the `UsageDoc.usage_estimated` field (WP-A).
+- Next: WP-F passes `on_text` in Live text mode and maps BudgetBlocked, BreakerOpen and stream_interrupted to notices; WP-G fills the DemoMockProvider hooks and the `_resolve` TOOL_CALL_HEADER skip; WP-H builds `/chat/context.text_streaming` from `gateway.text_streaming_supported`.
+
+### 2026-10-08 10:30Z — WP-C implementation agent (fix round) — Gateway usage receipt + streaming hardening
+- Context: Reviewer findings on WP-C (chat revamp SPEC §6.3). Major: callers that stop waiting through `wait_for` never learned the abandoned row's estimated cost, so `Case.token_cost` sat ~300 µ$ below the ledger and test_stale_nrt_ledger_total_never_erases_current_run_cost was red. Minors: JSON-body validation, `"error": null` chunks, nested stream tracker, duck-typed usage report, attempts across fallback stages, brittle asyncio monkeypatch, `_resolve` header skip, `UsageDoc.usage_estimated`.
+- Did:
+  - Added the caller-owned `gateway.UsageReceipt` and the `usage_receipt=` argument on complete/embed/embed_with_provenance. It is filled in `_record` from the exact row before the write and maps onto StepUsage via `step_usage_fields()`.
+  - OpenAI-compatible JSON body: an `error` field or missing choices now raise instead of returning an empty answer. In-band `error` uses a truthy check.
+  - StreamProgress restores the outer tracker by ContextVar token. The duck-typed relay reports the plugin's usage first.
+  - `_then_stage` carries a running `attempts` total across Flex and compatible fallback stages.
+  - Added the `_retry_sleep` seam. `DemoMockProvider._resolve` skips messages whose first line is a TOOL_CALL_HEADER.
+  - Prepared but did not apply two patches outside WP-C ownership: investigator.py accounts receipt.cost on TimeoutError, CancelledError and GatewayError; test_round3_wave5_isolation.py bound becomes ±1 display µ$. Probes on pristine HEAD show that bound already failed for 2 of 5 clusters there.
+- Tests: test_gateway_streaming.py 67 passed. 8 of 8 fix mutations caught. ruff CI selection clean. Live tree (3998 collected): 6 failed = 5 environmental (also fail on pristine HEAD: live enrichment network, sandbox env) + the stale-NRT test pending the two patches. Patched mirror: the stale-NRT test passes.
+- Status: done for WP-C files. The suite turns green once the orchestrator applies scratchpad/investigator-usage-receipt.patch and scratchpad/isolation-tolerance.patch.
+- Next: orchestrator applies the two patches. WP-F builds StepUsage from UsageReceipt. WP-D uses the receipt on embed_with_provenance. WP-A adds UsageDoc.usage_estimated (+ types.ts). Follow-up: receipts for router/formatter calls cancelled by the pipeline's outer timeout.
+
+### 2026-10-08 11:00Z — orchestrator — Chat revamp wave 1 integrated
+- Context: SPEC v2 wave 1 (WP-A contracts, WP-B extraction + grants, WP-C gateway streaming), each implemented, independently reviewed and fixed by sub-agents.
+- Did: Applied WP-C's two validated patches that no package owned: `agents/investigator.py` now accounts an abandoned request's estimated cost from the gateway's usage receipt (so `Case.token_cost` keeps matching the ledger now that abandoned rows carry real cost), and `test_round3_wave5_isolation` compares within ±1 display micro-dollar (the one-sided bound already failed on clean HEAD for other cluster values). Added `UsageDoc.usage_estimated` (additive). Made `test_silence_can_never_shorten_the_open_wait` deterministic by pinning the breaker's full-jitter draw (about 1 run in 30 drew a wait shorter than the test's step). Amended SPEC §7.6: prompt-bound invisible characters are escaped visibly, display strips them. Removed a stray downloaded wheel an agent left in the repo root.
+- Tests: backend full suite exit 0 with the sandbox-injected AWS/proxy variables unset (5 tests read them: live keyless enrichment and secret-field env checks; they also fail on clean HEAD here). Webui `test:strict` 333 files / 2545 passed; tsc, lint (0 warnings) and gates clean.
+- Status: wave 1 done.
+- Next: wave 2 (WP-D tools, WP-E app knowledge, WP-F engine, WP-I1 web data layer, WP-J blocks kit).
+
+
+### 2026-10-08 — WP-D implementation agent — Chat revamp: data-tool fix round (reviewer findings)
+- Context: the independent review of WP-D raised 6 major and 6 minor findings: mislabelled metric windows, zeros during a case-store outage, the Elasticsearch 10k total shown as exact, a get_case rationale leaking audit payloads, invisible characters deleted before the fence, and context-dependent kinds that could never work.
+- Did:
+  - metrics.py:
+    - `metric_window()` narrows the window to whole hours and caps it at 30 days. Engine functions are called with `now=window end`; for a past range the cohort is [start, end), the trends bucket that starts at the end is dropped, and noise counters are read with `end_exclusive`. "Open now" and SLA clocks are still measured now.
+    - Labels say what was computed; `requested_window` and `window_capped` are set when that differs from the request.
+    - cost_usage and shift_report refuse a range that ends in the past.
+    - During a case-store outage, kinds computed only from cases fail with CASE_STORE_DOWN; noise_funnel sets its case stages to null.
+  - logs.py:
+    - `reported_total` reads `hits.total.relation`; a 10,000 total is a lower bound unless one exact `aggregate()` count replaces it (concurrent recounts in the fan-out).
+    - Observations show "at least N". log_stats keeps basis exact on totals when only the merged top values are partial.
+  - cases.py:
+    - The get_case rationale is a whitelist: tool counts, at most 3 queries of up to 200 characters, knowledge source counts, reasoning, the decision rationale, persona and playbook ids.
+    - explain_decision notes its forwarding log read in the summary and audit query text.
+    - Undated cases are kept inside a window.
+  - common.py:
+    - `text()`/`opt_text()` keep invisible characters for the fence. New `visible_text()` escapes them in evidence labels.
+    - Window gains trailing, span_hours and hours_capped. The unused shrinker is removed.
+  - registry, ops, intel:
+    - Per-caller signatures through a `signature_for(ctx)` hook and per-turn tool copies: only granted and available kinds are listed, and rule_versions stays hidden until ChatToolContext has the store.
+    - An unknown kind on a kind-gated tool is checked as "no kind", so a caller with no kind grant is denied and audited.
+    - `consumes_budget` releases a lookup when no provider answered.
+    - rule_versions uses `list_strict`; source_health shows last poll; mitre_lookup reports parent resolutions.
+  - taint.py: whole-token taint matching (`indicator_tokens`, refangs defanged indicators).
+  - elastic.aggregate: the .keyword retry targets the fields named in the 400 error and falls back to sampling when a retried group is empty.
+- Tests:
+  - WP-D: 134 passed across 11 files; new tests/test_chat_tools_metrics.py.
+  - Chat suites: 444 passed, 1 xfailed.
+  - Full backend suite: 4,417 passed, 4 skipped, 1 xfailed, 1 failed. The failure is the stale wave-1 NotImplementedError assertion in test_chat_contracts.py, which is not a WP-D file. Run with the sandbox AWS and proxy variables unset.
+- Status: done. The search_knowledge per-chunk trust split is still open; it needs WP-F (chat.py) or a SPEC change.
+- Next:
+  - WP-A: add runbooks, playbooks and rule_versions to ChatToolContext.
+  - WP-H: set them in build_chat_tool_context.
+  - WP-F: keep rendering signatures from toolbox.tools; decide the knowledge trust split.
+  - Drop the stale contract assertion.
+  - Add 'app_docs' to rag._sanitise_source_label's refused set.
+
+### 2026-10-08 12:30Z — WP-E implementation agent — Chat revamp: app knowledge fix round (routing, guide steps, minors)
+- Context: independent review of WP-E. Two major findings ($0 help answered data questions; guide steps showed raw Markdown and every step appeared twice) and ten minors.
+- Did:
+  - answer.classify_intent: hard data signals (ids, IPs, hashes, domains, the object in view, time windows, list/aggregate requests, activity words) always block routing. Strong cues (how-to, definitions, KPI wording) outweigh only soft signals (filtered sets, our/my metrics). Product and weak cues need a BM25F floor and every word present in the corpus. The cue-less path is removed. Golden, product-question and topic questions route; 32 data probes do not.
+  - render.plain_inline for guide steps (no markup, cut at a sentence or word boundary). The $0 guide block now carries links only, and the steps appear once in the prose.
+  - D ids only for citable sections. render_app_docs takes a max_chars budget (default 6000) and shrinks structurally, stating each omission.
+  - Alias keys folded. Async load_app_knowledge and warm_app_knowledge; lazy package __init__.
+  - CRLF-tolerant hashing in the loader, --check and Vitest.
+  - app_status provider key map (azure, bedrock, openai_compatible, mock).
+  - Strict anti-mint xfail. Compatibility-prefixed env names renamed.
+  - The build fails on unresolved breadcrumbs outside an allowlist.
+  - chat.md Limits breadcrumb and citation wording fixed; release gate step added to docs/releases/channels.md.
+  - Corpus regenerated.
+- Tests: test_app_knowledge 117 passed, 1 strict xfail (WP-D). Full backend suite: only the 6 known failures (5 sandbox, 1 stale contract pin owned by WP-A/WP-F). Console-map Vitest 5/5; lint, tsc and gates clean; check_docs and strict MkDocs OK; --check current (638 chunks); CI contract OK.
+- Status: done.
+- Next:
+  - WP-F: pass max_chars=observation_chars to render_app_docs.
+  - WP-H/L: call warm_app_knowledge() at startup.
+  - WP-D: anti-mint, then remove the strict xfail marker.
+  - WP-L: add .gitattributes; regenerate (gen:console-map, then build_app_knowledge) after WP-K and the chat_agent editor land, and update the chat.md Limits breadcrumb.
+
+### 2026-10-08 14:10Z — WP-F (engine sub-agent) — Chat revamp wave 2 fix round: shrinking, report envelope, legacy window, minors
+- Context: The reviewer raised four majors and several minors against WP-F, on branch claude/chat-revamp.
+- Did:
+  - chat_protocol.shrink_observation is series-aware:
+    - Parallel numeric arrays shrink together and keep the newest points. The series start moves forward with them, or is set to null when it can't be computed.
+    - Chronological lists keep their tail and ranked lists keep their head.
+    - `rows` is no longer treated as sample data.
+  - Report envelopes and sections in blocks.py:
+    - Extra keys no longer drop the whole brief. `blocks` is accepted for `items`, and subtitle and section summary are carried through.
+    - Section and leaf limits are clipped and counted instead of failing the envelope.
+    - Parse drops and lost leaves reach the one quiet notice through `materialise_final_blocks(dropped_requests=...)`.
+  - The legacy needs_query path in chat.py:
+    - The window is clamped through `resolve_window`, so a model-supplied wider window can't widen the request's range.
+    - The audit row records whitelisted display params, and a turned-off or out-of-scope tool reports its real reason.
+  - Minors:
+    - After the wall clock, one final-only answer still runs.
+    - `not_saved` is retryable only for a store error, and a turn stopped before any answer leaves no orphan case message.
+    - The memory deferral reason is truthful.
+    - Clipped categories, hidden columns and invalid KPIs are disclosed, and an explicit caption keeps its truncation phrase.
+    - Oversized tool input is refused instead of run with defaults; back-to-back action objects become one batch; identical refs are de-duplicated; the live-text streamer scans in linear time.
+- Tests:
+  - Owned files: test_chat_protocol 60, test_chat_blocks_materialise 60, test_chat_engine_loop 53, all green.
+  - Targeted chat suites: 818 passed, 1 failed.
+  - Full suite: 4412 passed, 6 failed. Five are the known sandbox network/env tests; the sixth is test_chat_contracts::test_retention_stub_and_helpers, which still pins the old NotImplementedError stubs and lives outside WP-F.
+  - ruff F/E9 clean.
+- Status: done. The suite is green once the orchestrator updates the pinned contract test.
+- Next:
+  - The orchestrator applies the test_chat_contracts replacement and lists it in SPEC §11.
+  - The SPEC owner confirms the amended wall-clock behaviour and whether `final_max_tokens` applies to every step.
+  - WP-H passes the conversation's chip as `ctx.time_range` so the legacy clamp takes effect.
+
+### 2026-10-08 12:45Z — WP-I1 implementation agent — Web chat data layer, review fix round
+- Context: the reviewer's findings on WP-I1 (chat revamp SPEC v2, wave 2): one major (heading-order) and twelve minors.
+- Did:
+  - ChatMarkdown rank-normalises headings per answer, so there are no skipped levels; the AST gains `rank`, and memo keys include ranks.
+  - No nested docs links.
+  - URLs glued to a word are defanged (display.ts and the inline parser).
+  - useChatEngine:
+    - adopts `turn.start.conversation_id` after a forced Stop or an unconfirmed connection loss (not after `turn.error`);
+    - a local Stopped answer stays out of history, and Stop is a no-op on a blocking turn;
+    - recovery waits up to the turn's own limits (new `turnBounds` option, `retry_after` body hint);
+    - `chat_idempotency_conflict` is not retryable;
+    - a `caseId` change resets the transcript;
+    - `turn.start` resets the live projection, and a Stop is re-sent to a replay's turn;
+    - user items split display `content` from the exact `prompt`.
+  - useChatConversations:
+    - checks a thread missing from the page before calling it unavailable or dropping the selection;
+    - refuses to delete the active thread while busy;
+    - sanitises optimistic titles.
+  - chat-api adds `apiRetryAfterSeconds`.
+  - Router time bounds reject a space.
+- Tests:
+  - Chat suite 198/198 strict.
+  - Legacy chat, router and lib suites green.
+  - tsc clean; lint 0/0; gates pass.
+  - Full strict: 2863/2864. The 1 failure (release-updates.test.tsx, settings) passes alone.
+- Status: done. Nothing committed.
+- Open, needing decisions or owners outside WP-I1:
+  - case-turn replay after a lost connection needs WP-H/SPEC sign-off;
+  - the list contract for pinned threads beyond 50 (WP-H);
+  - the 409 `retry_after` body hint (WP-H);
+  - the per-user live-mode storage key.
+- Next:
+  - WP-I2: pass `turnBounds: ctx.bounds`; render `ChatUserItem.content`, never `prompt`.
+  - WP-K exporters: nest by `MdBlock.rank`.
+
+### 2026-10-08 12:30Z — WP-J (blocks and charts kit) — reviewer fix round
+- Context: Chat revamp wave 2. WP-J fix round on the independent review: 2 major findings and 15 minor ones.
+- Did:
+  - Honest views (major). views.ts allows stacked/donut views only when values add up: count, tokens, bytes and usd always; percent and ratio only when the parts reconcile to the whole; never score or durations. honestChart/honestBlock draw a dishonest server-chosen kind as grouped columns or horizontal bars. ChartBlockView applies the same guard on the static path.
+  - No landmark per block (major). Cards are `<figure aria-labelledby>` with a `<figcaption>`; a report is announced as "Brief <title>". Report sections are labelled groups, and MITRE tactic groups are plain divs.
+  - Stacked charts: the sr-only Total covers all series; "total of shown series" once a series is hidden; per-segment reconcilingShares in the tooltip and the table.
+  - Chart tooltip in the Expand sheet: Esc is caught in the window capture phase, so one Esc closes only the tooltip. The tooltip is portalled into the enclosing dialog so it stays hoverable.
+  - CaseHoverArm loads the preview by hand and never wraps links while focus is inside, so keyboard focus is kept. A failed load or failed render falls back to the plain link.
+  - pickXLabels: sub-hour intervals, at least 2 labels.
+  - Clipboard: TSV defuses a leading quote and a formula after leading spaces; defang skips file names (exe, dll, docx and so on) and mixed-case endings.
+  - Exactly one citations block per message carries the `-cite-n` anchors.
+  - G9: BlockBoundary.tsx keeps the block's fallback_text; each report leaf has its own boundary.
+  - Callouts are `role="note"`; SPEC §10.9 takes precedence over the BLOCKS.md live roles.
+  - Rendering: chart y-axis title; heatmap axis titles; heatmap column labels that span to the next label; forced-colors step digits; hbar reference label; mono indicator title and reputation detail; "Brief" eyebrow; stable Add-to-report name; formatDelta (pp for rates, plain points for scores); KPI strip as a list.
+  - Static/print path: every table row, visible chart data tables, no card controls.
+  - Gallery series are now hourly (matching bucket 1h).
+  - ESLint G1 now also bans the Identifier and string-Literal forms.
+  - The bundle guard now also covers the Workspace route chunk (AnswerBlocks, BlockCard, charts/* and renderers/* only via import()).
+  - Noted from the first round: MitreHeatmap labels changed from 10px to text-2xs (11px) in Metrics and the dashboard MITRE widget. This needs a CHANGELOG line.
+- Tests: kit plus guards under test-strict, 259/259 (13 files). Consumer set, 270/270 (21 files). Full webui test:strict, 2,837/2,838: the one failure was an Overview drill-down test that timed out under load and passes 28/28 alone. tsc clean; lint 0/0; gates all pass. schema.ts and the contract JSON are unchanged. No browser for visual QA.
+- Status: done (WP-J fix round).
+- Next:
+  - WP-F: apply the same additive-unit rule when building allowed_views.
+  - WP-L: add the CHANGELOG note for the MitreHeatmap label size; ratchet the charts-soc grep baseline; browser visual QA (heatmap at 390px, Expand sheet tooltip, forced colors).
+  - WP-K: use BlockBody/ChartBlockView with staticMode for print.
+  - Spec owner: align the BLOCKS.md callout roles and the kpi_group `<dl>` with SPEC §10.9 and KpiTile.
+
+### 2026-10-08 13:20Z — Orchestrator — Chat revamp wave 2 integrated; wave 3 launched
+- Context: chat revamp (docs/research/2026-10-chat-revamp/SPEC.md v2), wave 2 of 4: WP-D chat tools, WP-E app knowledge, WP-F engine, WP-I1 web data layer, WP-J blocks/charts kit. Each package ran implement → independent adversarial review → fix as its own workflow (one per package, because the per-workflow agent cap on this 4-CPU sandbox is 2).
+- Did: committed the five packages (ec0d2be, 809da94, 6eea734, ba78ba0, efe0f15 on claude/chat-revamp); replaced the wave-1 contract test that pinned the materialisation stubs with assertions on the implemented behaviour; added ChatToolContext.secrets_status and the runbooks/playbooks/rule_versions catalogue fields; added models.ChatStarter / ChatContextInfo.starters / ChatTopicQuestion (+ types.ts mirrors) so the empty state and "Ask about this" have one server-built source; wrote compiling interface stubs for the composer, empty state, shortcuts and chat-context hook so the chat page UI could be split into two parallel packages (WP-I2a shell + transcript, WP-I2b composer + meter); compiled every package's interfaces and cross-package open issues into binding wave-3 notes with ten orchestrator decisions (starters, topic endpoint, case turns not auto-replayed, pinned-first list up to 60, retry_after body hint, entry budget, ownership of chat-api.ts in wave 3).
+- Tests: chat contract, knowledge and tool suites green after the integration edits; per-package reports: tools 134, knowledge 117 + 1 strict xfail (anti-mint, routed to WP-INT), engine/protocol/materialise 173, web chat suite 198 strict, blocks kit 259 strict; full webui strict 2,863/2,864 (one load timeout that passes alone). Full backend suite re-run in progress on the integrated tree.
+- Status: wave 2 done; wave 3 running (WP-INT integration fixes, WP-G demo planner, WP-H chat routes/persistence/state, WP-H2 reports backend, WP-I2a workspace shell, WP-I2b composer, WP-K reports UI + exports).
+- Next: integrate wave 3, then wave 4 (WP-L): regenerate openapi/api types, console map then app knowledge corpus, grep-baseline ratchet, CHANGELOG (incl. MitreHeatmap 10→11 px labels), .gitattributes for the knowledge JSON, entry-chunk measurement, browser visual QA with screenshots, final adversarial review.
+
+### 2026-10-08 18:30Z — Orchestrator — Chat revamp wave 3 integrated
+- Context: chat revamp (docs/research/2026-10-chat-revamp/SPEC.md), wave 3 of 4. Seven packages, each run as its own implement → independent adversarial review → fix workflow: WP-INT (wave-2 cross-package fixes), WP-G (Demo planner), WP-H (chat routes, streaming, persistence, state), WP-H2 (reports backend), WP-I2a (workspace shell + transcript), WP-I2b (composer, meter, empty state, shortcuts), WP-K (report panel, Reports library, exports). The chat page UI was split into I2a/I2b against orchestrator-written compiling interface stubs so both could build in parallel.
+- Did: committed every package (9f5756e and the preceding wave-3 commits on claude/chat-revamp). Highlights: one Help Center link grammar across backend, schema, display and stream normaliser (applied WP-INT's ready patch to stream-events.ts); server-side view honesty and anti-minting of reserved RAG labels; Open in Logs only for sources actually searched, with absolute bounds; a deterministic $0 Demo planner covering every §5.5 intent with byte-identical answers; run_chat_turn shared by /chat and /chat/stream with a strong-ref turn registry, cancel endpoint, concurrency admission, completed-key replay and reset-safe cancellation; compact presentation storage (≤16 kB escaped) with downgrade-before-drop retention and pins; per-report KV documents with summaries over a bounded digest; the three-zone workspace with frame-measured geometry, history rail, run log, meta row and token meter; the report panel and library with Markdown/HTML(CSP)/print/CSV/JSON exports; a preload trim that kept the entry chunk within the revamp's 1 kB budget.
+- Also: fixed a pre-existing flaky test (test_batch_submission_lease_converges_across_independent_sql_stores): the in-memory SQLite fixture uses a StaticPool, so the two "independent" stores shared one connection and one session's rollback-on-return could undo the other's uncommitted lease write; the test now uses a file-backed engine (923f2cf).
+- Tests: per-package suites green; full backend suite green after WP-H (4,613 passed) and WP-G (4,662 passed; the one failure was the lease flake fixed above); full webui strict runs 3,199–3,227 passed with only load timeouts that pass alone.
+- Status: done.
+- Next: wave 4 integration of the follow-ups each package queued.
+
+### 2026-10-09 02:00Z — Orchestrator — Chat revamp wave 4 integration; container restart recovery
+- Context: wave 4 integrated every follow-up queued by wave 3 in three packages: WP-L1 backend, WP-L2 frontend, WP-L3 docs/contracts/settings.
+- Did: WP-L1 committed after review and fix (ba659e9): strict case-thread append_if_absent, tolerant optional report text, distinct policy-refusal notices, metrics clamp flag, "Ask about this" topic passthrough, configuration-disabled tools named in the prompt and flagged in /chat/context, header views delegated to the materialiser, one knowledge trust renderer, per-turn lookup release, and Elasticsearch-safe storage (opaque rows on the Elasticsearch KV adapter so the shared config-index mapping cannot grow without bound; PostgreSQL/SQLite keep the released keyed form so the supervised image-only rollback stays safe, proven against frozen copies of the released codecs). Full backend suite 4,707 passed. WP-L2 and WP-L3 finished their implement stages (committed in 01f6117) but the container restarted during their reviews; the reviews, fixes and the orchestrator's scratch notes were lost. Recovered from the pushed branch, reinstalled the toolchain, rewrote the notes from the integration record, and launched wave 5 to redo those reviews together with fixes for the live-browser QA findings (doubled "Read:" labels, a default model shown as a chosen chip, empty table shells, a duplicated reputation gauge, a shift brief repeated in prose, monospace captions, a minutes KPI shown in ms, the Jump to latest pill covering prose).
+- Tests: browser QA on the live demo at 390/1280/1440/1920 in both themes: no horizontal or document overflow; starters, multi-lookup answers, charts, meta row, follow-ups, history and the report panel all work end to end.
+- Status: in progress (wave 5 running).
+- Next: integrate wave 5, regenerate OpenAPI types, console map and app-knowledge corpus, run every gate and the production build, final browser QA with screenshots, final adversarial review.
+
+### 2026-10-09 10:00Z — Orchestrator — Chat revamp complete: waves 5–6, final adversarial review, all gates green
+- Context: finish the chat revamp (docs/research/2026-10-chat-revamp/SPEC.md) after the wave-4 container restart.
+- Did: wave 5 re-ran the lost frontend and docs reviews and fixed the live-browser QA findings (WP-R2 frontend: reopened threads no longer adopt the server-resolved model/source, tools turned off by configuration are labelled, "Ask about this" on Overview KPI help and Settings headers, empty data blocks dropped, one "Read:" prefix, sans captions, durations in their own unit, Jump to latest at the lane edge, lazy fail-soft MFA QR freeing ~4.8 kB of entry; WP-R3 docs: chat.md rewritten for the shipped UI, release/rollback notes for the Elasticsearch storage form and the SQL rollback limits, SPEC A21–A33; WP-QB backend: bare Help Center link titles, no empty or restated blocks, short report leads, human names in prose, posture deltas in their own unit). Wave 6 cleaned up the cross-package leftovers (Send stays enabled under a blocking budget with $0 Help Center answers, window-neutral budget copy, "question" not "turn" in user copy, neutral print/report identifiers, favicon, ChatResponse.case_saved/case_save_notice end to end, explicit log-search routing in the Demo planner, the rollback-cap test). A final whole-branch review (five lenses: security/non-negotiables, backend, frontend, UX in a live browser, contracts/docs) raised 38 findings; independent skeptics confirmed 37 and all were fixed with tests, including one major security fix: client-supplied history is user-authored only with origin "user", so a model-written follow-up can never authorise a third-party indicator lookup on a later case or stateless turn (SPEC A38). Regenerated the console map, the Help Center corpus (659 chunks), webui/openapi.json and api-types.gen.ts.
+- Tests: backend full suite 4,838 passed, 4 skipped, 0 failed; webui test:strict 388 files / 3,379 passed with zero stderr; tsc, eslint (0/0), design gates, check:types (no drift), build_app_knowledge --check, check_docs (81 pages), docs:check, check_ci_contract, check_version and the CI fatal-defect ruff selection all pass; npm run build clean with the entry chunk at 392,879 B (+986 B over the re-measured branch-point baseline, within the 1 kB revamp budget). Live Chromium QA at 390/1280/1440/1600/1920 in both themes: no horizontal or document overflow, no console errors.
+- Status: done (branch claude/chat-revamp, pushed; no PR opened).
+- Next: known limitations recorded in SPEC A38 (the per-conversation indicator cap applies to persisted Workspace conversations only) and A32 (Elasticsearch storage form is one-way on rollback). Suggested follow-up outside this change: other id-keyed KV stores in the Elasticsearch config index (case_activity, case_tasks, inbox, notif_prefs, user_prefs, shift_handoff, tuning, campaigns, baseline) can grow the shared mapping the same way and should adopt the per-backend storage form.
+
+### 2026-10-10 15:00Z — Orchestrator — Round 12 start: chat without limits, working indicator, Remember me, reports, dashboard, Case Manager
+- Context: operator feedback after the chat revamp (PR #129, merged into Testing): the chat does not use the full width when the side rails are collapsed; add a left-rail "agent is working" indicator; remove the chat's truncation, step/token limits and "Continue where this stopped" (chat is an explicit exception); more chat functionality benchmarked against Palo Alto, Amazon, Google, Microsoft, CrowdStrike, SentinelOne, Qualys and Splunk assistants; fix misrouted queries ("Product help" refusals on data questions), KPI and block-width glitches from screenshots; "Remember me" on login (remembered username, browser-managed password, periodic re-authentication); glitch-free report downloads; a cleaner Overview dashboard and Case Manager without losing data; an analyst-reported bug (closing a case as false positive still shows "Undetermined"). Design reference: the apple-design skill (emilkowalski/skills).
+- Did: switched development to Testing (origin 158e34b) per the session's branch designation.
+- Status: in progress.
+- Next: research (competitors, standards, Apple design) and codebase diagnosis in parallel, then a round spec, then implement → adversarial review → fix per package.
+
+### 2026-10-11 10:30Z — Orchestrator — Round 12 wave 1 done; wave 2 resumed after a usage-limit interruption
+- Context: Round 12 (docs/research/2026-10-round12/SPEC.md). Branch claude/round12 (Testing is protected; the operator chose a new branch with a PR at the end).
+- Did: research (10 competitor/standards briefs + 2 syntheses) and code diagnosis (8 reports) committed under docs/research/2026-10-round12/; SPEC with decisions D1–D17, shared contracts (models.py + types.ts additions, interface stubs for engine/time_windows.py and engine/case_aggregate.py) and 14 work packages. Wave 1, each package implement → two independent adversarial reviews → fix → re-review → final fix: WP-ENG (chat engine without per-question caps: limits_mode unlimited by default with migration, loop guards, auto-continuation, observation compaction + recall_observation, cross-turn rolling summary in a CONVERSATION_SUMMARY untrusted fence, honest unsupported/limited routing, clarify/report header parsing, chat exempt from the daily AI budget with an optional chat cap), WP-TOOLS (case_stats, any-length and calendar windows, buckets, comparisons, exact search_cases totals, cost over the usage aggregate, zero-result suggestions, routing prompt fixes), WP-AGG (exact aggregation core with ES/SQL push-down and a bounded streaming fold; exact dashboards up to 20,000 cases per scope; SLA attainment null instead of 0% and SLA scored on derived priority; analyst_confirmed_fp), WP-API (full-text per-exchange storage, summary persistence, lease heartbeat, concurrency 4/16, active turns + reattach + chat.turn frames, conversation status/unread, reports saved from chat, feedback, step inspector), WP-DS (Apple design foundations: tracking, concentric radii, material for floating chrome with reduce-transparency/contrast fallbacks, springs, trigger-origin overlays, press feedback, KpiTile never truncates), WP-AUTH (Remember me with 6/12/24 h server-bounded sessions, browser-managed passwords, registry-aware /auth/me), WP-REP (reliable report exports incl. Word/Excel, print fixes, Download PDF). WP-DEMO implemented and reviewed (136-question golden set).
+- Interruption: the account's weekly usage limit stopped wave 2 mid-flight (WP-CM, WP-ACT, WP-OV, WP-BLK partially implemented; WP-CHATUI implemented but unreviewed; WP-DEMO's fixer partway). Partial work was checkpointed (91bca87); each interrupted agent's transcript was condensed into a handoff log (narration + every tool call + task-list state) and the packages were resumed with a handoff-first workflow (assess → HANDOFF.md → finish → review → fix), with a PROGRESS.md kept current so a future interruption can be picked up instantly.
+- Tests: per-package suites green at hand-off; latest full backend runs 5,666–5,690 passed / 4 skipped / 0 failed (WP-API, WP-AGG final runs).
+- Status: in progress (wave 2 resumed: WP-CM, WP-ACT, WP-OV, WP-BLK, WP-CHATUI review, WP-DEMO fixes).
+- Next: wave 3 (WP-FEAT message-level chat features, WP-ASK entity chips, WP-DOC docs/generated artefacts/bundle baseline), then the whole-round adversarial review, live QA screenshots and a PR into Testing.
+
+### 2026-10-12 08:00Z — Orchestrator — Round 12 waves 2–3, whole-round review, closing pass, polish round 1
+- Context: Round 12 (docs/research/2026-10-round12/SPEC.md) after the 2026-10-11 resume: finish waves 2–3, review the whole round adversarially, close every gate, and walk every operator ask live.
+- Did: Waves 2–3 landed (WP-CM, WP-ACT, WP-OV, WP-BLK, WP-CHATUI, WP-DEMO, WP-FEAT-A/B, WP-ASK, WP-DOC, WP-GEN-A, WP-FIX1, WP-GEN-B), each implement → two adversarial reviews → fix → re-review → final fix. Whole-round review in four lenses (security/non-negotiables, backend correctness, frontend correctness, live UX acceptance at 390–2560 px in both themes); every finding was re-checked by an independent skeptic before it counted: L1 7/7 confirmed, L2 11/11 (2 duplicates of L1), L3 8/8, L4 19/24. Fix workflows per area, each re-verified and final-fixed. Notable fixes: running chat turns stop when the session is revoked, the account disabled/deleted/demoted or the sign-in expires (push from every revoke path plus a pull check before every model step and lookup batch); Remember me turned off falls back to a standard sign-in; Case Manager filter scan bounded and projected; deleting a user purges chat, ratings and reports; Ask again keeps the entity fence; Remember me warning per user; XML-safe SVG/Office exports; noise funnel and alert trends honest about counter coverage; captions and report scopes never clipped; analyst "Confirm false positive" always wins over an AI true positive; resolved cases can be closed and their outcome recorded; mutation responses keep advisory bands (severity no longer flips after an action); downloads show calendar periods; conversation export guarded like report export; cross-device chat activity (chat.turn/chat.read, POST /api/chat/turns/{id}/seen); data questions that say "explain" list and explain cases instead of Product help (demo planner, AI-unavailable fallback, prompt line); honest answers for response actions and out-of-scope asks; Brief headings once; /compact as a quiet note; one Summary in saved reports, Back leaves a report, source conversation recorded. Decision 18 (recorded in SPEC D12/§7.2 and chat-revamp A62): the default chat lane width is Full (fills the space when the menus are collapsed), superseding D12's Wide default, because the operator's first ask was a full-screen chat; Comfortable and Wide stay as choices and stored choices are kept. Closing pass: regenerated artefacts (no drift), all gates, five skeptic re-verifiers over the unverified final fixes plus a records/contracts review (31 findings, all fixed, including SPEC §7 decisions 22–26, chat-revamp A63, API reference and CHANGELOG/DEPLOY), then a re-gate. A live screenshot tour then found 12 polish items, fixed in polish round 1 (top bar compacts by its own width and never wraps or squeezes, duplicate Demo mode chip merged, opaque material fills so text never reads through, KPI delta period beside the chip, severity breakdowns in canonical order with semantic colours everywhere, one window start per answer, de-duplicated report window line, compact step inspector, plain copy and labels, Google/Microsoft capitalised, Tags never commits or truncates pending text silently). Entry chunk baseline rebased twice with the measured reason recorded in SPEC §7.3 (the router same-page fix and the top bar must render on first paint).
+- Tests: closing re-gate backend 7,526 passed / 4 skipped; polish round 1 gates backend 7,566 passed / 4 skipped / 0 failed; webui test:strict 475 files, 4,830 passed / 1 skipped, zero stderr/console; tsc clean; lint 0/0; design gates pass; check:types no drift (259 paths); knowledge --check current (721 chunks); check_docs 81 pages; docs:check; CI contract + 62 unit tests; check_version; build 3,385 modules; entry 371,445 B within the 1,024 B budget over the 371,003 B baseline; bundle-first-paint 23/23.
+- Blockers/notes: two container restarts stopped background work mid-flight; partial edits were committed as WIP snapshots and the workflows resumed from their journals (completed agents replayed from cache; agents now keep PROGRESS notes). A reviewer agent committed a 10 MB tool wheel in one intermediate commit; it was deleted in the next commit and `*.whl` is now ignored; rewriting the branch history was refused by the session's permission policy, so the PR recommends a squash merge. Pre-existing case titles keep their "entity — rule" separator (stored data and search depend on it).
+- Status: in progress (polish round 2: readable labels in downloads, dark-mode assignee monogram, adjacent comparison windows; then gates, a final screenshot tour and the PR into Testing).
+- Next: finish polish round 2, re-run every gate, append the closing entry, open the PR claude/round12 → Testing.
+
+### 2026-10-12 17:30Z — Orchestrator — Round 12 complete: polish rounds 2–3, final gates, PR into Testing
+- Context: Round 12 close-out after the closing pass and polish round 1 (see the 08:00Z entry): fix what the second and third live screenshot tours found, re-run every gate, open the pull request into Testing.
+- Did: Polish round 2: every download (Markdown, HTML, Word, Excel, CSV) uses the screen's words through one shared label source (JSON keeps stored keys), query captions and yes/no cells consistent, Word split notes read "Column 6 of 6 (continued)", the Add to case picker shows status words; Case Manager assignee monograms get a visible token fill and accessible names; headings and focused controls are never hidden under the sticky Overview band (WCAG 2.4.11); a comparison window is exactly adjacent to the aligned current window, same length and granularity. Polish round 3: report and compare narration states each window's dates once and groups unmeasured figures in one sentence; a rolling window ending now is called partial only when materially shorter (SPEC §7.2 decision 28 amended); the Noise reduction flow picks its layout from measured label widths with collision avoidance (also in Full screen after the open animation); truthful AUTH_COOKIE_SECURE wording; few-bucket bar charts get a sensible bar width. Each round: fix → independent re-verify → final fix → full gates. Two container restarts were absorbed by WIP snapshots and resumable workflows.
+- Tests: backend 7,620 passed / 4 skipped (two full runs); ruff 0.12.5 fatal selection clean; webui test:strict 481 files, 4,947 passed / 1 skipped, zero stdout/stderr; tsc clean; lint 0/0; design gates pass; check:types no drift (259 paths); knowledge --check current (721 chunks); console map unchanged; check_docs 81 pages; docs:check; CI contract + 62 unit tests; check_version; updater unittests 100; SQLite boot smoke; build 3,389 modules; entry 371,507 B (+504 B within the 1,024 B budget, not rebased); bundle-first-paint 23/23. Not runnable here: PostgreSQL+pgvector/Redis acceptance and image builds (registries blocked), left to CI.
+- Known limitations recorded: case titles keep their stored "entity — rule" separator; a few golden-set "this month" questions can fail in the first minutes of a UTC month before any demo case exists; the intermediate commit with a 10 MB tool wheel stays in branch history (deleted next commit, `*.whl` ignored), so the PR asks for a squash merge.
+- Status: done (PR claude/round12 → Testing opened; CI pending).
+- Next: drive the PR to green (CI lanes, review comments), then promotion follows the release checklist when the operator decides.
+
+### 2026-10-12 17:45Z — Orchestrator — PR #131: Codex review fixes (rejoin ring bound, SQL newest-first order)
+- Context: Codex review on PR #131 raised P1 (the chat rejoin ring coalesced text.delta into one entry, so answer text was unbounded in unlimited mode and kept 300 s after the turn) and P2 (SQL newest_first scans read legacy rows before canonical ones, so the dashboard population reader could analyse old rows instead of the newest cases). Both verified real, fixed, re-verified, final-fixed.
+- Did: routes_chat.TurnEventRing caps answer text at TURN_RING_MAX_TEXT_CHARS=1,000,000 characters and TURN_RING_MAX_TEXT_DELTAS=250,000 markers in 1/16 segments (array('I') markers), dropping the oldest whole segments; text_gap_seq tracks dropped text and a rejoin before it gets one text.reset then the kept text (turn.done still carries the whole answer). SQL scan_page newest_first now reads one stream ordered by real creation time: indexed canonical keyset, legacy keys parsed in Python with the engine's parser, undated rows last (matching Elasticsearch); the cursor carries the newest legacy key still behind it so legacy keys are re-read only on the page that reaches it. CaseRepository contract wording, Round 12 SPEC §3.2/§7.3, chat-revamp A51, api.md and CHANGELOG updated.
+- Tests: new test_chat_turn_ring_bounds.py (10) and test_sql_newest_first_scan.py (16), turn-runner vitest (+1, strict 27/27); full backend 7,646 passed / 4 skipped; ruff 0.12.5 fatal selection clean; check:types no drift; knowledge --check current; check_docs 81 pages; tsc and eslint clean.
+- Status: done (pushed to claude/round12; CI re-runs on the PR).
+- Next: watch CI on the new head; reply on and resolve the two review threads.
+
+### 2026-10-17 12:35Z — Orchestrator — Round 13 start: Overview separation options and the chat spec
+- Context: operator feedback after Round 12 (PR #131, merged into Testing as db8d935): the Overview lost its dividers between cards and now reads as one surface; they asked for a couple of separation options with screenshots to choose from. For chat they asked for a neater, cleaner UI and dynamic automatic suggestions when a chat starts. Round 13 continues on claude/round12 (restarted from db8d935, which held only merged history) and reaches Testing through a new pull request.
+- Did: a kickoff workflow built four Overview separation options behind a temporary preview switch (`#/overview?separation=grouped|hairlines|titled|bordered`, read once on mount, remembered per tab; scoped CSS under the switch only, no motion, no blur, no resting shadow, operator brand tokens untouched), had them critiqued and refined, and captured comparison screenshots at 1440 light, 1920 dark and 768. The default look is unchanged until the operator chooses. In parallel it researched suggestion patterns (10 vendor and assistant briefs), audited the live chat (109 screenshots at 1440 light, 1920 dark, 390 light) and wrote the binding chat spec `docs/research/2026-10-round13/SPEC-chat.md` (deterministic $0 starters from live data under the viewer's grants, typed references fenced as untrusted, anchored follow-ups, a 42rem reading column, quieter block headers and meta row, model-written conversation titles, and work packages with exclusive file ownership).
+- Tests: overview-separation.test.ts added (switch reading and memory, scoping, no motion or blur, no brand override, no resting shadow).
+- Status: in-progress (separation options sent to the operator for a choice; chat implementation starting).
+- Next: ship the chosen separation as the default and remove the switch; implement the chat spec waves 0 to 3 with two adversarial reviews per package, gates, and live screenshots.
+
+### 2026-10-17 20:40Z — Orchestrator — Round 13 chat wave 0 and wave 1 done (aa9aac6)
+- Context: SPEC-chat §7.1 and §7.2: contracts, then the starter API, engine changes, start screen and the two halves of the chat tidy-up (WP-TIDY-UI split into WP-TIDY-MESSAGE and WP-TIDY-SHELL to keep each package reviewable).
+- Did: wave 0 wrote the models, config switch, template module (`agents/chat_starter_text.py`), engine skeleton (`engine/chat_starters.py`) and library events (`pickPromptFromLibrary` replaces the spec's `usePromptFromLibrary`, which breaks rules-of-hooks). Five packages then ran implement, two adversarial reviews (correctness and security; UX, accessibility or spec conformance), fix, skeptic re-verify and final fix: A starters API (store, `GET /api/chat/starters`, `POST /api/chat/starters/events`, families, ranking, catch-up, case chips, fence on live and replay; 13 findings fixed), B engine (anchored follow-up selector, conversation titles from the answer header, fmt_int rounding, field labels, evergreen `/chat/context` starters; 16), C start screen (bottom-anchored stack, cards, catch-up line, pills, Hide and Undo, case chips, settings switch, library filter; 14), D1 messages and blocks (42rem reading column, compact and wide blocks, shared scope line, quiet headers, meta row, run log, follow-up row; 21), D2 shell (composer, menus, toolbar usage line, report panel saved list, history rail titles and snippets; 15).
+- Tests: final fixers report full backend 7,918 passed / 4 skipped, ruff fatal selection clean, strict vitest on the chat folder 107 files / 1,889 passed with no stderr, tsc and eslint clean, npm run gates green.
+- Status: in-progress (wave 2: Demo planner, leftovers handed back by the packages, docs and generated artefacts; wave 3: whole-round review, gates, live screenshots).
+- Next: commit wave 2 and 3, then the operator's chosen Overview separation, then the pull request into Testing.
+
+### 2026-10-18 06:00Z — Orchestrator — Round 13 chat waves 2 and 3: Demo planner, docs, whole-round review, gates, tour
+- Context: SPEC-chat §7.3 and §7.4 after waves 0 and 1. A container restart stopped the run once; it resumed from the workflow journal with no lost work.
+- Did: WP-DEMO13 made the Demo planner answer every starter template, `_one` variant and case chip from seeded data (values read only from the `entity_ref` fence, changed counts and cases closed since the card stated plainly), titles for the first answer, anchored chips answered for what they name, the takeaway rule, figure-based report steps, Demo source names and seed titles without em dashes (27 review findings, 9 left after re-verify, all fixed by the final fixer). The leftovers fixer added Delete to the shortcut sheet, unwrapped the nested `/api/account/me` profile (display names now hydrate, so the greeting can use them) and kept engine label case in zero-result chips. WP-DOC13 wrote the Help Center chat and settings pages, ui-standard "Conversation workspaces", SPEC-chat §10 As built, chat-revamp amendments A64 to A68, BLOCKS amendments 32 and 33, AGENTS, ROADMAP, CHANGELOG, USAGE, HANDOFF and api reference, and regenerated the API types, console map and knowledge corpus. A four-lens whole-round review (security and non-negotiables, backend correctness, live frontend, contracts and records) produced findings that skeptic verifiers cut to 21 confirmed (2 major, 19 minor; look-alike role markers in rule values, the sla family over the shift snapshot cap, source name references, since-label floors, risk rounding, Hide toast placement, entity kind facts, records); all were fixed and re-verified. The gate keeper made the 20,000-case timing test deterministic and removed two broken CSS rules generated from an interpolated class in a test.
+- Tests: backend 8,208 passed, 4 skipped; ruff fatal selection clean; test:strict 507 files, 5,279 passed, 1 skipped, no stderr; tsc, lint 0/0, gates, check:types, check_docs (81 pages), docs:check, knowledge --check, check_ci_contract, check_version green; build 3,403 modules, 0 warnings; entry chunk 371,863 B (budget 372,027 B); bundle-first-paint 23 passed. Live tour: 90 screenshots at 1440 light, 1920 dark and 390 light, every §8.3 measurement within bounds (card grid edges 0.00 px off the composer, 24.00 px above it, longest prose line 91 characters at 1920, block edges 0.00 px off target, no overflow, card contrast at least 5.06:1).
+- Status: in-progress (a polish pass for what the tour found: case numbers for seeded Demo cases, a "my cases" filter in search_cases, near-target rows for sla_close, distinct Demo titles, present-tense running steps, rail and tooltip focus glitches, skeleton height, phone layouts, em dashes in new case titles).
+- Next: polish pass, re-gate, targeted screenshots; the operator's Overview choice; the pull request into Testing.
+
+### 2026-10-23 12:10Z — Orchestrator — Round 13 chat polish from the live tour: reviewed, fixed, gated, re-shot
+- Context: the wave 3 screenshot tour found rough edges (internal case ids on cards, "my cases" answering for everyone, no near-target rows, identical Demo titles, past-tense running steps, rail and tooltip focus glitches, skeleton height, phone layouts, em dashes in new case titles). The first run stopped at a usage limit after the implementers finished; it resumed from the workflow journal.
+- Did: seeded Demo cases are numbered through the shared `engine/case_id.allocate_case_number` sequence (live simulator continues it); chat `search_cases` and `case_stats` accept assignee "me", resolved server-side to the signed-in analyst (exact username match; nobody signed in reads as an honest zero); `shift_report` returns the five open cases closest to their response target with number and owner; the shift card gets the §3.5 personal factor and takes slot 4 on the visit that starts a shift, with the Demo card in slot 5 on that visit only (SPEC-chat §10.2); new case titles and candidate summaries use " · " instead of an em dash; Demo titles carry one distinguishing server-made detail (case number first); running steps read in the present tense; rail time label, tooltip-on-focus-return, focus after Collapse/Show history and report Close, skeleton height, case composer and "Widen the search:" at phone width. Two adversarial reviews (12 backend, 8 web findings) were fixed: number-first titles, rule ids in titles only when the grammar accepts them, case numbers in the report digest and campaign observations, Demo seeding from one sequence, no artifacts for "me" with sign-in off.
+- Tests: backend 8,364 passed, 4 skipped; ruff fatal clean; test:strict 508 files, 5,299 passed, 1 skipped, no stderr; tsc, lint 0/0, gates, check:types, check_docs, docs:check, knowledge --check, check_ci_contract, check_version green; build 3,404 modules, 0 warnings, entry 371,863 B (unchanged); bundle-first-paint 23 passed.
+- Status: in-progress (a last small polish pass for what the re-shoot found: unanchored follow-ups on an empty SLA answer, campaign ids on cards, the "Oldest assigned" wording, shift brief counts, a rule name spelled two ways, wide hyphens from body-wide tabular numerals, case numbers in report exports and the Campaigns member list, slow first case chips).
+- Next: that pass, then the operator's Overview choice and the pull request into Testing.
+
+### 2026-10-23 12:40Z — Orchestrator — Overview separation: the operator chose Grouped surfaces
+- Context: the four Overview card-separation options (A Grouped surfaces, B Hairlines, C Titled modules, D Bordered cards) were shown to the operator with comparison screenshots at 1440 light, 1920 dark and 768.
+- Did: the operator chose A, Grouped surfaces (each module on a soft tinted panel, no border, no resting shadow, band titles outside). A workflow now makes it the only look: panel surface promoted to theme tokens with light, dark, increased-contrast, forced-colours and reduce-transparency values, applied directly in the Overview, the preview switch, markers and losing options removed, tests of the new default, the ui-standard "Dashboard bands" paragraph rewritten, then a code review, a live accessibility review, fixes and final screenshots.
+- Tests: pending (run by that workflow and the closing gate).
+- Status: in-progress.
+- Next: commit with the last chat polish, run every gate on the combined tree, open the pull request into Testing.
+
+### 2026-10-23 19:10Z — Orchestrator — Round 13: Grouped surfaces Overview done; last chat details reviewed and gated
+- Context: the operator chose option A for the Overview; the final chat re-shoot listed small details (entity routing, ties, broken references, narrow tables, sheet padding, chip row width, rail tooltip, brief measure, lane widths on phones, cold chips).
+- Did: Overview (3937c01): `--panel` tokens and one `.surface-panel` class, panels on every module, the KPI strip and Deeper analytics, preview switch and losing options removed, contrast gate extended to the panel (text 15.58:1 light and 13.89:1 dark, panel against page 1.09:1 and 1.12:1, increased-contrast edge at least 3.16:1), ui-standard rewritten; a code review and a live accessibility review found 12 issues, all fixed. Chat: the Demo planner investigates the entity a question names and picks a case only when one is named; ties are stated as ties; references longer than 27 characters per word stay out of start-card questions (two new count-only templates); short reference tokens never break at a hyphen; chat tables scroll instead of clipping; the Campaign sheet has its padding back; the case chip row matches the composer; the rail tooltip stays on screen with the console date format; brief prose keeps the reading measure; width choices only appear where they change something; the Demo ticker no longer freezes the server (cold first case chip 137 to 166 ms on a production build). A reviewer found 10 issues; all fixed.
+- Tests: backend 8,606 passed, 4 skipped; ruff fatal clean; test:strict 518 files, 5,409 passed, 1 skipped, no stderr; tsc, lint 0/0, gates, check:types, check_docs, docs:check, knowledge --check, check_ci_contract, check_version green; build 3,406 modules, 0 warnings, entry 371,863 B (unchanged); bundle-first-paint 23 passed.
+- Status: in-progress (one closing pass for details the last re-shoot noted, then the pull request).
+- Next: closing pass; campaigns still have no short display name (recorded for the roadmap).
+
+### 2026-10-23 22:10Z — Orchestrator — Round 13 complete: closing pass, every gate green, pull request
+- Context: the last re-shoot's data-honesty details, the Overview help page, the header wrap, then the closing gates and the pull request into Testing.
+- Did: chat campaign rows list every technique and entity up to 4 (else three plus "and K more"); "my cases" right after an assignment re-reads the case page so the count and rows agree; the shift brief "Needs human" tile counts Needs-human verdicts (the Standup page and chat agree); Demo rates, points and scores use the console's form; widening chips only widen; investigations list only the campaigns that involve the entity; the Overview help page and USAGE describe Grouped surfaces; the header never breaks a word; empty table cells and chips wrap cleanly; the phone card-to-pills gap matches desktop; ROADMAP records the missing short campaign name. A reviewer found 8 issues (1 major: Standup and chat counted Needs human differently); all fixed.
+- Tests: backend 8,674 passed, 4 skipped; ruff fatal clean; test:strict 520 files, 5,425 passed, 1 skipped, no stderr; tsc 0; lint 0/0; gates (166 contrast axes), check:types, check_docs (81 pages), docs:check, knowledge --check (750 chunks), check_ci_contract (+62), check_version green; build 3,406 modules, 0 warnings, entry 371,859 B; bundle-first-paint 23 passed.
+- Known limitations (recorded): campaigns have no short display name; two hunts of the same kind and window share a title (titles never carry indicator values); the Demo planner answers a typed noisy-rule question without the rule filter; the Overview Respond tile's subtitle mentions assignment while the metric counts acknowledgement and moves; sub-minute durations read "0 min" in chat and "<1m" on the Overview; a live model may still write "77.5%" beside a "78%" tile (the system prompt is at its size budget).
+- Status: done (pull request into Testing opened).
+- Next: drive the pull request to green; the known limitations above are follow-ups.
+
+### 2026-10-24 01:40Z — Orchestrator — PR #132: Codex P2, chat caches follow the Demo run
+- Context: Codex review on PR #132 (P2): the starter caches ignored the Demo run, so leaving, resetting or re-enabling Demo could show and send the previous run's suggestions (client and server).
+- Did: server: `AppState.demo_run_id` and `demo_generation`; `GET /api/chat/starters`, `/chat/context` and the slow hunt and platform readings key on the run, drop cached answers on a switch, and never cache a build a switch overtook. Console: `soc/chat/demo-identity.ts` gives a switch token that changes only on a confirmed Demo status read (`DemoProvider.confirmed`), so a failed poll or the time before the first read is never read as "Demo left"; `useChatStarters`, `useChatContext`, the case-starters prefetch, case chat sessions and the turn runner follow it; the shell observer (`ActivityEffects`) records the status too, so a case answer followed before any chat view rendered never crosses a reset. Two verifier rounds found a regression (one failed status poll wiped case chat) and a pre-existing edge (a case answer crossing a reset); both fixed with tests that fail on the earlier code, checked live.
+- Tests: backend 8,682 passed, 4 skipped; ruff 0.12.5 fatal selection clean; test:strict 525 files, 5,460 passed, 1 skipped; tsc and lint 0; check:types no drift; build clean; bundle-first-paint 23 passed; entry 371,876 B (+17 B, the confirmed flag; budget 372,027 B).
+- Status: done (pushed; review thread answered and resolved).
+- Next: the Workspace history rail still lists the other side's conversations after a Demo switch until its next refresh (component state, outside this finding).

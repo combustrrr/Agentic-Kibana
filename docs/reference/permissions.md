@@ -78,6 +78,51 @@ The API can still combine these resources with a case/source permission where th
 operation acts on both domains. Always test the exact route with the role rather than
 inferring access solely from whether a navigation item is visible.
 
+## Chat and reports
+
+Workspace Chat, the Case Manager **Chat** tab, and reports need `cases:read`. Each lookup
+the assistant runs then needs the same grant as the console page that shows that data,
+so a role sees the same data through chat as through the console:
+
+| Lookup | Grant |
+|---|---|
+| Log search and log statistics, source health | `sources:read` |
+| Cases, exact case counts and breakdowns, case decisions, the shift report, campaigns | `cases:read` |
+| Metrics (posture, trends, noise funnel, timing, coverage) | `metrics:view` |
+| Indicator reputation | `enrichment:read` |
+| Knowledge corpus search | `rag:read` |
+| AI cost and usage | `cost:view` |
+| Audit log | `audit:view` |
+| Automation status | `rules:read`, `automation:read`, `settings:read`, or `proposals:read`, per kind |
+| ATT&CK techniques, Help Center | none |
+
+A few chat features have their own gates:
+
+- choosing a model other than the default, and seeing money and budget figures, need
+  `models:read`; today's spend also needs `cost:view`. Chat is not paused by the daily
+  AI budget, whatever these permissions; when the optional daily chat spending limit is
+  reached, a product question is still answered from the Help Center at no cost and any
+  other question gets the spending-limit notice;
+- posting a case-chat question and its answer text to the case thread, where every
+  reader of the case sees them, needs `cases:comment`, and so does **Add to case** on a
+  Workspace answer, which posts it as the user's own comment;
+- the step inspector, answer ratings, rejoining a running answer, and **Ask AI** entity
+  questions need `cases:read`, like chat itself, and work only on the user's own
+  conversations and turns;
+- suggested questions (`GET /api/chat/starters`) and their events need `cases:read`; a
+  card appears only when the caller holds every grant its answer needs (for example
+  `sources:read` for a quiet source, `models:read` and `cost:view` for spending,
+  `proposals:read` for approvals, `metrics:view` for auto-close health), and while
+  row-level object scope is on for the caller's role no card about cases is shown;
+- confirming a fact the assistant suggests remembering needs `memory:manage`;
+- a running answer keeps only the access it started with: a role change that removes a
+  grant it uses stops it ("Your access changed"); a change that only adds access stops
+  nothing.
+
+Checking these grants for the composer and the starters writes no audit rows; a lookup
+the model requests and the engine refuses for a missing grant writes one ACCESS_DENIED
+row. Reports and saved conversations are visible only to the user who created them.
+
 ## Custom roles and overrides
 
 The RBAC configuration supports four layers:

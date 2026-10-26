@@ -28,6 +28,7 @@ from .audit.audit_log import AuditLogger
 from .cache import Cache
 from .config import Preferences, Secrets
 from .engine.ingest import IngestService
+from .engine.mutation_gate import MutationAdmissionGate
 from .engine.release_discovery import ReleaseDiscoveryService
 from .es.base import BaseESClient
 from .es.indices import bootstrap_indices
@@ -43,6 +44,30 @@ from .tools.rag import RagService
 logger = logging.getLogger("tlsoc.state")
 
 _ES_SECRET_FIELDS = {"es_api_key", "es_mgmt_api_key", "es_url", "es_ca_cert", "es_verify_certs"}
+
+# How long closing mutation admission waits for cancelled chat turns to unwind
+# (abort their reservation, close their source client) before the reset drains.
+_CHAT_TURN_CANCEL_TIMEOUT_S = 10.0
+
+
+class _ChatTurnAwareMutationGate(MutationAdmissionGate):
+    """The factory-reset admission gate, plus chat turns (chat revamp SPEC §6.1(b)).
+
+    A running chat turn holds ``admit()`` for its whole lifetime (it can outlive the
+    HTTP request that started it), so the reset's drain would otherwise wait for every
+    in-flight turn and time out. Closing admission therefore cancels every registered
+    turn FIRST; a reset-cancelled turn aborts its reservation and persists nothing."""
+
+    def __init__(self, on_close: Callable[[], Any]) -> None:
+        super().__init__()
+        self._on_close = on_close
+
+    async def close(self, owner: str) -> None:
+        await super().close(owner)
+        try:
+            await self._on_close()
+        except Exception as exc:  # noqa: BLE001 -- the drain still bounds the reset
+            logger.warning("cancelling chat turns on reset failed (%s)", type(exc).__name__)
 
 
 class AppState:
@@ -81,6 +106,10 @@ class AppState:
         # stack so REAL cases are hidden + isolated; disable GC's it + the real
         # state returns intact.
         self._demo = None
+        # Bumped on every Demo switch (enable, disable; a reset is both): a cache filled
+        # by a build compares it before and after, so even a switch there and back
+        # within one build (the run id the same both times) is seen (``demo_generation``).
+        self._demo_generation = 0
         self._demo_sim = None
         # Serialize enable/reset/disable as one lifecycle transaction. Without this,
         # concurrent enables can each create a live ticker before the later request
@@ -166,13 +195,17 @@ class AppState:
         # (not _wire) so it is a single stable lock across credential-driven rewires.
         self._prefs_lock = asyncio.Lock()
         from .engine.investigation_gate import InvestigationGate
-        from .engine.mutation_gate import MutationAdmissionGate
 
         self.investigation_gate = InvestigationGate()
+        # Process-local registry of running chat turns (chat revamp SPEC §6.1(b)):
+        # strong references to each turn task, per-user/global concurrency admission
+        # and Stop. Built lazily by ``chat_turns``.
+        self._chat_turns = None
         # Process-local half of the factory-reset write fence. The durable Jobs and
         # Batch documents protect claims/submissions across replicas; this gate drains
         # already-admitted unsafe HTTP requests in the supported single-process runtime.
-        self.mutation_gate = MutationAdmissionGate()
+        # Closing it also cancels running chat turns (they hold admission themselves).
+        self.mutation_gate = _ChatTurnAwareMutationGate(self.cancel_chat_turns)
         # Detached notification/automation work can outlive the request that spawned
         # it. Keep every tenant-writing task reachable so factory reset can cancel and
         # await it after closing HTTP admission and before clearing state.
@@ -253,6 +286,25 @@ class AppState:
     @property
     def demo_active(self) -> bool:
         return self._demo is not None
+
+    @property
+    def demo_run_id(self) -> str | None:
+        """The active Demo run's identity (its ``run_id``), or None when Demo is off.
+        Every enable and every reset builds a new stack under a new run id, so a cache
+        of answers read from the demo-swapped stores keys on this, never on
+        :attr:`demo_active` alone: another run's answer is never served."""
+        demo = self._demo
+        if demo is None:
+            return None
+        return str(getattr(demo, "run_id", "") or "") or f"stack-{id(demo):x}"
+
+    @property
+    def demo_generation(self) -> int:
+        """How many Demo switches (enable, disable) this process has seen. A cache
+        that stores what a build read reads this before the build and stores the answer
+        only when it is unchanged afterwards: :attr:`demo_run_id` alone cannot tell a
+        build that Demo was enabled and disabled again while it ran (None both times)."""
+        return self._demo_generation
 
     def spawn_mutation_task(self, coro, *, name: str | None = None) -> asyncio.Task[Any]:
         """Spawn one tracked tenant-writing task, rejecting work after admission closes."""
@@ -398,6 +450,20 @@ class AppState:
     @property
     def real_inbox(self):
         return self._real_inbox
+
+    @property
+    def real_chat_conversations(self):
+        """The REAL Workspace history store, whatever Demo Mode shows (a deleted
+        account's history is purged from it, Round 12 final review L1)."""
+        return self._real_chat_conversations
+
+    @property
+    def real_reports(self):
+        """The REAL report store (None while the reports package is unavailable)."""
+        store = getattr(self, "_real_reports", None)
+        if store is None:
+            store = self._real_reports = self._build_reports(self._kv)
+        return store
 
     @property
     def jobs(self):
@@ -555,6 +621,260 @@ class AppState:
         # audit rows, and an in-case chat reads the DEMO case store. Off demo, the
         # real engine — byte-for-byte as before.
         return self._demo.chat_engine if self._demo is not None else self._real_chat_engine
+
+    # ------------------------------------------------------------------ #
+    # Chat revamp wiring (SPEC §2, §5.1, §6.1, §9.1).
+    # ------------------------------------------------------------------ #
+    @property
+    def chat_turns(self):
+        """The process-local :class:`app.api.routes_chat.ChatTurnRegistry` (running
+        turns, concurrency admission, Stop). Imported lazily: the registry lives with
+        the chat routes, and this module must not import the HTTP layer at load."""
+        registry = self._chat_turns
+        if registry is None:
+            from .api.routes_chat import ChatTurnRegistry
+
+            registry = self._chat_turns = ChatTurnRegistry()
+        return registry
+
+    async def cancel_chat_turns(self) -> int:
+        """Cancel every running chat turn and wait (bounded) for each to unwind:
+        abort its reservation, persist nothing (factory reset, shutdown)."""
+        registry = self._chat_turns
+        if registry is None:
+            return 0
+        return await registry.cancel_all(timeout=_CHAT_TURN_CANCEL_TIMEOUT_S)
+
+    @property
+    def reports(self):
+        """The chat report store for the active real/demo boundary (SPEC §9.1):
+        ``stores.reports.ReportStore`` over the shared KV, or the demo stack's own
+        store over the demo KV (purged when Demo Mode is disabled)."""
+        if self._demo is not None:
+            return self._demo.reports
+        store = getattr(self, "_real_reports", None)
+        if store is None:
+            store = self._real_reports = self._build_reports(self._kv)
+        return store
+
+    @staticmethod
+    def _build_reports(kv):
+        """``ReportStore(kv)``, or None while the reports package is not installed
+        (the property retries on the next access)."""
+        try:
+            from .stores.reports import ReportStore
+        except ImportError:
+            return None
+        return ReportStore(kv)
+
+    def chat_source_connector(self, source_id: str | None):
+        """Resolve the chat request's selected source: ``(connector, owned_client,
+        effective_id, effective_name)``. ``None`` connector = the default (primary)
+        source. Raises :class:`ChatSourceUnavailable` (route: 422
+        ``chat_source_unavailable``) for an explicit id that is unknown, disabled,
+        receiver-only or cannot be built. Demo Mode resolves only demo adapters.
+
+        Also the tool context's ``source_resolver``: a tool that names a source gets
+        the same answer as the request, and closes ``owned_client`` after use."""
+        if not source_id:
+            if self.demo_active:
+                from .engine.demo_sources import DEMO_SOURCE_SPECS
+
+                spec = DEMO_SOURCE_SPECS["splunk"]
+                return None, None, spec.source_id, spec.display_name
+            primary = self.execution_prefs.primary_source()
+            return (
+                None,
+                None,
+                primary.id if primary is not None else None,
+                (primary.display_name or primary.id) if primary is not None else "Primary source",
+            )
+        if self.demo_active:
+            connector = self.demo_source_connector(source_id)
+            if connector is None:
+                raise ChatSourceUnavailable("The selected source is unavailable for chat.")
+            row = next((r for r in self.demo_sources_overlay() if r.get("id") == source_id), {})
+            return connector, None, source_id, str(row.get("display_name") or source_id)
+        src = next((s for s in self.prefs.sources if s.id == source_id and s.enabled), None)
+        if src is None:
+            raise ChatSourceUnavailable("The selected source is unknown or disabled.")
+        from .connectors.registry import get_registry
+
+        if not get_registry().is_pull(src.source_type):
+            raise ChatSourceUnavailable("The selected source does not provide a query surface.")
+        try:
+            from .connectors.elastic import ElasticConnector
+            from .connectors.opensearch import OpenSearchConnector
+            from .connectors.wazuh import WazuhConnector
+            from .constants import SourceType
+
+            es_client, owned = self.es_client_for_source(src)
+            cfg = {**(src.config or {})}
+            if src.display_name:
+                cfg.setdefault("display_name", src.display_name)
+            if src.source_type == SourceType.OPENSEARCH:
+                conn = OpenSearchConnector(es_client, config=cfg, connector_id=src.id)
+            elif src.source_type == SourceType.WAZUH:
+                conn = WazuhConnector(es_client, config=cfg, connector_id=src.id)
+            else:
+                conn = ElasticConnector(es_client, config=cfg, connector_id=src.id)
+        except Exception as exc:  # noqa: BLE001
+            raise ChatSourceUnavailable(
+                "The selected source could not be prepared for chat."
+            ) from exc
+        return conn, (es_client if owned else None), src.id, src.display_name or src.id
+
+    def _chat_browse_targets(self, prefs: Preferences | None = None) -> list:
+        """Every browse-capable source of the active tenant view (the chat
+        ``search_logs`` all-sources fan-out). Lazy: no client is opened here."""
+        from .engine.log_rows import demo_browse_targets, tenant_browse_targets
+
+        if self.demo_active:
+            return demo_browse_targets(
+                self.demo_sources_overlay(), prefs=prefs or self.prefs,
+                demo_source_connector=self.demo_source_connector,
+            )
+        from .connectors.registry import get_registry
+
+        return tenant_browse_targets(
+            self.prefs.sources, prefs=prefs or self.prefs, registry=get_registry(),
+            es_client_for_source=self.es_client_for_source, ingest_service=self.ingest_service,
+        )
+
+    async def _chat_source_health_rows(self) -> list[dict]:
+        """The ``GET /api/sources/health`` rows (demo overlay in Demo Mode)."""
+        if self.demo_active:
+            return self.demo_source_health_overlay()
+        from .engine.source_health import sources_health_rows
+
+        return await sources_health_rows(
+            self.prefs,
+            poller=getattr(self, "poller", None),
+            silent_sources=getattr(self, "silent_sources", None),
+            cursor_store=getattr(self, "cursor_store", None),
+            ingest_service=getattr(self, "ingest_service", None),
+            last_event_map=getattr(self, "_source_last_event", {}) or {},
+        )
+
+    async def chat_grants(self, request) -> frozenset[tuple[str, str]]:
+        """The caller's grants over every pair a chat turn can need: the tool
+        catalogue, the console map and the route-level grants (case comments,
+        memory, model choice, cost). Resolved once, WITHOUT audit rows (SPEC §5.1).
+        The first call of a process builds the tool catalogue and the Help Center index
+        off the event loop (Round 13 polish PB3: a cold Case Manager chip read paid both
+        on the loop, about 0.3 s); both are no-ops once built."""
+        from .agents.chat_tools.registry import warm_catalogue
+        from .api.deps import resolve_grants
+        from .knowledge import warm_app_knowledge
+
+        await warm_catalogue()
+        await warm_app_knowledge()
+        return await resolve_grants(request, chat_grant_pairs())
+
+    async def build_chat_tool_context(
+        self,
+        request,
+        body=None,
+        *,
+        grants: frozenset[tuple[str, str]] | None = None,
+        prefs: Preferences | None = None,
+        log_source: Any = None,
+        source_id: str | None = None,
+        case_id: str | None = None,
+    ):
+        """THE builder of a turn's :class:`~app.agents.chat_tools.base.ChatToolContext`
+        (SPEC §2, §5.1), shared by every chat route and Demo Mode.
+
+        Everything comes from the demo-switchable properties, so Demo Mode isolation is
+        structural; the demo stack overlays only its extras
+        (:meth:`DemoStack.chat_context_extras`). ``body`` is the ``ChatRequest`` (None
+        for ``/chat/context``): its ``time_range`` and ``scopes`` bound every tool and
+        can never be widened by a tool result (§4.8.4). ``grants`` are resolved here
+        when the caller did not already resolve them. ``log_source``/``source_id`` are
+        the request's explicitly selected source (None = the primary)."""
+        from . import __version__
+        from .agents.chat_tools.base import ChatToolContext
+        from .agents.chat_tools.intel import bind_enrichment
+        from .api.deps import current_username
+        from .engine.case_cluster import bind_cluster_for_case
+
+        if grants is None:
+            grants = await self.chat_grants(request)
+        prefs = prefs or self.execution_prefs
+        engine = self.chat_engine
+        effective_case = case_id
+        if effective_case is None and body is not None:
+            effective_case = body.case_id or (body.context.case_id if body.context else None)
+        fields: dict[str, Any] = {
+            "prefs": prefs,
+            "cases": self.cases,
+            "audit": self.execution_audit,
+            "control_audit": self.control_audit,
+            "usage": self.usage_store,
+            "rag": getattr(engine, "_rag", None) or self.rag_service,
+            "campaigns": self.campaign_store,
+            "proposals": self.proposals,
+            "tuning": self.tuning_store,
+            "baseline": self.baseline_store,
+            "noise": self.noise_counters,
+            "standup": self.standup_service,
+            "memory": self.memory,
+            "log_source": log_source if log_source is not None else getattr(engine, "_source", None),
+            "source_resolver": self.chat_source_connector,
+            "browse_sources": lambda: self._chat_browse_targets(prefs),
+            "enrich": bind_enrichment(
+                prefs=prefs, secrets=self.secrets, cache=self.cache,
+                registry=self.enrichment_registry,
+            ),
+            "budget_gate": self.budget_gate,
+            "demo_active": self.demo_active,
+            "grants": frozenset(grants),
+            "case_id": effective_case or None,
+            "user": current_username(request) or "default",
+            "caller": current_username(request) or "",
+            "time_range": getattr(body, "time_range", None),
+            "context_time_range": _context_time_range(body),
+            "app_version": __version__,
+            "source_health_rows": self._chat_source_health_rows,
+            "scheduler_health": self.scheduler_health,
+            "cluster_for_case": bind_cluster_for_case(
+                es=self.es, log_source=self.log_source, prefs=prefs,
+                query_source_for=self.active_source_for_id,
+            ),
+            "secrets_status": self.secrets.configured_status,
+            "runbooks": getattr(self, "runbooks", None),
+            "playbooks": getattr(self, "playbooks", None),
+            "rule_versions": getattr(self, "rule_versions", None),
+            # Round 12 (P1-4): the caller's chat answer ratings, over the ACTIVE chat
+            # KV (the demo stack's in Demo Mode), read as aggregates only.
+            "chat_feedback": self._chat_feedback_store(),
+            "scopes": frozenset(getattr(body, "scopes", None) or ()),
+            "source_id": source_id or None,
+        }
+        if self._demo is not None:
+            fields.update(self._demo.chat_context_extras(
+                prefs=prefs, query_source_for=self.active_source_for_id,
+            ))
+        return ChatToolContext(**fields)
+
+    def _chat_feedback_store(self):
+        """The chat feedback store over the ACTIVE chat KV (Round 12, P1-4), or None
+        when it cannot be built (the tool then reports it as not measured)."""
+        try:
+            from .stores.chat_feedback import feedback_store_for
+
+            return feedback_store_for(getattr(self.chat_conversations, "_kv", None) or self.kv)
+        except Exception:  # noqa: BLE001 -- a missing store never fails a chat turn
+            return None
+
+    @property
+    def chat_starters(self):
+        """Round 13 (SPEC-chat §3.2.3): the caller-keyed chat starter state store over
+        the ACTIVE chat KV (the demo stack's in Demo Mode, so Demo state stays in the
+        sandbox). Presentation state only: family ids, opaque keys, counters, times."""
+        from .stores.chat_starters import starters_store_for
+
+        return starters_store_for(getattr(self.chat_conversations, "_kv", None) or self.kv)
 
     @property
     def rag_service(self):
@@ -1099,6 +1419,10 @@ class AppState:
         self.custom_models = CustomModelStore(kv)
         # Shift-handoff action items + acknowledgements (org-scoped).
         self._real_shift_handoff = ShiftHandoffStore(kv)
+        # Chat reports (chat revamp SPEC §9.1) over the SAME shared KV: one document
+        # per report plus a per-user index, no new index/table/migration. Rebuilt with
+        # the KV so it never points at a stale backend.
+        self._real_reports = self._build_reports(kv)
 
     def _build_round4_stores(self) -> None:
         """Construct the 4 Round-4 Wave-3 KV-backed stores over the active backend's KV
@@ -1460,10 +1784,14 @@ class AppState:
             from .engine.event_detection import pre_aggregate
 
             seen.update(summary.signature for summary in pre_aggregate(events, prefs))
+            # One store write for the batch: a write per signature re-encoded the whole
+            # series document each time (quadratic, and a stalled event loop, PW4-10).
+            updates = {}
             for sig in seen:
                 snap = baseline.snapshot(sig)
                 if snap:
-                    await self.baseline_store.put(sig, snap)
+                    updates[sig] = snap
+            await self.baseline_store.put_many(updates)
         except Exception as exc:  # noqa: BLE001 — persistence is best-effort
             logger.debug("funnel baseline flush failed (%s)", exc)
 
@@ -2945,10 +3273,6 @@ class AppState:
             new_demo.seed, org, history_days=new_demo.history_days,
             run_id=new_demo.run_id, now_millis=now_ms,
         )
-        seeded_counter_cases = list(cases)
-        for case in cases:
-            self._write_guard(case, demo=True)
-            await demo_stack.cases.save(case)
 
         # Pre-seed a tight "just happened" window: a varied trio of recent cases (1
         # TP-escalate, 1 NEEDS_HUMAN, 1 FP — not all terminal) + ~100 events already
@@ -2960,6 +3284,28 @@ class AppState:
             case_count=new_demo.preseed_case_count,
             event_count=new_demo.preseed_event_count,
         )
+        # The capability seed cases (generated here so every seeded case is numbered
+        # together; saved and acted on below).
+        hitl_cases: list = []
+        tuner_cases: list = []
+        if new_demo.force_capabilities:
+            try:
+                from .engine.demo_generator import generate_capability_seed_cases
+
+                hitl_cases, tuner_cases = generate_capability_seed_cases(
+                    new_demo.seed, org, run_id=new_demo.run_id, now_millis=now_ms,
+                )
+            except Exception as exc:  # noqa: BLE001 — capability seeding never blocks enable
+                logger.warning("demo capability seeding failed: %s", exc)
+                hitl_cases, tuner_cases = [], []
+        # Every seeded case gets its display number before it is saved, oldest first,
+        # from the same nomenclature and sequence the demo pipeline continues.
+        await demo_stack.number_seeded_cases([*cases, *recent_cases, *hitl_cases, *tuner_cases])
+
+        seeded_counter_cases = list(cases)
+        for case in cases:
+            self._write_guard(case, demo=True)
+            await demo_stack.cases.save(case)
         for case in recent_cases:
             self._write_guard(case, demo=True)
             await demo_stack.cases.save(case)
@@ -2985,13 +3331,8 @@ class AppState:
         # records one bounded observation). Every write lands in the DEMO stores; the real
         # HITL/tuning/campaign ledgers are untouched. Gated on force_capabilities because
         # the seeded automation rule + the tuner/campaign blocks are only forced ON there.
-        if new_demo.force_capabilities:
+        if hitl_cases or tuner_cases:
             try:
-                from .engine.demo_generator import generate_capability_seed_cases
-
-                hitl_cases, tuner_cases = generate_capability_seed_cases(
-                    new_demo.seed, org, run_id=new_demo.run_id, now_millis=now_ms,
-                )
                 for case in (*hitl_cases, *tuner_cases):
                     self._write_guard(case, demo=True)
                     await demo_stack.cases.save(case)
@@ -3055,6 +3396,7 @@ class AppState:
         # atomic off→ready transition to other asyncio tasks.
         await self.update_prefs(pending_prefs)
         self._demo = demo_stack
+        self._demo_generation += 1
         # Start the live simulator only after the complete stack is publicly visible.
         if new_demo.mode == "live":
             self._demo_sim = DemoSimulator(demo_stack, self.get_prefs, seed=new_demo.seed)
@@ -3118,6 +3460,7 @@ class AppState:
             except Exception:  # noqa: BLE001
                 pass
             self._demo = None
+            self._demo_generation += 1
         prefs = self.prefs.model_copy(deep=True)
         prefs.demo = DemoConfig()  # mode='off', run_id=''
         await self.update_prefs(prefs)
@@ -3386,6 +3729,19 @@ class AppState:
 
     async def shutdown(self) -> None:
         try:
+            # A turn still running at shutdown is abandoned like a reset-cancelled
+            # one: its reservation is aborted so a retry runs fresh after restart.
+            await self.cancel_chat_turns()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            # Round 13: the chat starters' background readings (hunt, platform).
+            from .engine.chat_starters import close_slow_signals
+
+            await close_slow_signals(self)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
             await self.job_runner.stop()
         except Exception:  # noqa: BLE001
             pass
@@ -3426,6 +3782,57 @@ class AppState:
             except Exception:  # noqa: BLE001
                 pass
             self._sql_engine = None
+
+
+class ChatSourceUnavailable(ValueError):
+    """The chat request's explicit source cannot be queried (unknown, disabled,
+    receiver-only or unbuildable). The message is an engine template."""
+
+
+# Grants a chat route needs beyond the tool catalogue and the console map.
+_CHAT_ROUTE_GRANTS: frozenset[tuple[str, str]] = frozenset({
+    ("cases", "comment"),   # a case-scoped turn may write the case thread (§4.6)
+    ("memory", "manage"),   # memory proposals / the compatibility memory carve-out (§4.8)
+    ("models", "read"),     # a non-default model, money fields of /chat/context (§3.1, §8)
+    ("cost", "view"),       # spent_today / remaining on /chat/context (§8)
+})
+
+
+def chat_grant_pairs() -> frozenset[tuple[str, str]]:
+    """Every ``(resource, action)`` a chat request is evaluated against:
+    ``registry.catalogue_grant_pairs() | app.knowledge.console_grant_pairs()`` plus
+    the route-level grants. An unavailable corpus contributes nothing."""
+    from .agents.chat_tools.registry import catalogue_grant_pairs
+
+    pairs = set(catalogue_grant_pairs()) | set(_CHAT_ROUTE_GRANTS)
+    try:
+        from .knowledge import console_grant_pairs
+
+        pairs |= set(console_grant_pairs())
+    except Exception:  # noqa: BLE001 -- no corpus: no console targets to grant
+        pass
+    return frozenset(pairs)
+
+
+def _context_time_range(body: Any) -> Any:
+    """``body.context.time_range`` as a validated ``TimeRange`` (the §3.1 default
+    below the chip), or ``None`` when absent or invalid. The screen context is
+    best-effort, so a malformed window is ignored rather than failing the turn."""
+    from .models import TimeRange
+
+    context = getattr(body, "context", None)
+    raw = getattr(context, "time_range", None)
+    if not isinstance(raw, dict):
+        return None
+    start, end = raw.get("from"), raw.get("to")
+    if not isinstance(start, str) or not start.strip():
+        return None
+    try:
+        return TimeRange.model_validate({
+            "from": start, "to": end if isinstance(end, str) and end.strip() else "now",
+        })
+    except Exception:  # noqa: BLE001 -- a malformed screen window is no window
+        return None
 
 
 def _coerce_bool(v: Any, default: bool = True) -> bool:

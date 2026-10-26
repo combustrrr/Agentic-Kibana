@@ -1528,6 +1528,371 @@ class BudgetConfig(BaseModel):
     on_exceed: Literal["warn", "block"] = "block"
 
 
+_DOMAIN_SUFFIX_RE = re.compile(r"^(?=.{1,253}$)[a-z0-9_](?:[a-z0-9_-]{0,62})(?:\.[a-z0-9_](?:[a-z0-9_-]{0,62}))*$")
+
+# --- Round 12 chat limits migration (SPEC D1/D6). ---------------------------------- #
+# Bumped when stored chat configurations must adopt a new limits posture exactly once
+# (the ``autopilot_config_version`` pattern, held inside the chat block).
+CURRENT_CHAT_LIMITS_VERSION = 1
+# The per-question limit knobs and the values they shipped with before Round 12. A
+# stored configuration that still holds every one of them (or omits them) never chose
+# a limit, so it adopts ``unlimited``; one that changed any of them keeps ``bounded``
+# with its values.
+_CHAT_LIMIT_KNOB_DEFAULTS: dict[str, int] = {
+    "max_model_calls": 5,
+    "max_tool_calls": 10,
+    "turn_timeout_s": 90,
+    "turn_token_ceiling": 60_000,
+    "final_reserve_tokens": 12_000,
+    "observation_chars": 6_000,
+    "final_max_tokens": 4_000,
+}
+# Defaults that changed in Round 12: a stored value equal to the old default is the old
+# default, not a choice, so it moves to the new one. The stall timeout moves only for
+# configurations that become ``unlimited`` (``bounded`` keeps today's behaviour).
+_CHAT_CHANGED_DEFAULTS: dict[str, tuple[int, int]] = {
+    "model_step_timeout_s": (30, 300),
+    "max_concurrent_turns_per_user": (2, 4),
+    "max_concurrent_turns_global": (8, 16),
+}
+# Keys every full ``ChatAgentConfig`` dump carries (a persisted block) but a small
+# programmatic construction does not: the changed-defaults move applies to persisted
+# blocks only, so ``ChatAgentConfig(model_step_timeout_s=30)`` keeps its 30.
+_CHAT_PERSISTED_MARKERS = ("max_indicator_lookups_per_conversation", "internal_domains", "allow_email_lookup")
+
+
+def _repair_chat_cap(raw: Any) -> float | None:
+    """``chat_daily_cap_usd`` repaired: a positive finite number, else ``None`` (off)."""
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        value = float(raw.strip()) if isinstance(raw, str) else float(raw)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return value if math.isfinite(value) and value > 0 else None
+
+
+def _migrate_chat_limits(out: dict[str, Any]) -> dict[str, Any]:
+    """The one-time Round 12 chat limits migration on an already-repaired block.
+
+    A block at :data:`CURRENT_CHAT_LIMITS_VERSION` is left alone (an operator's later
+    choice is never re-decided). Otherwise an explicit ``limits_mode`` is kept; without
+    one the block becomes ``bounded`` when any limit knob differs from its shipped
+    default and ``unlimited`` otherwise; old defaults of the changed knobs move to the
+    new ones (persisted blocks only); and the marker is stamped. Never raises."""
+    version = out.get("chat_limits_version")
+    if isinstance(version, int) and not isinstance(version, bool) and version >= CURRENT_CHAT_LIMITS_VERSION:
+        return out
+    mode = out.get("limits_mode")
+    if mode not in ("unlimited", "bounded"):
+        changed = [name for name, default in _CHAT_LIMIT_KNOB_DEFAULTS.items()
+                   if name in out and out[name] != default]
+        mode = "bounded" if changed else "unlimited"
+        out["limits_mode"] = mode
+    if all(key in out for key in _CHAT_PERSISTED_MARKERS):
+        for name, (old, new) in _CHAT_CHANGED_DEFAULTS.items():
+            if name == "model_step_timeout_s" and mode == "bounded":
+                continue
+            if out.get(name) == old:
+                out[name] = new
+    out["chat_limits_version"] = CURRENT_CHAT_LIMITS_VERSION
+    return out
+
+
+class ChatAgentConfig(BaseModel):
+    """Bounds for the agentic chat loop (chat revamp SPEC §4.2). Enforced in code by
+    the chat engine and the chat routes; read-only scope is structural (the chat tools
+    cannot write), so none of these knobs can widen what chat may DO — they only bound
+    how much it may spend and how long a turn may run. Never feeds ``decide()`` (#3).
+
+    Every numeric knob carries an inclusive ``ge``/``le`` range, and
+    :meth:`_repair` CLAMPS a stored out-of-range or malformed value into that range
+    before field validation runs. This is mandatory for the same reason as
+    ``Preferences._clamp_caps``: both preference loaders answer ANY validation error by
+    returning a full default ``Preferences()``, and ``Preferences`` is one document that
+    also carries ``auto_close``, ``rule_catalog`` and ``sources``. A chat knob must
+    therefore never be able to fail validation, whatever was stored.
+
+    Round 12 (SPEC D1, D2, D5, D6): ``limits_mode`` decides whether the per-question
+    knobs apply at all. ``unlimited`` (the default) ignores ``max_model_calls``,
+    ``max_tool_calls``, ``turn_token_ceiling``, ``final_reserve_tokens``,
+    ``turn_timeout_s``, ``final_max_tokens`` and ``observation_chars`` as caps: a turn
+    ends when the model answers or the analyst presses Stop, guarded only by the
+    engine's correctness guards (no re-run of an identical lookup, the
+    no-progress guard, the per-call stall timeout and a hidden runaway fuse).
+    ``bounded`` keeps the pre-Round-12 behaviour and knobs exactly. The fields stay
+    either way so a stored configuration keeps validating and switching back is
+    lossless. A one-time ``chat_limits_version`` migration (:meth:`_repair`) moves a
+    stored configuration to ``unlimited`` unless an operator changed a limit knob away
+    from its shipped default."""
+
+    # ``model_step_timeout_s`` / ``max_model_calls`` are about the LLM, not pydantic.
+    model_config = {"protected_namespaces": ()}
+
+    limits_mode: Literal["unlimited", "bounded"] = Field(
+        default="unlimited",
+        description=("Unlimited: chat keeps working until it has answered or you press Stop. "
+                     "Bounded: the per-question limits below apply."),
+    )
+    max_model_calls: int = Field(
+        default=5, ge=1, le=12,
+        description="Model calls per chat question, including the final answer.",
+    )
+    max_tool_calls: int = Field(
+        default=10, ge=1, le=40, description="Lookups (tool calls) per chat question.",
+    )
+    max_parallel: int = Field(
+        default=4, ge=1, le=8, description="Lookups the assistant may run at once in one step.",
+    )
+    tool_timeout_s: int = Field(
+        default=15, ge=1, le=120,
+        description="Seconds one lookup may take (log fan-out keeps per-source timeouts inside it).",
+    )
+    model_step_timeout_s: int = Field(
+        default=300, ge=5, le=900,
+        description=("Seconds one model call may stay silent before it counts as stalled "
+                     "(a stalled call is retried once). With per-question limits, a call also "
+                     "ends when the question's time runs out."),
+    )
+    turn_timeout_s: int = Field(
+        default=90, ge=10, le=600,
+        description="Wall-clock seconds per question; stops new steps, never an in-flight model call.",
+    )
+    turn_token_ceiling: int = Field(
+        default=60_000, ge=4_000, le=1_000_000,
+        description="Input plus output tokens one question may use across all its model calls.",
+    )
+    final_reserve_tokens: int = Field(
+        default=12_000, ge=1_000, le=200_000,
+        description="Tokens always kept for writing the final answer, inside the ceiling.",
+    )
+    observation_chars: int = Field(
+        default=6_000, ge=1_500, le=60_000,
+        description="Characters of lookup results sent to the model per step (aggregated, never raw logs).",
+    )
+    final_max_tokens: int = Field(
+        default=4_000, ge=256, le=32_000,
+        description="Output tokens for the final answer (at least the chat model's own limit).",
+    )
+    max_concurrent_turns_per_user: int = Field(
+        default=4, ge=1, le=10, description="Chat questions one user may have running at the same time.",
+    )
+    max_concurrent_turns_global: int = Field(
+        default=16, ge=1, le=100, description="Chat questions this backend runs at the same time.",
+    )
+    max_indicator_lookups: int = Field(
+        default=3, ge=0, le=10,
+        description="Third-party indicator lookups per question (0 turns the lookup tool off).",
+    )
+    max_indicator_lookups_per_conversation: int = Field(
+        default=10, ge=0, le=50, description="Third-party indicator lookups per conversation.",
+    )
+    default_stream_mode: Literal["steps", "text"] = Field(
+        default="steps",
+        description="Default live mode for viewers without a personal choice: steps only, or also type out answers.",
+    )
+    allow_text_streaming: bool = Field(
+        default=True, description="Allow answers to stream word by word (\"Type out answers\").",
+    )
+    internal_domains: list[str] = Field(
+        default_factory=list, max_length=100,
+        description="Domain suffixes that are never sent to third-party enrichment.",
+    )
+    allow_email_lookup: bool = Field(
+        default=False, description="Allow e-mail addresses to be sent to third-party enrichment.",
+    )
+    # --- Round 12 (SPEC D5, D13). ------------------------------------------------- #
+    chat_daily_cap_usd: float | None = Field(
+        default=None, ge=0,
+        description=("Optional daily spending limit for chat, in US dollars. Off by default: chat "
+                     "is not paused by the daily AI budget, which covers investigations."),
+    )
+    animated_brand: bool = Field(
+        default=True,
+        description="Animate the console logo while chat is working (custom logos never animate).",
+    )
+    # --- Round 13 (SPEC-chat D9, §3.2.1). ------------------------------------------- #
+    dynamic_starters: bool = Field(
+        default=True,
+        description=("New chats open with questions about your queue, SLA and sources, computed "
+                     "from data each viewer can read. No AI cost."),
+    )
+    chat_limits_version: int = Field(
+        default=CURRENT_CHAT_LIMITS_VERSION, ge=0, le=CURRENT_CHAT_LIMITS_VERSION,
+        description="Internal marker: the chat limits migration this configuration has adopted.",
+    )
+
+    _MAX_INTERNAL_DOMAINS: ClassVar[int] = 100
+
+    @model_validator(mode="before")
+    @classmethod
+    def _repair(cls, data: Any) -> Any:
+        """REPAIR (never reject) a stored value: clamp numbers into their declared
+        range, replace malformed numbers/enums/booleans with the field default, and
+        normalise ``internal_domains``. A non-dict (corrupt) block becomes defaults.
+
+        The ranges are read back off the field metadata (:func:`_field_bounds`), so the
+        repair can never drift from the constraints it repairs against. Like the caps
+        clamp this means a settings PUT carrying an out-of-range value is accepted as
+        the clamped value; the curated editor constrains its inputs to the same range."""
+        if isinstance(data, ChatAgentConfig):
+            return data
+        if not isinstance(data, Mapping):
+            if data is not None:
+                logger.warning("Preferences.chat_agent was %s; using defaults", type(data).__name__)
+            return {}
+        out: dict[str, Any] = dict(data)
+        for name, (lo, hi) in _CHAT_AGENT_BOUNDS.items():
+            if name not in out:
+                continue
+            raw = out[name]
+            default = cls.model_fields[name].default
+            value: int | None
+            if isinstance(raw, bool):  # bools are ints in Python; never accept one
+                value = None
+            elif isinstance(raw, int):
+                value = raw
+            elif isinstance(raw, float) and math.isfinite(raw):
+                value = int(raw)
+            elif isinstance(raw, str):
+                try:
+                    value = int(float(raw.strip()))
+                except (TypeError, ValueError, OverflowError):
+                    value = None
+            else:
+                value = None
+            if value is None:
+                repaired = default
+            else:
+                repaired = min(max(value, lo), hi)
+            if repaired != raw:
+                logger.warning(
+                    "Preferences.chat_agent.%s=%r is invalid or outside %d..%d; repaired "
+                    "to %r (the rest of the stored configuration is preserved)",
+                    name, raw, lo, hi, repaired,
+                )
+            out[name] = repaired
+        mode = out.get("default_stream_mode")
+        if "default_stream_mode" in out and mode not in ("steps", "text"):
+            normalised = str(mode).strip().lower() if isinstance(mode, str) else ""
+            out["default_stream_mode"] = normalised if normalised in ("steps", "text") else "steps"
+        for flag in ("allow_text_streaming", "allow_email_lookup"):
+            if flag in out and not isinstance(out[flag], bool):
+                raw_flag = out[flag]
+                if isinstance(raw_flag, str) and raw_flag.strip().lower() in ("true", "1", "yes", "on"):
+                    out[flag] = True
+                elif isinstance(raw_flag, str) and raw_flag.strip().lower() in ("false", "0", "no", "off"):
+                    out[flag] = False
+                elif isinstance(raw_flag, int):
+                    out[flag] = bool(raw_flag)
+                else:
+                    out[flag] = cls.model_fields[flag].default
+        if "internal_domains" in out:
+            out["internal_domains"] = cls.normalise_domains(out["internal_domains"])
+        # Default-on switches (SPEC D13; Round 13 SPEC-chat D9): only an explicit "off"
+        # value turns one off; anything else malformed keeps the shipped default (on).
+        for flag in ("animated_brand", "dynamic_starters"):
+            if flag in out and not isinstance(out[flag], bool):
+                raw_flag = out[flag]
+                if isinstance(raw_flag, str) and raw_flag.strip().lower() in ("false", "0", "no", "off"):
+                    out[flag] = False
+                elif isinstance(raw_flag, int) and not raw_flag:
+                    out[flag] = False
+                else:
+                    out[flag] = True
+        if "chat_daily_cap_usd" in out:
+            out["chat_daily_cap_usd"] = _repair_chat_cap(out["chat_daily_cap_usd"])
+        if "limits_mode" in out:
+            raw_mode = out["limits_mode"]
+            normalised_mode = raw_mode.strip().lower() if isinstance(raw_mode, str) else ""
+            if normalised_mode in ("unlimited", "bounded"):
+                out["limits_mode"] = normalised_mode
+            else:
+                out.pop("limits_mode")  # malformed: decided like an absent mode below
+        return _migrate_chat_limits(out)
+
+    @property
+    def unlimited(self) -> bool:
+        """True when the per-question knobs do not apply (SPEC D1)."""
+        return self.limits_mode != "bounded"
+
+    @property
+    def effective_parallel(self) -> int:
+        """Lookups that may run side by side in one step: ``max_parallel``, and in
+        ``bounded`` mode never more than the per-question lookup budget. Computed, never
+        stored: rewriting ``max_parallel`` would make a Bounded → Unlimited round trip
+        lose the operator's value, and the engine stops lookups at ``max_tool_calls``
+        anyway (SPEC D1: switching modes is lossless)."""
+        if self.unlimited:
+            return self.max_parallel
+        return max(1, min(self.max_parallel, self.max_tool_calls))
+
+    @model_validator(mode="after")
+    def _coherent(self) -> "ChatAgentConfig":
+        """Repair cross-field incoherence instead of rejecting it: the final reserve
+        must leave room for tool rounds inside the ceiling. ``max_parallel`` is never
+        rewritten against ``max_tool_calls`` (that would not survive a mode round trip);
+        :attr:`effective_parallel` applies the bounded-mode limit at use."""
+        if self.final_reserve_tokens >= self.turn_token_ceiling:
+            self.final_reserve_tokens = max(1_000, self.turn_token_ceiling // 5)
+        return self
+
+    @classmethod
+    def normalise_domains(cls, raw: Any) -> list[str]:
+        """Lower-case, strip a leading ``*.``/``.`` and whitespace, drop anything that
+        is not a plausible DNS suffix, de-duplicate and bound the list. Never raises."""
+        if isinstance(raw, str):
+            items: list[Any] = [part for part in re.split(r"[\s,]+", raw) if part]
+        elif isinstance(raw, (list, tuple)):
+            items = list(raw)
+        else:
+            return []
+        out: list[str] = []
+        seen: set[str] = set()
+        for item in items:
+            if not isinstance(item, str):
+                continue
+            value = item.strip().lower()
+            while value.startswith("*."):
+                value = value[2:]
+            value = value.strip(".")
+            if not value or value in seen or not _DOMAIN_SUFFIX_RE.match(value):
+                continue
+            seen.add(value)
+            out.append(value)
+            if len(out) >= cls._MAX_INTERNAL_DOMAINS:
+                break
+        return out
+
+    def is_internal_domain(self, host: str) -> bool:
+        """True when ``host`` equals or ends with a configured internal suffix."""
+        value = (host or "").strip().lower().rstrip(".")
+        if not value:
+            return False
+        return any(value == d or value.endswith("." + d) for d in self.internal_domains)
+
+
+def _field_bounds(model: type[BaseModel]) -> dict[str, tuple[int, int]]:
+    """The inclusive ``(ge, le)`` range declared on every integer field of ``model``,
+    read back off the field metadata (single source of truth for the repair clamp)."""
+    out: dict[str, tuple[int, int]] = {}
+    for name, field in model.model_fields.items():
+        lo = hi = None
+        for meta in field.metadata:
+            if getattr(meta, "ge", None) is not None:
+                lo = int(meta.ge)
+            if getattr(meta, "le", None) is not None:
+                hi = int(meta.le)
+        if lo is not None and hi is not None and field.annotation is int:
+            out[name] = (lo, hi)
+    return out
+
+
+_CHAT_AGENT_BOUNDS: dict[str, tuple[int, int]] = _field_bounds(ChatAgentConfig)
+# Public alias: the settings UI and /api/chat/context render the same ranges.
+CHAT_AGENT_BOUNDS: dict[str, tuple[int, int]] = dict(_CHAT_AGENT_BOUNDS)
+
+
 class RealtimeConfig(BaseModel):
     """Live-update (SSE/websocket) plumbing config (Round 3). Defaults ON (Autopilot
     overhaul) — pure transport, the webui already falls back to polling, so ON simply
@@ -2724,6 +3089,134 @@ class RBACConfig(BaseModel):
     denies: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
 
 
+def _remember_repair_bool(raw: Any, default: bool) -> bool:
+    """A stored boolean, repaired: real bools pass, common string/int spellings map,
+    anything else becomes ``default`` (never raises)."""
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        text = raw.strip().lower()
+        if text in ("true", "1", "yes", "on"):
+            return True
+        if text in ("false", "0", "no", "off"):
+            return False
+        return default
+    if isinstance(raw, int):
+        return bool(raw)
+    return default
+
+
+def _remember_repair_int(raw: Any) -> int | None:
+    """A stored integer, repaired: ints/finite floats/numeric strings parse, bools and
+    anything else return ``None`` (the caller substitutes its default)."""
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, float) and math.isfinite(raw):
+        return int(raw)
+    if isinstance(raw, str):
+        try:
+            return int(float(raw.strip()))
+        except (TypeError, ValueError, OverflowError):
+            return None
+    return None
+
+
+class RememberMePolicy(BaseModel):
+    """The "Remember me" sign-in policy (Round 12, SPEC D14 / §3.1).
+
+    A remembered sign-in gets a PERSISTENT session cookie whose ``Max-Age`` (and the
+    JWT ``exp``) equal ``duration_seconds``; the session-registry row carries
+    ``remember: true`` and is judged against this policy's limits instead of the
+    standard ``idle_timeout`` / ``absolute_lifetime``. The server registry stays the
+    authority (NIST SP 800-63B-4 §5.1: cookie expiry is never relied upon).
+
+    * ``enabled`` — offer "Remember me" on the sign-in page (default ON). Turning it
+      off makes existing remembered sessions fall back to the standard limits.
+    * ``duration_seconds`` — how long a remembered device stays signed in before a
+      full sign-in (password + MFA) is required. 1 h .. 24 h, default 24 h (the
+      NIST AAL2 overall-timeout ceiling). The UI offers 6 / 12 / 24 h presets. The
+      24 h maximum also keeps the session prune-grace invariant
+      (``stores.sessions._PRUNE_GRACE_SECONDS`` must exceed every token lifetime).
+    * ``idle_seconds`` — optional inactivity limit for remembered sessions. ``None``
+      means no separate limit: remembered sessions then use the STANDARD
+      ``idle_timeout`` (so an upgrade never loosens a stricter stored policy). The
+      remembered absolute limit is likewise capped by ``absolute_lifetime``
+      (``app.auth.session_limits``).
+    * ``excluded_roles`` — roles that are never remembered (e.g. ``super_admin``).
+    * ``allow_insecure_http`` — allow a persistent cookie on a plain-HTTP,
+      non-loopback console (not recommended; off by default).
+
+    Stored values are REPAIRED, never rejected (the ``chat_agent`` convention): the
+    preference loaders answer any validation error with full defaults, so one bad
+    number must never reset the whole configuration. A live settings WRITE is
+    validated strictly instead (``routes._reject_out_of_range_remember_me`` answers
+    an out-of-range or malformed value with 422), so an administrator never gets a
+    looser policy than the one they asked for."""
+
+    enabled: bool = True
+    duration_seconds: int = Field(default=86_400, ge=3_600, le=86_400)
+    idle_seconds: int | None = Field(default=None, ge=300, le=86_400)
+    excluded_roles: list[str] = Field(default_factory=list, max_length=50)
+    allow_insecure_http: bool = False
+
+    _DURATION_BOUNDS: ClassVar[tuple[int, int]] = (3_600, 86_400)
+    _IDLE_BOUNDS: ClassVar[tuple[int, int]] = (300, 86_400)
+    _MAX_ROLES: ClassVar[int] = 50
+
+    @model_validator(mode="before")
+    @classmethod
+    def _repair(cls, data: Any) -> Any:
+        if isinstance(data, RememberMePolicy):
+            return data
+        if not isinstance(data, Mapping):
+            if data is not None:
+                logger.warning(
+                    "Preferences.session_policy.remember_me was %s; using defaults",
+                    type(data).__name__,
+                )
+            return {}
+        out: dict[str, Any] = dict(data)
+        if "enabled" in out:
+            out["enabled"] = _remember_repair_bool(out["enabled"], True)
+        if "allow_insecure_http" in out:
+            out["allow_insecure_http"] = _remember_repair_bool(out["allow_insecure_http"], False)
+        if "duration_seconds" in out:
+            lo, hi = cls._DURATION_BOUNDS
+            value = _remember_repair_int(out["duration_seconds"])
+            repaired = 86_400 if value is None else min(max(value, lo), hi)
+            if repaired != out["duration_seconds"]:
+                logger.warning(
+                    "Preferences.session_policy.remember_me.duration_seconds=%r is invalid "
+                    "or outside %d..%d; repaired to %d",
+                    out["duration_seconds"], lo, hi, repaired,
+                )
+            out["duration_seconds"] = repaired
+        if "idle_seconds" in out:
+            raw_idle = out["idle_seconds"]
+            value = None if raw_idle is None else _remember_repair_int(raw_idle)
+            if value is None or value <= 0:
+                out["idle_seconds"] = None  # 0 / blank / malformed = no separate limit
+            else:
+                lo, hi = cls._IDLE_BOUNDS
+                out["idle_seconds"] = min(max(value, lo), hi)
+        if "excluded_roles" in out:
+            raw_roles = out["excluded_roles"]
+            if isinstance(raw_roles, str):
+                raw_roles = [r for r in raw_roles.split(",")]
+            roles: list[str] = []
+            if isinstance(raw_roles, (list, tuple, set)):
+                for item in raw_roles:
+                    if not isinstance(item, str):
+                        continue
+                    name = item.strip()[:64]
+                    if name and name not in roles:
+                        roles.append(name)
+            out["excluded_roles"] = roles[: cls._MAX_ROLES]
+        return out
+
+
 class SessionPolicyConfig(BaseModel):
     """Token / session lifetime + step-up policy (Wave 3: sessions & access policy).
 
@@ -2747,6 +3240,9 @@ class SessionPolicyConfig(BaseModel):
       step-up-gated (``require_fresh_auth``) action. Default 10 min.
     * ``notify_on_new_device`` / ``notify_on_terminate`` — best-effort operator
       notifications on a first-seen device / a session termination (default OFF).
+    * ``remember_me`` — the Round-12 "Remember me" policy (:class:`RememberMePolicy`).
+      The standard ``idle_timeout`` / ``absolute_lifetime`` keep governing every
+      sign-in that was not remembered (a browser-session cookie).
     """
 
     access_ttl: int = Field(default=3600, ge=60)             # 1h
@@ -2756,6 +3252,7 @@ class SessionPolicyConfig(BaseModel):
     sudo_reauth_window: int = Field(default=600, ge=30)      # 10 min step-up window
     notify_on_new_device: bool = False
     notify_on_terminate: bool = False
+    remember_me: RememberMePolicy = Field(default_factory=RememberMePolicy)
 
 
 class MfaConfig(BaseModel):
@@ -3378,6 +3875,10 @@ class Preferences(BaseModel):
     rag: RagConfig = Field(default_factory=RagConfig)
     standup: StandupConfig = Field(default_factory=StandupConfig)
     trace: TraceConfig = Field(default_factory=TraceConfig)
+    # Agentic chat loop bounds (chat revamp SPEC §4.2). Clamped on load, never
+    # rejected (see ChatAgentConfig._repair), so a bad stored value cannot reset the
+    # rest of this document.
+    chat_agent: ChatAgentConfig = Field(default_factory=ChatAgentConfig)
     # Multi-agent roster + plain-text runbooks/playbooks (Vigil-inspired). All
     # default ON and degrade to prior behaviour when disabled.
     personas: PersonaConfig = Field(default_factory=PersonaConfig)

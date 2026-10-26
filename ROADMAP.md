@@ -294,6 +294,84 @@ engineering sequence is ordered by data safety and measurable outcomes, not scre
   durable realtime replay, immutable campaign split/merge lineage, OpenTelemetry spans,
   and a typed expansion path for evidence-backed telemetry-gap producers.
 
+**G. Round-12 deferred items (chat, dashboards, Case Manager; see
+`docs/research/2026-10-round12/SPEC.md` D17 and "As built"):**
+
+- ☐ **Background deep-investigation Jobs** (SYNTHESIS-chat P1-2) — hand a long chat
+  investigation to a durable `jobs` worker with Inbox delivery, instead of a turn that
+  lives in the backend process.
+- ☐ **Save a chart to a dashboard** (P2-1) — pin a chat block as a custom-dashboard
+  widget backed by the same lookup.
+- ☐ **Conversation sharing, branching, folders and scheduled questions** (P2) — shared
+  read-only links, fork from an answer, folders, and scheduled promptbooks.
+- ☐ **Model tier presets for chat** — named fast/thorough presets over the chat model
+  and limits mode, instead of a raw model choice.
+- ☐ **Multi-replica chat turn registry** — move the turn registry, the per-turn rejoin
+  event ring, Stop and the questions-at-once bounds to a shared store with leases so
+  more than one backend replica can serve chat (today process-local; single replica).
+- ☐ **Show the conversation summary** — a disclosure under the "Earlier messages were
+  summarised to keep going" run-log row that shows the stored summary text (today no
+  route returns it).
+- ☐ **Bounded mapping for the other id-keyed KV stores** — `case_activity`,
+  `case_tasks`, `inbox`, `notif_prefs`, `user_prefs`, `shift_handoff`, `tuning`,
+  `campaigns` and `baseline` can still grow the shared Elasticsearch config-index mapping
+  per id; adopt the per-backend opaque storage form chat and case threads use.
+- ☐ **Context note only where a summary is stored** — the composer's context card says
+  long conversations are summarised automatically with no hard cap (`contextNote` in
+  `chat/composer/format.ts`) in Case Manager chat and in an unsaved conversation too,
+  where no summary is kept and only the newest exchanges that fit are sent. Show the
+  summary note only for a saved Workspace conversation in Unlimited mode and say what
+  happens elsewhere.
+- ☐ **Bulk case actions in Demo Mode** — bulk changes run as background jobs, which Demo
+  Mode does not run; a demo-scoped job runner would let the demo show them.
+- **Deliberately not built** (product decisions, not backlog): response actions from
+  chat, chat verdicts feeding case decisions (#3), free-form natural-language-to-raw-query
+  execution, raw log rows to the model (#7), training on answer ratings, and an MCP
+  server.
+
+**H. Round-13 chat deferred items (see `docs/research/2026-10-round13/SPEC-chat.md` §9 and
+§10.7):**
+
+- ☐ **A configured shift schedule per team** (D4): shift cards follow each analyst's own
+  visits today (a first visit after 8 hours starts a shift; the handoff card 7 to 13
+  hours later).
+- ☐ **Organisation-wide suggestion analytics**: counts-only analytics need their own
+  decision; D10 forbids content telemetry, and today nothing about suggestions is
+  aggregated across users.
+- ☐ **Organisation-editable starter templates**: the templates are curated in code
+  (`agents/chat_starter_text.py`).
+- ☐ **SSE-driven starter refresh**: the 120-second poll and the focus refresh cover this
+  round.
+- ☐ **Follow-up chips that carry typed references**: the deterministic chips are
+  value-free.
+- ☐ **Server-side follow-up back-off**: the back-off is per browser this round.
+- ☐ **Row-level `can_object()` scope in the chat case tools**: until then, object scoping
+  suppresses every case suggestion family and the catch-up line (fail closed).
+- ☐ **Case numbers on case-list blocks**: `agents/blocks.py` `CaseListItem`,
+  `case_list_item` and the shift report's "Needs attention" items do not carry
+  `case_number` yet, so case lists show the title and a short id; starter case
+  references resolve numbers only within the newest 5,000 cases.
+- ☐ **"My cases" in chat**: a signed-in-analyst filter on `search_cases` (or the caller's
+  name in the prompt), so the `my_cases` suggestion's answer lists only the caller's cases.
+- ☐ **About-to-breach rows from `shift_report`**: so the `sla_close` suggestions can be
+  answered in full.
+- ☐ **Starter speed at scale**: the open-case read can take a request past 600 ms on a
+  20,000-case SQLite store with 15% of cases open; the hunt and auto-close health cards
+  are missing for up to one refresh after a start or 10 idle minutes.
+- ☐ **A short display name for campaigns**: campaigns have no short name, so chat tables
+  (All campaigns, Campaign, Open campaigns), the Campaign sheet title and the Case
+  Manager "Part of campaign" chip show the internal `campaign-<32 hex>` id (at 390 it
+  takes most of a table's first column and wraps the sheet title over three lines). The
+  follow-up is a short campaign number, allocated like case numbers.
+- ☐ **Small leftovers**: `related_cases` titles equal the case id
+  (`chat_tools/cases.py`); live case titles from `agents/pipeline.py` still use an em
+  dash separator (switch to " · "); the shell user chip shows a saved display name
+  only after a reload; four test fixtures (three webui, one backend:
+  `backend/tests/test_reports_routes.py`) carry the old Demo source names.
+- **Never** (product decisions, not backlog): model-written starters, starters that act,
+  starters that fill the composer with case or log values, a scrolling suggestion feed,
+  and training on clicks.
+
 Each item ends with: `pytest -q` green (keep the count current), full docs+app
 `npm run build` + `npm run test:strict` clean, **#3 `decide()` byte-identical**, additive + zero new runtime deps
 where possible, and docs + Journal updated. Commit or publish only after intentional,
@@ -305,6 +383,27 @@ explicit authorization.
 - ☑ AGENTS.md (with CLAUDE.md forwarder), Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
+- ◐ **Round 13, chat: dynamic suggestions and a neater chat** (branch `claude/round12`, PR
+  to `Testing`). Dynamic $0 starters computed by code under each viewer's grants
+  (`GET /api/chat/starters`, `POST /api/chat/starters/events`, the `chat_starters` KV
+  namespace), a bottom-anchored start stack with a catch-up line, a thread catch-up line,
+  Case Manager case chips, anchored follow-ups, conversation titles from the first answer,
+  a 42rem reading column with compact and wide blocks, quiet block headers with one shared
+  scope line, the cost on the meta row with tokens in the usage card, and Demo answers for
+  every starter. Deferred items are in section H above; records in
+  `docs/research/2026-10-round13/SPEC-chat.md` §10.
+- ◐ **Round 12 — chat without limits, working indicator, Remember me, reports, Overview,
+  Case Manager** (branch `claude/round12`, PR to `Testing`). Chat questions run without
+  per-question caps (loop guards, continuation, conversation summary), outside the daily
+  and monthly AI budget with an optional daily chat cap; exact aggregates over any window
+  (`case_stats`, comparisons) for chat, exact store-wide dashboard totals, and dashboard
+  window figures exact up to 20,000 cases per window (lower bounds beyond it);
+  clarify, reports from chat, step inspector, ratings, Add to case, prompt library and
+  promptbooks, `/compact`, Ask AI chips, width preference; the left-nav working
+  indicator with live rejoin; Remember me; Word/Excel exports and reliable downloads;
+  Overview bands and Deeper analytics; Case Manager queue/header/close dialog and the
+  analyst-classification headline (the "closed as FP still Undetermined" fix).
+  Deferred items are listed in section G above.
 - ☑ **Pre-Stable Intelligence evidence hardening** — review-first analyst-grounded
   tuning + Approvals RBAC; pending/approved memory trust; confirmed-only resolved-case
   reuse; RAG toggle/embedding reconciliation; durable CAS playbooks with dry-run and
@@ -343,7 +442,10 @@ explicit authorization.
     case). A per-source per-tick cap (`caps.max_auto_investigations_per_tick=25`)
     throttles volume — cap-deferred candidates **drain** to investigation on later
     ticks as headroom frees; investigations run **sequentially**; the push path is
-    symmetric with pull; **the daily budget is the global spend bound**.
+    symmetric with pull; **the daily budget is the global spend bound** for the
+    pipeline (since Round 12, Workspace and Case Manager chat are outside its daily and
+    monthly ceilings; their only bound is the optional daily
+    `chat_agent.chat_daily_cap_usd`, off by default).
   - **Smart defaults / autopilot** (default-ON, $0/#3-safe) — `ThresholdTuning`
     (`shadow_eval` forced on), Campaigns, CrossSourceCorrelation, SlaPolicy,
     PriorityMatrix, realtime SSE, the ThresholdAutomation engine (empty ruleset),
