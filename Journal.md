@@ -11986,3 +11986,10 @@
 - User requested commit/push of remaining work, current documentation and removal of temporary files. Preserve the historical September 9 note above as history; its proposed fork-native analysis integration is superseded by the service-only observer design. Product and documentation CI for upstream sync ccc711e3 both passed.
 
 - Removed obsolete publication worktree/clone, scanner-repair downloads and old product-side analysis UI dependencies/build/test output after verifying publication and path containment. Product documentation check passed for 80 public pages and version metadata passed. Historical local Journal note is included with its superseding current-design clarification. No runtime or workflow changes.
+
+### 2026-10-26 09:33Z - Codex - Sync fork from upstream
+- Context: User requested synchronization of the fork with the upstream repository.
+- Did: Began by reviewing the handoff, repository status, remotes, and branch tracking; confirmed a clean `Testing` worktree and the read-only upstream push boundary.
+- Tests: Not run yet; synchronization inspection is in progress.
+- Status: in-progress
+- Next: Fetch both remotes, compare `Testing` and `main`, integrate upstream changes without overwriting fork-only CI, verify, and push only to the fork.
